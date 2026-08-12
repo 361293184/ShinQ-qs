@@ -1,7 +1,31 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
+
+// 构建结束后把当前版本信息写进 dist/version.json。
+// 前端「检查更新」按钮 fetch 这份文件，对比本机 BUILD_LABEL，
+// 不一致就提示用户一键刷新到最新版（绕开手动输网址的麻烦）。
+function emitVersionJson(gitInfo: { branch: string; commit: string }, buildTime: string): Plugin {
+  return {
+    name: 'emit-version-json',
+    apply: 'build',
+    writeBundle() {
+      const payload = {
+        branch: gitInfo.branch,
+        commit: gitInfo.commit,
+        label: `${gitInfo.branch}@${gitInfo.commit}`,
+        time: buildTime,
+      };
+      const outDir = 'dist';
+      const file = resolve(outDir, 'version.json');
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8');
+    },
+  };
+}
 
 // 构建时抓 git 分支 + short commit + UTC+8 构建时间，注入到版本信息显示。
 // 非 git 环境（容器、tarball 部署）退化成 'unknown'，不影响构建。
@@ -64,6 +88,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    emitVersionJson(gitInfo, buildTime),
     {
       name: 'bake-voice-middleware',
       configureServer(server) {
