@@ -27,6 +27,7 @@ import { isLuckinConfigured } from '../utils/luckinMcpClient';
 import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE_TRIGGER } from '../utils/luckinToolBridge';
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
 import ImageGenPanel from '../components/chat/ImageGenPanel';
+import NovelReaderPanel from '../components/chat/NovelReaderPanel';
 import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
@@ -119,6 +120,9 @@ const Chat: React.FC = () => {
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
+    const [novelReaderOpen, setNovelReaderOpen] = useState(false);
+    // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
+    const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -359,6 +363,7 @@ const Chat: React.FC = () => {
         mcdMiniAppRef,
         luckinMiniAppRef,
         luckinChatRef,
+        novelReaderRef: novelCtxRef,
         updateCharacter,
     });
 
@@ -1489,6 +1494,11 @@ const Chat: React.FC = () => {
             }
             case 'image-gen': {
                 setShowImageGenPanel(true);
+                break;
+            }
+            case 'novel-reader': {
+                setShowPanel('none');
+                setNovelReaderOpen(v => !v);
                 break;
             }
         }
@@ -4146,6 +4156,17 @@ const Chat: React.FC = () => {
                         />
                     </div>
                 </>
+            )}
+
+            {/* 小说共读悬浮面板（read） */}
+            {char && novelReaderOpen && (
+                <div className="fixed inset-0 z-[60] pointer-events-none">
+                    <NovelReaderPanel
+                        charName={char.name}
+                        onClose={() => setNovelReaderOpen(false)}
+                        onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
+                    />
+                </div>
             )}
 
             {/* 角色专属「聊天装扮」悬浮气泡 + 小面板 —— 从加号面板「聊天装扮」进入。

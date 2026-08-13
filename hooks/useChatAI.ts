@@ -457,6 +457,8 @@ interface UseChatAIProps {
     luckinMiniAppRef?: MutableRefObject<import('../utils/luckinToolBridge').LuckinMiniAppSnapshot | undefined>;
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活): 角色直接调真实 8 工具 + 注入定位/提示词 */
     luckinChatRef?: MutableRefObject<import('../utils/luckinToolBridge').LuckinChatState | undefined>;
+    /** 小说共读上下文 (当前段落 + 学习模式 + 最近生词): 有值时注入易变尾段 */
+    novelReaderRef?: MutableRefObject<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: { src: string; trans: string }[] } | null>;
 }
 
 export const useChatAI = ({
@@ -477,6 +479,7 @@ export const useChatAI = ({
     mcdMiniAppRef,
     luckinMiniAppRef,
     luckinChatRef,
+    novelReaderRef,
 }: UseChatAIProps) => {
     
     // 音乐上下文 — 用于聊天时注入"user 正在听什么 + 当前歌词窗口"
@@ -551,11 +554,11 @@ export const useChatAI = ({
     // 重建 listener (切角色), 避免 music 每秒 tick 一次都 remove+addEventListener.
     const emotionEvalDepsRef = useRef({
         userProfile, groups, emojis, categories, realtimeConfig, apiConfig,
-        translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, evolvedNarrative,
+        translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, novelReaderRef, evolvedNarrative,
     });
     emotionEvalDepsRef.current = {
         userProfile, groups, emojis, categories, realtimeConfig, apiConfig,
-        translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, evolvedNarrative,
+        translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, novelReaderRef, evolvedNarrative,
     };
 
     useEffect(() => {
@@ -621,6 +624,7 @@ export const useChatAI = ({
                     visionApiConfig: deps.apiConfig.visionApi,
                     mcdMiniSnap: mcdMiniOpen ? mcdMiniSnap : undefined,
                     luckinMiniSnap: luckinMiniOpen ? luckinMiniSnap : undefined,
+                    novelReader: deps.novelReaderRef?.current || null,
                     // 角色主动发照片：只有「角色生图」开着时才让规则段生效
                     proactiveImageConfig: {
                         enabled: !!(deps.apiConfig.imageGenProactiveEnabled && deps.apiConfig.imageGenCharEnabled !== false),
@@ -975,6 +979,7 @@ export const useChatAI = ({
                 mcdMiniSnap: mcdMiniOpen ? mcdMiniSnap : undefined,
                 luckinMiniSnap: luckinMiniOpen ? luckinMiniSnap : undefined,
                 luckinChat: luckinChatOn ? luckinChatRef?.current : undefined,
+                novelReader: novelReaderRef?.current || null,
                 // 角色主动发照片：只有「角色生图」开着时才让规则段生效
                 proactiveImageConfig: {
                     enabled: !!(apiConfig.imageGenProactiveEnabled && apiConfig.imageGenCharEnabled !== false),

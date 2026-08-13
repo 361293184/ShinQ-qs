@@ -124,15 +124,19 @@ export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResu
 }
 
 /** 从 localStorage 加载角色外观/锁脸设置（与 ImageGenPanel 保持一致的 key） */
-export function loadCharImageSettings(charName: string): { description: string; lockImage: string } {
+export function loadCharImageSettings(charName: string): { description: string; lockImage: string; sceneDescription: string } {
   try {
     const saved = localStorage.getItem(`os_imagegen_char_${charName || ''}`);
     if (saved) {
       const d = JSON.parse(saved);
-      return { description: d.description || '', lockImage: d.lockImage || '' };
+      return {
+        description: d.description || '',
+        lockImage: d.lockImage || '',
+        sceneDescription: d.sceneDescription || '',
+      };
     }
   } catch {}
-  return { description: '', lockImage: '' };
+  return { description: '', lockImage: '', sceneDescription: '' };
 }
 
 /** 用户锁脸/外观设置（全局一份，所有角色共用） */
@@ -141,15 +145,22 @@ const USER_IMAGE_SETTINGS_KEY = 'os_imagegen_user_lock';
 export interface UserImageSettings {
   description: string;
   lockImage: string;
+  sceneDescription: string;
 }
 
 export function loadUserImageSettings(): UserImageSettings {
   try {
     const raw = localStorage.getItem(USER_IMAGE_SETTINGS_KEY);
-    if (!raw) return { description: '', lockImage: '' };
-    return JSON.parse(raw);
+    if (!raw) return { description: '', lockImage: '', sceneDescription: '' };
+    const parsed = JSON.parse(raw);
+    // 兼容旧版没存 sceneDescription 的情况
+    return {
+      description: parsed.description || '',
+      lockImage: parsed.lockImage || '',
+      sceneDescription: parsed.sceneDescription || '',
+    };
   } catch {
-    return { description: '', lockImage: '' };
+    return { description: '', lockImage: '', sceneDescription: '' };
   }
 }
 

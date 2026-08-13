@@ -679,11 +679,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">日程/情绪</span>
                             </button>
 
-                            {/* 占位图标：read（暂未开放） */}
+                            {/* read：小说共读（打开悬浮阅读器） */}
                             <button
                               type="button"
-                              onClick={() => {}}
-                              aria-disabled="true"
+                              onClick={() => onPanelAction('novel-reader')}
                               className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
                             >
                               <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>

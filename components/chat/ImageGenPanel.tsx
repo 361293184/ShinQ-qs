@@ -74,15 +74,18 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // ---- 加载角色已有设置 ----
   useEffect(() => {
+    let hasSavedDesc = false;
     try {
       const saved = localStorage.getItem(CHAR_SETTINGS_PREFIX + charName);
       if (saved) {
         const d = JSON.parse(saved);
-        if (d.description) setCharDesc(d.description);
+        if (d.description) { setCharDesc(d.description); hasSavedDesc = true; }
         if (d.lockImage) setCharLockImage(d.lockImage);
+        if (d.sceneDescription !== undefined) setSceneDesc(d.sceneDescription);
       }
     } catch {}
-    if (!charDesc && charPersona) {
+    // 只有当「没保存过描述」时才用角色 persona 兜底填充，避免覆盖用户已保存的外貌描述。
+    if (!hasSavedDesc && charPersona) {
       const cleaned = charPersona.replace(/\s+/g, ' ').trim().slice(0, 600);
       setCharDesc(cleaned);
     }
@@ -90,30 +93,33 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // ---- 加载用户锁脸/外观 ----
   useEffect(() => {
-    const { description, lockImage } = loadUserImageSettings();
+    const { description, lockImage, sceneDescription } = loadUserImageSettings();
     if (description) setUserDesc(description);
     if (lockImage) setUserLockImage(lockImage);
+    if (sceneDescription !== undefined) setSceneDesc(sceneDescription);
   }, []);
 
   // ---- 保存角色设置 ----
-  // desc / lock 可选：传入则用「传入的当前值」覆盖，避免 onChange 时闭包拿到旧 state。
-  const saveCharSettings = useCallback((desc?: string, lock?: string | null) => {
+  // desc / lock / scene 可选：传入则用「传入的当前值」覆盖，避免 onChange 时闭包拿到旧 state。
+  const saveCharSettings = useCallback((desc?: string, lock?: string | null, scene?: string) => {
     try {
       localStorage.setItem(CHAR_SETTINGS_PREFIX + charName, JSON.stringify({
         description: desc !== undefined ? desc : charDesc,
         lockImage: lock !== undefined ? lock : charLockImage,
+        sceneDescription: scene !== undefined ? scene : sceneDesc,
         updatedAt: Date.now(),
       }));
     } catch {}
-  }, [charName, charDesc, charLockImage]);
+  }, [charName, charDesc, charLockImage, sceneDesc]);
 
   // ---- 保存用户设置 ----
-  const saveUserSettings = useCallback((desc?: string, lock?: string | null) => {
+  const saveUserSettings = useCallback((desc?: string, lock?: string | null, scene?: string) => {
     saveUserImageSettings({
       description: desc !== undefined ? desc : userDesc,
       lockImage: lock !== undefined ? (lock || '') : (userLockImage || ''),
+      sceneDescription: scene !== undefined ? scene : sceneDesc,
     });
-  }, [userDesc, userLockImage]);
+  }, [userDesc, userLockImage, sceneDesc]);
 
   // ---- 角色锁脸上传（上传成功立即自动保存，避免切 tab / 关面板丢失） ----
   const handleCharLockUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -436,7 +442,21 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           <label className="text-xs font-bold text-slate-500 mb-1.5 block">场景描述</label>
           <input
             value={sceneDesc}
-            onChange={(e) => setSceneDesc((e.target as HTMLInputElement).value)}
+            onChange={(e) => {
+              const v = (e.target as HTMLInputElement).value;
+              setSceneDesc(v);
+              // 输入即按当前 mode 持久化，避免切 tab / 关面板丢失
+              if (mode === 'char') saveCharSettings(undefined, undefined, v);
+              else if (mode === 'user') saveUserSettings(undefined, undefined, v);
+              else { saveCharSettings(undefined, undefined, v); saveUserSettings(undefined, undefined, v); }
+            }}
+            onBlur={(e) => {
+              const v = (e.target as HTMLInputElement).value;
+              // 失焦时也兜底存一次
+              if (mode === 'char') saveCharSettings(undefined, undefined, v);
+              else if (mode === 'user') saveUserSettings(undefined, undefined, v);
+              else { saveCharSettings(undefined, undefined, v); saveUserSettings(undefined, undefined, v); }
+            }}
             placeholder="例如：在咖啡馆喝咖啡，阳光洒在脸上"
             className="w-full rounded-xl p-3 text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
           />
@@ -445,7 +465,13 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             {quickScenePresets.map(s => (
               <button
                 key={s.label}
-                onClick={() => setSceneDesc(s.text)}
+                onClick={() => {
+                  setSceneDesc(s.text);
+                  // 点预设也立即按 mode 持久化
+                  if (mode === 'char') saveCharSettings(undefined, undefined, s.text);
+                  else if (mode === 'user') saveUserSettings(undefined, undefined, s.text);
+                  else { saveCharSettings(undefined, undefined, s.text); saveUserSettings(undefined, undefined, s.text); }
+                }}
                 className="text-[10px] px-2 py-1 rounded-lg bg-slate-50 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-all active:scale-95"
               >
                 {s.label}

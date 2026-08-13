@@ -107,6 +107,18 @@ export interface BuildChatPayloadInput {
      * 不传则规则段不注入。
      */
     proactiveImageConfig?: { enabled: boolean; rate: 'conservative' | 'moderate' | 'bold' };
+
+    /**
+     * 「小说共读」上下文：阅读器当前段落 + 学习模式 + 最近生词。
+     * 开启（有 bookTitle/passage）时在易变尾段注入"正在一起读的小说段落"，
+     * 让角色能顺着当前内容一起讨论 / 用生词自然提问。
+     */
+    novelReader?: {
+        bookTitle: string;
+        passage: string;
+        learnMode: 0 | 1 | 2;
+        recentVocab: { src: string; trans: string }[];
+    } | null;
 }
 
 export interface BuildChatPayloadResult {
@@ -208,6 +220,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         char, userProfile, groups, historyMsgs, contextLimit,
         realtimeConfig, innerState,
         translationConfig, htmlMode, thinkingChain, mcdMiniSnap, luckinMiniSnap, luckinChat,
+        novelReader,
     } = input;
     // 角色可见性必须在统一载荷层再次收口。UI 聊天、1.0 本地主动消息、2.0 推送、
     // 彼方/小小窝等调用方各自维护筛选很容易漏掉一条路径；一旦把全量表情传进来，
@@ -413,6 +426,19 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         if (block) {
             systemPrompt += block;
         }
+    }
+
+    // ── 9e. 小说共读上下文（阅读器当前段落 + 学习模式 + 最近生词） ──
+    if (novelReader && novelReader.passage && novelReader.bookTitle) {
+        const passage = novelReader.passage.slice(0, 600);
+        const learnDesc = novelReader.learnMode === 0 ? ''
+            : novelReader.learnMode === 1
+                ? '（学习模式：被动复习——聊天中自然地使用生词本里的词，不刻意提问）'
+                : '（学习模式：主动测验——聊天中主动用生词本里的词向用户提问，检验掌握）';
+        const vocabBlock = novelReader.recentVocab.length > 0
+            ? `\n最近生词：${novelReader.recentVocab.slice(0, 15).map(v => `${v.src}(${v.trans})`).join('、')}`
+            : '';
+        volatileTail += `\n\n[小说共读] 你正在和用户一起读《${novelReader.bookTitle}》，当前内容：\n${passage}${learnDesc}${vocabBlock}\n（和用户自然地讨论这一段；不要复述整个段落。）`;
     }
 
     // ── 10. recency 钢印归位 + 组装 fullMessages ─────────
