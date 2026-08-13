@@ -50,7 +50,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   // 面板几何（可拖可缩放）
   const [geom, setGeom] = useState<{ x: number; y: number; w: number; h: number }>(() => loadGeom() || { x: 12, y: 12, w: 380, h: 500 });
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const dragState = useRef<{ startX: number; startY: number; offX: number; offY: number; parentW: number; parentH: number; moved: boolean; pointerId: number } | null>(null);
+  const dragState = useRef<{ startX: number; startY: number; offX: number; offY: number; startGeom: { x: number; y: number; w: number; h: number }; parentW: number; parentH: number; moved: boolean; pointerId: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; startW: number; startH: number; parentW: number; parentH: number; moved: boolean; pointerId: number } | null>(null);
 
   // 阅读器状态
@@ -97,9 +97,11 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
     const el = wrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    // 快照起始几何 + 手指相对面板的偏移；移动时用「起始位置 + 累计位移」避免二次叠加
     dragState.current = {
       startX: e.clientX, startY: e.clientY,
       offX: e.clientX - rect.left, offY: e.clientY - rect.top,
+      startGeom: geom,
       parentW: (el.parentElement?.getBoundingClientRect().width || window.innerWidth),
       parentH: (el.parentElement?.getBoundingClientRect().height || window.innerHeight),
       moved: false, pointerId: e.pointerId,
@@ -112,11 +114,12 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
     const dx = e.clientX - ds.startX, dy = e.clientY - ds.startY;
     if (!ds.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) ds.moved = true;
     if (!ds.moved) return;
-    setGeom(g => ({
-      ...g,
-      x: Math.max(0, Math.min(ds.parentW - g.w, g.x + dx)),
-      y: Math.max(0, Math.min(ds.parentH - 24, g.y + dy)),
-    }));
+    // 用起始几何 + 本次累计位移，保持手指相对面板的位置，不做增量叠加
+    setGeom({
+      ...ds.startGeom,
+      x: Math.max(0, Math.min(ds.parentW - ds.startGeom.w, ds.startGeom.x + dx)),
+      y: Math.max(0, Math.min(ds.parentH - 24, ds.startGeom.y + dy)),
+    });
   };
   const onHeadUp = (e: React.PointerEvent) => {
     dragState.current = null;
