@@ -47,8 +47,15 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   const [folded, setFolded] = useState(false);
   const [skinBar, setSkinBar] = useState(false);
 
-  // 面板几何（可拖可缩放）
-  const [geom, setGeom] = useState<{ x: number; y: number; w: number; h: number }>(() => loadGeom() || { x: 12, y: 12, w: 380, h: 500 });
+  // 面板几何（可拖可缩放）。
+  // 每次打开都重置到屏幕中间（避免记忆上次被拖到角落/顶上而点不到），仅保留尺寸记忆。
+  const [geom, setGeom] = useState<{ x: number; y: number; w: number; h: number }>(() => {
+    const saved = loadGeom();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const w = saved?.w || 380;
+    const h = saved?.h || 500;
+    return { x: Math.max(4, Math.round((vw - w) / 2)), y: Math.max(4, Math.round((vh - h) / 2)), w, h };
+  });
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; offX: number; offY: number; startGeom: { x: number; y: number; w: number; h: number }; parentW: number; parentH: number; moved: boolean; pointerId: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; startW: number; startH: number; parentW: number; parentH: number; moved: boolean; pointerId: number } | null>(null);
