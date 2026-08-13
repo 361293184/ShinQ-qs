@@ -136,9 +136,9 @@ const SettingsSection: React.FC<{
 }> = ({ icon, title, badge, actions, sectionProps, children }) => {
     const [open, setOpen] = useState(false);
     return (
-        <section {...sectionProps} className="bg-[#fffefe] rounded-3xl p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] border border-slate-200/80">
+        <section {...sectionProps} className={`bg-[#fffefe] rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] border border-slate-200/80 transition-all ${open ? 'p-5' : 'px-4 py-3'}`}>
             <div className={`flex items-center justify-between gap-2 ${open ? 'mb-4' : ''}`}>
-                <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
                     {icon}
                     <h2 className="text-sm font-semibold text-slate-600 tracking-wider">{title}</h2>
                     {badge}
@@ -2213,7 +2213,7 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 no-scrollbar pb-20">
         
         {/* 数据备份区域 */}
         <SettingsSection
