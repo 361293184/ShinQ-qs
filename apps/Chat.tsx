@@ -1675,6 +1675,43 @@ const Chat: React.FC = () => {
         }
     };
 
+    // 手动生图面板生成成功后，以「角色身份」插入图片消息（role: assistant）。
+    // 不能用 handleSendText——它固定 role: 'user'，会让角色生成的图显示成"我发的"。
+    const handleSendCharImage = async (url: string, caption: string) => {
+        if (!char) return;
+        const recentChat = messages.slice(-10).map(m => {
+            const sender = m.role === 'user' ? userProfile.name : char.name;
+            return `${sender}: ${m.content.substring(0, 100)}`;
+        });
+        try {
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url,
+                timestamp: Date.now(),
+                savedDate: localDateKey,
+                chatContext: recentChat,
+            });
+        } catch { /* 相册保存失败不阻断消息 */ }
+        const newMsgId = await DB.saveMessage({
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            metadata: { source: 'manual_image_gen', caption },
+        } as any);
+        setMessages(prev => [...prev, {
+            id: newMsgId,
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            timestamp: Date.now(),
+            metadata: { source: 'manual_image_gen', caption },
+        }]);
+        addToast(caption || '图片已发送', 'info');
+    };
+
     // 失败时点击「重试」——从已尝试集合里移除，允许再次触发
     const retryImageGen = useCallback((msgId: number, sceneDesc: string) => {
         const msg = messages.find(m => m.id === msgId);
@@ -4092,7 +4129,7 @@ const Chat: React.FC = () => {
                             charPersona={(char as any).persona || (char as any).description || ''}
                             chatContext={messages.slice(-6).map(m => `${m.role === 'user' ? '用户' : char?.name}: ${(m.content || '').slice(0, 100)}`).join('\n')}
                             onGenerate={(url, caption) => {
-                                handleSendText(url, 'image');
+                                handleSendCharImage(url, caption);
                                 setShowImageGenPanel(false);
                             }}
                             imageGenApiKey={apiConfig.imageGenApiKey || ''}

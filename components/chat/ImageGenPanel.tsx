@@ -96,36 +96,56 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   }, []);
 
   // ---- 保存角色设置 ----
-  const saveCharSettings = useCallback(() => {
+  // desc / lock 可选：传入则用「传入的当前值」覆盖，避免 onChange 时闭包拿到旧 state。
+  const saveCharSettings = useCallback((desc?: string, lock?: string | null) => {
     try {
       localStorage.setItem(CHAR_SETTINGS_PREFIX + charName, JSON.stringify({
-        description: charDesc,
-        lockImage: charLockImage,
+        description: desc !== undefined ? desc : charDesc,
+        lockImage: lock !== undefined ? lock : charLockImage,
         updatedAt: Date.now(),
       }));
     } catch {}
   }, [charName, charDesc, charLockImage]);
 
   // ---- 保存用户设置 ----
-  const saveUserSettings = useCallback(() => {
-    saveUserImageSettings({ description: userDesc, lockImage: userLockImage || '' });
+  const saveUserSettings = useCallback((desc?: string, lock?: string | null) => {
+    saveUserImageSettings({
+      description: desc !== undefined ? desc : userDesc,
+      lockImage: lock !== undefined ? (lock || '') : (userLockImage || ''),
+    });
   }, [userDesc, userLockImage]);
 
-  // ---- 角色锁脸上传 ----
+  // ---- 角色锁脸上传（上传成功立即自动保存，避免切 tab / 关面板丢失） ----
   const handleCharLockUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setCharLockImage(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setCharLockImage(dataUrl);
+      // 上传即保存，关闭/切换后依然在
+      try {
+        localStorage.setItem(CHAR_SETTINGS_PREFIX + charName, JSON.stringify({
+          description: charDesc,
+          lockImage: dataUrl,
+          updatedAt: Date.now(),
+        }));
+      } catch {}
+    };
     reader.readAsDataURL(file);
   };
 
-  // ---- 用户锁脸上传 ----
+  // ---- 用户锁脸上传（上传成功立即自动保存） ----
   const handleUserLockUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setUserLockImage(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setUserLockImage(dataUrl);
+      // 上传即保存
+      saveUserImageSettings({ description: userDesc, lockImage: dataUrl });
+    };
     reader.readAsDataURL(file);
   };
 
@@ -308,17 +328,23 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     </div>
   );
 
-  // ============ 渲染描述输入框 ============
+  // ============ 渲染描述输入框（onChange 即自动保存，不再依赖失焦/点保存） ============
+  // onChange：更新 React state；onSave(v)：用「当前正在输入的新值 v」立即落盘，
+  // 避免闭包拿到旧 state 导致"保存了但没存进去"。
   const renderDescTextarea = (
     value: string,
     onChange: (v: string) => void,
-    onBlur: () => void,
+    onSave: (v: string) => void,
     placeholder: string,
   ) => (
     <textarea
       value={value}
-      onChange={(e) => onChange((e.target as HTMLTextAreaElement).value)}
-      onBlur={onBlur}
+      onChange={(e) => {
+        const v = (e.target as HTMLTextAreaElement).value;
+        onChange(v);
+        onSave(v); // 输入即保存
+      }}
+      onBlur={(e) => onSave((e.target as HTMLTextAreaElement).value)}
       placeholder={placeholder}
       className="w-full h-20 rounded-xl p-3 text-sm bg-slate-50 border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
     />
@@ -389,7 +415,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             <label className="text-xs font-bold text-slate-500 mb-1.5 block">
               {charName} 的外观描述
             </label>
-            {renderDescTextarea(charDesc, setCharDesc, saveCharSettings, `描述 ${charName} 的外貌特征...`)}
+            {renderDescTextarea(charDesc, setCharDesc, (v) => saveCharSettings(v, undefined), `描述 ${charName} 的外貌特征...`)}
             <p className="text-[10px] text-slate-400 mt-1">输入后切换模式或点保存按钮保存</p>
           </div>
         )}
@@ -400,7 +426,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             <label className="text-xs font-bold text-slate-500 mb-1.5 block">
               你的外观描述
             </label>
-            {renderDescTextarea(userDesc, setUserDesc, saveUserSettings, '描述你的外貌特征...')}
+            {renderDescTextarea(userDesc, setUserDesc, (v) => saveUserSettings(v, undefined), '描述你的外貌特征...')}
             <p className="text-[10px] text-slate-400 mt-1">输入后切换模式或点保存按钮保存</p>
           </div>
         )}
@@ -454,7 +480,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             <label className="text-xs font-bold text-slate-500 mb-1.5 block">
               {charName} 的锁脸参考图
             </label>
-            {renderLockImageUploader(charLockImage, handleCharLockUpload, () => setCharLockImage(null), charName)}
+            {renderLockImageUploader(charLockImage, handleCharLockUpload, () => { setCharLockImage(null); saveCharSettings(undefined, null); }, charName)}
           </div>
         )}
 
@@ -463,7 +489,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             <label className="text-xs font-bold text-slate-500 mb-1.5 block">
               你的锁脸参考图
             </label>
-            {renderLockImageUploader(userLockImage, handleUserLockUpload, () => setUserLockImage(null), '你')}
+            {renderLockImageUploader(userLockImage, handleUserLockUpload, () => { setUserLockImage(null); saveUserSettings(undefined, ''); }, '你')}
           </div>
         )}
 
@@ -473,13 +499,13 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
               <label className="text-xs font-bold text-slate-500 mb-1.5 block">
                 {charName} 的锁脸（生成时使用）
               </label>
-              {renderLockImageUploader(charLockImage, handleCharLockUpload, () => setCharLockImage(null), charName)}
+              {renderLockImageUploader(charLockImage, handleCharLockUpload, () => { setCharLockImage(null); saveCharSettings(undefined, null); }, charName)}
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1.5 block">
                 你的锁脸（备选）
               </label>
-              {renderLockImageUploader(userLockImage, handleUserLockUpload, () => setUserLockImage(null), '你')}
+              {renderLockImageUploader(userLockImage, handleUserLockUpload, () => { setUserLockImage(null); saveUserSettings(undefined, ''); }, '你')}
             </div>
           </div>
         )}
