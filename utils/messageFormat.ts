@@ -317,6 +317,19 @@ export function normalizeMessageContent(
         return `${head}\n网页正文：\n${body}`;
     }
 
+    // 番外卡片：拾光转发的番外故事。把全文喂给角色（角色完整读到），并明确标注这是
+    // 虚构的小说创作——不是真实发生的事，避免归档/记忆宫殿把虚构剧情当成真实记忆。
+    if (type === 'fanwai_card') {
+        const fw: any = msg.metadata?.fanwaiStory || {};
+        const title = (fw.title || msg.content || '').trim();
+        const who = (fw.charName || charName || '你').trim();
+        const fullText = (typeof fw.content === 'string' && fw.content.trim()) ? fw.content.trim() : '';
+        let text = `[番外故事·虚构创作] ${userName}分享了关于${who ? who : '你们'}的一篇番外${title ? `《${title}》` : ''}`;
+        if (fullText) text += `\n\n${fullText}`;
+        text += `\n（注：这是用户创作的虚构小说式番外，并非真实发生的事。）`;
+        return text;
+    }
+
     // 小剧场卡片：用户在日程表"窥视"了角色某时段的行为演出，并把这一刻发到聊天里。
     // 归档/记忆宫殿要读到「用户偷看了你 + 你当时在做什么」，角色才会记得"被看到"这件事。
     if (type === 'theater_card') {

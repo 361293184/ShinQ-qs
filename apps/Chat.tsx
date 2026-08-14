@@ -28,6 +28,7 @@ import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
 import ImageGenPanel from '../components/chat/ImageGenPanel';
 import NovelReaderPanel from '../components/chat/NovelReaderPanel';
+import FanwaiGeneratePage from '../components/fanwai/FanwaiGeneratePage';
 import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
@@ -86,7 +87,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -121,6 +122,7 @@ const Chat: React.FC = () => {
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
+    const [fanwaiOpen, setFanwaiOpen] = useState(false);
     // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
     const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
     
@@ -1499,6 +1501,11 @@ const Chat: React.FC = () => {
             case 'novel-reader': {
                 setShowPanel('none');
                 setNovelReaderOpen(v => !v);
+                break;
+            }
+            case 'fanwai': {
+                setShowPanel('none');
+                setFanwaiOpen(true);
                 break;
             }
         }
@@ -4180,6 +4187,18 @@ const Chat: React.FC = () => {
                         onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
                     />
                 </div>
+            )}
+
+            {/* 番外生成页（全屏独立页面） */}
+            {char && fanwaiOpen && (
+                <FanwaiGeneratePage
+                    char={char}
+                    userProfile={userProfile}
+                    apiConfig={apiConfig}
+                    addToast={addToast}
+                    onClose={() => setFanwaiOpen(false)}
+                    onCollect={async (story) => { await addFanwaiStory(story); }}
+                />
             )}
 
             {/* 角色专属「聊天装扮」悬浮气泡 + 小面板 —— 从加号面板「聊天装扮」进入。

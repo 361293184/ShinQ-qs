@@ -61,6 +61,7 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'news_card': return '[新闻卡片]';
         case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
         case 'novel_card': return `[笔友会小说章节${meta.novel?.bookTitle ? '：《' + meta.novel.bookTitle + '》' : ''}]`;
+        case 'fanwai_card': return `[番外故事${meta.fanwaiStory?.title ? '：《' + meta.fanwaiStory.title + '》' : ''}]`;
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
         case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         case 'phone_card': return `[手机内容${meta.phoneCard?.title ? '：' + meta.phoneCard.title : ''}]`;
@@ -1364,6 +1365,20 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     // TRPG 跑团片段 / 笔友会小说章节：从对应 app 多选转发进来的内容。
                     // 复用 normalizeMessageContent 翻成完整文本，让角色"记得"一起玩过/写过什么。
                     content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
+                }
+                else if ((m.type as string) === 'fanwai_card') {
+                    // 拾光番外卡片：用户把一篇关于你们的番外故事分享给你。这里把全文都给你读到
+                    // （不是只给标题），同时明确告知这是虚构的小说创作——你知道这是虚构的，
+                    // 但仍可以把它当作"我们一起读过的一个故事"来自然回应。
+                    const fw: any = m.metadata?.fanwaiStory || {};
+                    const title = (fw.title || m.content || '').trim();
+                    const who = (fw.charName || char?.name || '你').trim();
+                    const fullText = (typeof fw.content === 'string' && fw.content.trim()) ? fw.content.trim() : '';
+                    let text = `${timeStr} [${m.role === 'user' ? '用户' : '你'}分享了一篇关于你们的番外故事${title ? `《${title}》` : ''}，全文如下]`;
+                    if (who) text += `\n故事主角：${who}`;
+                    text += `\n\n${fullText}`;
+                    text += `\n\n（注意：这是用户创作的小说式番外，是虚构的创作，并非你们真实发生过的事。你可以把它当作一篇你已完整读过的故事来回应，可以聊感想、代入角色去讨论，但心里清楚它是虚构创作，别当成真实记忆。）`;
+                    content = text;
                 }
                 else content = `${timeStr} ${sourceTag} ${content}`;
 

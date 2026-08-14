@@ -38,6 +38,7 @@ export enum AppID {
   VRWorld = 'vrworld', // 彼方 — 角色自主登入的虚拟世界（定时驱动，房间里看小说/听歌/留言，产出活动卡注入聊天+记忆）
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
+  Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
 }
 
 export interface SystemLog {
@@ -1149,6 +1150,25 @@ export interface NovelBook {
     segments: NovelSegment[];
     createdAt: number;
     lastActiveAt: number;
+}
+
+// =====================================================================
+// --- 番外（拾光 App）类型 ---
+// 私聊「番外」入口打开全屏生成页，用副 API 生成小说式番外，收藏到「拾光」。
+// 可从「拾光」转发给角色：写入角色记忆 + 注入私聊消息，让角色真正"知道"这个故事。
+// =====================================================================
+
+/** 收藏的一篇番外。 */
+export interface FanwaiStory {
+    id: string;          // `fanwai-${Date.now()}-${rand}`
+    charId: string;      // 生成时的当前角色 id
+    charName: string;    // 角色名（列表/转发展示）
+    style: string;       // 文风
+    wordCount: number;   // 字数档位
+    pov: 'first' | 'second' | 'third'; // 第几人称
+    worldSetting: string; // 用户粘贴的世界设定
+    content: string;     // 生成的全文
+    createdAt: number;   // 时间戳
 }
 
 // =====================================================================
@@ -3107,6 +3127,8 @@ export interface Toast {
     id: string;
     message: string;
     type: 'success' | 'error' | 'info';
+    /** 可选操作按钮（如「撤销」）。点击后先隐藏 toast 再执行回调。 */
+    action?: { label: string; onClick: () => void };
 }
 
 export interface XhsStockImage {
@@ -3662,7 +3684,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card';
 
 export interface Message {
     id: number;
@@ -3738,6 +3760,7 @@ export interface FullBackupData {
     roomCustomAssets?: { id?: string; name: string; image: string; defaultScale: number; description?: string; visibility?: 'public' | 'character'; assignedCharIds?: string[] }[]; 
     
     novels?: NovelBook[];
+    fanwaiStories?: FanwaiStory[];      // 番外收藏（拾光 App）
     vrNovels?: VRWorldNovel[];          // 虚拟世界「彼方」全局小说库
     vrAnnotations?: VRNovelAnnotation[]; // 虚拟世界小说批注
     customCreatorParts?: CustomCreatorPart[]; // 捏脸系统自定义部件
