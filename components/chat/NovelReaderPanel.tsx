@@ -97,7 +97,12 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   const subFg = isNight ? '#94a3b8' : '#64748b';
   const barBg = isNight ? '#252d3b' : '#f8fafc';
   const border = isNight ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)';
-  const skinObj = SKINS.find(s => s.id === skin) || SKINS[0];
+  const rawSkin = SKINS.find(s => s.id === skin) || SKINS[0];
+  // 「默认」皮肤跟随夜间/白天主题自动切换配色，让阅读区在夜间模式下也是深色背景；
+  // 其他皮肤（护眼绿/羊皮纸/米黄/墨黑）保持用户自己选的样式不动。
+  const skinObj = (skin === 'default' && isNight)
+    ? { ...rawSkin, bg: '#1a1a1a', fg: '#d6d3d1', chipBg: '#1a1a1a', chipBd: '#333' }
+    : rawSkin;
 
   /* ---- 拖拽移动 ---- */
   const onHeadDown = (e: React.PointerEvent) => {
@@ -285,15 +290,19 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
         <button onClick={onClose} style={iconBtn} title="关闭"><X size={16} /></button>
       </div>
 
-      {/* 皮肤选择条 */}
+      {/* 皮肤选择条：纯色圆圈，去掉文字标签，hover 时通过 title 显示皮肤名，更简约 */}
       {skinBar && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 shrink-0" style={{ background: barBg, borderBottom: `1px solid ${border}` }}>
+        <div className="flex items-center gap-2 px-2 py-1.5 shrink-0" style={{ background: barBg, borderBottom: `1px solid ${border}` }}>
           {SKINS.map(s => (
             <button key={s.id} onClick={() => setSkin(s.id)}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium"
-              style={{ background: s.chipBg, border: `1px solid ${s.chipBd}`, color: s.fg, outline: skin === s.id ? '2px solid #f59e0b' : 'none' }}>
-              {s.name}
-            </button>
+              title={s.name}
+              aria-label={s.name}
+              className="w-7 h-7 rounded-full transition-transform active:scale-95 hover:scale-110"
+              style={{
+                background: s.chipBg,
+                border: `1.5px solid ${s.chipBd}`,
+                boxShadow: skin === s.id ? '0 0 0 2px #f59e0b' : 'none',
+              }} />
           ))}
           <div className="ml-auto flex items-center gap-0.5" style={{ color: subFg }}>
             <button onClick={() => setFontSize(f => Math.max(FS_MIN, f - FS_STEP))} style={iconBtn} title="减小字号"><TextAa size={14} /></button>

@@ -1533,18 +1533,26 @@ const Chat: React.FC = () => {
 
         const charShort = charDesc || (char as any).persona?.replace(/\s+/g, ' ').slice(0, 300) || char.name || 'a character';
         const userShort = userDesc || 'a person';
+        // 锁脸强化指令：有锁脸图时强制 AI 以参考图为准，避免自由发挥改变性别/外貌
+        const lockFaceHint = 'MUST keep the face, hairstyle, gender, age, ethnicity, body shape and overall look of the reference photo (do not change appearance, do not invent a new person)';
 
         if (mode === 'user') {
-            prompt = `${userShort}，${sceneDesc}，masterpiece，best quality，highly detailed`;
+            const parts = [userShort];
+            if (userLockImage) parts.push(lockFaceHint);
+            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
+            parts.push('masterpiece, best quality, highly detailed');
+            prompt = parts.filter(Boolean).join(', ');
             lockImage = userLockImage || null;
             statusText = 'AI 正在画你的照片，可能要 30~60 秒...';
             successToast = userLockImage ? '已按你的锁脸生成照片' : '已按你的外貌生成照片';
             metadataExtra = { imageGenMode: 'user', usedLockFace: !!userLockImage };
         } else if (mode === 'joint') {
             // 健壮版：空描述时用"参考图中的人物"代替，有锁脸优先
-            const _userPart = (userDesc && userDesc.trim()) || (userLockImage ? 'the person in the reference image (keep the face)' : 'a person');
-            const _charPart = (charDesc && charDesc.trim()) || (charLockImage ? 'the character in the reference image (keep the face)' : 'a character');
+            const _userPart = (userDesc && userDesc.trim()) || (userLockImage ? 'the exact person shown in the reference photo' : 'a person');
+            const _charPart = (charDesc && charDesc.trim()) || (charLockImage ? 'the exact character shown in the reference photo' : 'a character');
             const _jointParts = ['two people together in the photo', _userPart, 'and', _charPart];
+            if (userLockImage) _jointParts.push(lockFaceHint);
+            if (charLockImage) _jointParts.push(lockFaceHint);
             if (sceneDesc && sceneDesc.trim()) _jointParts.push(sceneDesc.trim());
             _jointParts.push('couple photo, intimate and natural pose');
             _jointParts.push('masterpiece, best quality, highly detailed');
@@ -1555,7 +1563,11 @@ const Chat: React.FC = () => {
             metadataExtra = { imageGenMode: 'joint', usedLockFace: !!(charLockImage || userLockImage) };
         } else {
             // 默认 char 模式
-            prompt = `${charShort}，${sceneDesc}，masterpiece，best quality，highly detailed`;
+            const parts = [charShort];
+            if (charLockImage) parts.push(lockFaceHint);
+            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
+            parts.push('masterpiece, best quality, highly detailed');
+            prompt = parts.filter(Boolean).join(', ');
             lockImage = charLockImage || null;
             statusText = 'AI 正在画，可能要 30~60 秒...';
             successToast = charLockImage ? '已按锁脸生成图片' : '已按角色外貌生成图片';
@@ -1599,6 +1611,7 @@ const Chat: React.FC = () => {
                 model: apiConfig.imageGenModel,
                 prompt,
                 lockImageDataUrl: lockImage || null,
+                size: '1024x1792', // 固定 9:16 竖版
                 timeoutMs: 300000,
             });
 

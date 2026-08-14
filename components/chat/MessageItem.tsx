@@ -2,6 +2,7 @@
 
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Message, ChatTheme } from '../../types';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
@@ -9,6 +10,8 @@ import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { trackEvent } from '../../utils/analytics';
+import { dataUrlToBlob } from '../../utils/blobRef';
+import { fetchBlobForShare, shareOrDownloadBlob } from '../../utils/shareExport';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
@@ -1490,6 +1493,9 @@ const MessageItem = React.memo(({
 
     const styleConfig = isUser ? activeTheme.user : activeTheme.ai;
     const [showVoiceText, setShowVoiceText] = useState(false);
+    // 点击聊天气泡里的图片 → 全屏浅色弹层放大查看；null 表示未打开
+    const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+    const [previewDownloading, setPreviewDownloading] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
     const [isReplyReady, setIsReplyReady] = useState(false);
@@ -1506,6 +1512,24 @@ const MessageItem = React.memo(({
         setIsReplyGestureActive(false);
         setIsReplyReady(false);
         setReplyOffset(0);
+    };
+
+    // 全屏预览里的下载/分享：base64 直接转 Blob，http URL 走 CORS-free 拉取，再调分享/下载
+    const handlePreviewDownload = async () => {
+        if (!previewSrc || previewDownloading) return;
+        setPreviewDownloading(true);
+        try {
+            const isData = previewSrc.startsWith('data:');
+            const blob = isData
+                ? dataUrlToBlob(previewSrc)
+                : await fetchBlobForShare(previewSrc, 'image/png');
+            const name = `sully-image-${Date.now()}.png`;
+            await shareOrDownloadBlob({ blob, fileName: name });
+        } catch (e) {
+            console.error('[MessageItem] 图片保存失败', e);
+        } finally {
+            setPreviewDownloading(false);
+        }
     };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -3290,15 +3314,18 @@ const MessageItem = React.memo(({
             joint: 'bg-pink-500/15 text-pink-600',
         };
         const modeLabels: Record<string, string> = { char: '角色', user: '你', joint: '合照' };
-        return commonLayout(
-            <div className="relative group">
+        return (
+            <>
+                {commonLayout(
+                    <div className="relative group">
                 {m.content ? (
                     <img
                         src={m.content}
-                        className="max-w-[200px] max-h-[300px] rounded-2xl"
+                        className="max-w-[200px] max-h-[300px] rounded-2xl cursor-zoom-in hover:opacity-95 transition-opacity"
                         alt="Uploaded"
                         loading={isLatestMessage ? 'eager' : 'lazy'}
                         decoding="async"
+                        onClick={() => setPreviewSrc(m.content)}
                         onLoad={() => onMediaLoad?.(m.id)}
                     />
                 ) : isPlaceholder ? (
@@ -3339,7 +3366,70 @@ const MessageItem = React.memo(({
                 ) : (
                     <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
                 )}
-            </div>
+                    </div>
+                )}
+
+                {/* 全屏预览弹层：用 createPortal 渲染到 body，脱离父级消息容器的
+                    overflow/transform/contain 限制，确保 fixed inset-0 真正全屏覆盖。
+                    这样图片能按 width: 95vw 撑满整个聊天窗口。 */}
+                {previewSrc && createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483000] bg-black/85 backdrop-blur-md flex flex-col items-center justify-center py-6 overflow-y-auto"
+                        onClick={() => setPreviewSrc(null)}
+                    >
+                        {/* 关闭按钮（右上角，半透明风格） */}
+                        <button
+                            type="button"
+                            className="fixed top-4 right-4 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all"
+                            onClick={() => setPreviewSrc(null)}
+                            aria-label="关闭"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        {/* 大图：固定按宽度撑满视口，高度按 9:16 原比例自动撑高，
+                            允许超出部分被容器滚动查看（这样永远比气泡缩略图大得多）。
+                            用内联 style 是为了避开 Tailwind 的 arbitrary value 在某些构建里被裁剪的问题。 */}
+                        <img
+                            src={previewSrc}
+                            alt="预览大图"
+                            draggable={false}
+                            style={{
+                                width: '95vw',
+                                height: 'auto',
+                                maxWidth: 'none',
+                                maxHeight: 'none',
+                                userSelect: 'none',
+                                display: 'block',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+
+                        {/* 下载按钮（右下角悬浮，半透明风格） */}
+                        <button
+                            type="button"
+                            disabled={previewDownloading}
+                            onClick={(e) => { e.stopPropagation(); handlePreviewDownload(); }}
+                            className="fixed bottom-6 right-6 z-10 w-14 h-14 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all shadow-lg disabled:opacity-60"
+                            aria-label="下载图片"
+                        >
+                            {previewDownloading ? (
+                                <svg className="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                </svg>
+                            )}
+                        </button>
+                    </div>,
+                    document.body
+                )}
+            </>
         );
     }
 

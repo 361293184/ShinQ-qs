@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { generateImage as generateImageApi, loadUserImageSettings, saveUserImageSettings } from '../../utils/imageGen';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { generateImage as generateImageApi, loadUserImageSettings, saveUserImageSettings, loadCustomStyles, saveCustomStyles, type CustomStyle } from '../../utils/imageGen';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
+const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
 const STYLE_PRESETS = [
   { id: 'anime', label: '动漫', prompt: 'anime style, cel shading, vibrant colors' },
   { id: 'realistic', label: '写实', prompt: 'photorealistic, hyperdetailed, 8k, cinematic lighting' },
@@ -68,9 +69,17 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // ---- 通用状态 ----
   const [sceneDesc, setSceneDesc] = useState('');
-  const [stylePreset, setStylePreset] = useState('anime');
+  const [stylePreset, setStylePreset] = useState<string>(() => {
+    try { return localStorage.getItem(STYLE_PRESET_KEY) || 'anime'; } catch { return 'anime'; }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [styleOpen, setStyleOpen] = useState(false);
+  // 自定义风格（下拉 + 添加按钮）
+  const [customStyles, setCustomStyles] = useState<CustomStyle[]>(() => loadCustomStyles());
+  const [showAddStyle, setShowAddStyle] = useState(false);
+  const [newStyleLabel, setNewStyleLabel] = useState('');
+  const [newStylePrompt, setNewStylePrompt] = useState('');
 
   // ---- 加载角色已有设置 ----
   useEffect(() => {
@@ -163,21 +172,28 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     { label: '🏙️ 城市', text: '繁华的城市夜景，霓虹灯光映照' },
   ];
 
+  // 合并内置 + 自定义风格，用于查找当前选中的 prompt
+  const allStyles = useMemo(() => [...STYLE_PRESETS, ...customStyles], [customStyles]);
+
   // ---- 构造三种模式的 prompt（健壮版） ----
   const buildPrompt = (m: GenMode): { prompt: string; lockImage: string | null; caption: string } => {
-    const style = STYLE_PRESETS.find(s => s.id === stylePreset);
+    const style = allStyles.find(s => s.id === stylePreset);
     const styleText = style ? style.prompt : '';
     const scene = sceneDesc.trim();
 
     // 角色侧描述 fallback
     const charPart = charDesc.trim()
-      || (charLockImage ? 'the character in the reference image (keep the face)' : 'a character');
+      || (charLockImage ? 'the exact character shown in the reference photo' : 'a character');
     // 用户侧描述 fallback
     const userPart = userDesc.trim()
-      || (userLockImage ? 'the person in the reference image (keep the face)' : 'a person');
+      || (userLockImage ? 'the exact person shown in the reference photo' : 'a person');
+    // 锁脸强化指令：有参考图时强制 AI 以图为准，避免自由发挥改变性别/外貌
+    const charLockHint = charLockImage ? 'MUST keep the face, hairstyle, gender, age, ethnicity, body shape and overall look of the reference photo (do not change appearance, do not invent a new person)' : '';
+    const userLockHint = userLockImage ? 'MUST keep the face, hairstyle, gender, age, ethnicity, body shape and overall look of the reference photo (do not change appearance, do not invent a new person)' : '';
 
     if (m === 'char') {
       const parts = [charPart];
+      if (charLockHint) parts.push(charLockHint);
       if (scene) parts.push(scene);
       parts.push(styleText);
       parts.push('masterpiece, best quality, highly detailed');
@@ -190,6 +206,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
     if (m === 'user') {
       const parts = [userPart];
+      if (userLockHint) parts.push(userLockHint);
       if (scene) parts.push(scene);
       parts.push(styleText);
       parts.push('masterpiece, best quality, highly detailed');
@@ -205,6 +222,8 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     parts.push(userPart);
     parts.push('and');
     parts.push(charPart);
+    if (userLockHint) parts.push(userLockHint);
+    if (charLockHint) parts.push(charLockHint);
     if (scene) parts.push(scene);
     parts.push('couple photo, intimate and natural pose');
     parts.push(styleText);
@@ -251,7 +270,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             model: subModel,
             messages: [
               { role: 'system', content: 'You are a prompt engineer. Generate a single detailed English image generation prompt based on the input. Describe scene, appearance, lighting, mood, composition. Output ONLY the prompt, nothing else.' },
-              { role: 'user', content: `Mode: ${mode}\nCharacter: ${charName}\nCharDesc: ${charDesc}\nUserDesc: ${userDesc}\nScene: ${sceneDesc || 'portrait'}\nStyle: ${STYLE_PRESETS.find(s => s.id === stylePreset)?.prompt || ''}\nRecent chat context:\n${chatContext}` },
+              { role: 'user', content: `Mode: ${mode}\nCharacter: ${charName}\nCharDesc: ${charDesc}\nUserDesc: ${userDesc}\nScene: ${sceneDesc || 'portrait'}\nStyle: ${allStyles.find(s => s.id === stylePreset)?.prompt || ''}\nRecent chat context:\n${chatContext}` },
             ],
             max_tokens: 300,
             temperature: 0.7,
@@ -279,6 +298,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         model: imageGenModel,
         prompt: finalPrompt,
         lockImageDataUrl: finalLockImage,
+        size: '1024x1792', // 固定 9:16 竖版
         signal: controller.signal,
         timeoutMs: 300000,
       });
@@ -480,24 +500,153 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           </div>
         </div>
 
-        {/* ---- 风格预设（全部模式） ---- */}
+        {/* ---- 风格预设（下拉 + 自定义） ---- */}
         <div>
-          <label className="text-xs font-bold text-slate-500 mb-1.5 block">风格预设</label>
-          <div className="grid grid-cols-4 gap-2">
-            {STYLE_PRESETS.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setStylePreset(s.id)}
-                className={`py-2 px-1 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                  stylePreset === s.id
-                    ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                    : 'bg-slate-50 text-slate-500 border border-slate-100 hover:bg-slate-100'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-bold text-slate-500">风格预设</label>
+            <button
+              type="button"
+              onClick={() => { setShowAddStyle(v => !v); setNewStyleLabel(''); setNewStylePrompt(''); }}
+              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-100 active:scale-95 transition-transform"
+              title="添加自定义风格"
+            >
+              {showAddStyle ? '× 取消' : '+ 自定义'}
+            </button>
           </div>
+          <div className="relative">
+            {/* 闭合态按钮 */}
+            <button
+              type="button"
+              onClick={() => setStyleOpen(v => !v)}
+              className="w-full rounded-xl px-2.5 py-2 text-sm bg-slate-50 border border-slate-200 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+            >
+              <span className="truncate">{allStyles.find(s => s.id === stylePreset)?.label || '未选择'}</span>
+              <svg
+                className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${styleOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"
+              >
+                <path d="M6 8l4 4 4-4" />
+              </svg>
+            </button>
+
+            {/* 点击外部关闭的透明遮罩 */}
+            {styleOpen && <div className="fixed inset-0 z-[60]" onClick={() => setStyleOpen(false)} />}
+
+            {/* 展开弹层 */}
+            {styleOpen && (
+              <div className="absolute z-[70] mt-1 w-full rounded-2xl bg-white shadow-xl border border-slate-100 py-1 overflow-y-auto max-h-60">
+                <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">内置风格</div>
+                {STYLE_PRESETS.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => { setStylePreset(s.id); try { localStorage.setItem(STYLE_PRESET_KEY, s.id); } catch {} setStyleOpen(false); }}
+                    className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-rose-50 transition-colors ${s.id === stylePreset ? 'text-rose-600 bg-rose-50 font-semibold' : 'text-slate-700'}`}
+                  >
+                    <span className="truncate">{s.label}</span>
+                    {s.id === stylePreset && (
+                      <svg className="w-4 h-4 text-rose-500 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+                {customStyles.length > 0 && (
+                  <>
+                    <div className="mt-1 px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">我的自定义</div>
+                    {customStyles.map(s => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => { setStylePreset(s.id); try { localStorage.setItem(STYLE_PRESET_KEY, s.id); } catch {} setStyleOpen(false); }}
+                        className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-rose-50 transition-colors ${s.id === stylePreset ? 'text-rose-600 bg-rose-50 font-semibold' : 'text-slate-700'}`}
+                      >
+                        <span className="truncate">{s.label}</span>
+                        {s.id === stylePreset && (
+                          <svg className="w-4 h-4 text-rose-500 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 当前风格的 prompt 描述（让用户知道这个风格会让画面长什么样） */}
+          {(() => {
+            const cur = allStyles.find(s => s.id === stylePreset);
+            if (!cur) return null;
+            const isCustom = customStyles.some(s => s.id === cur.id);
+            return (
+              <div className="mt-1.5 flex items-start gap-1.5">
+                <span className="text-[10px] text-slate-400 flex-1 leading-relaxed line-clamp-2">{cur.prompt}</span>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = customStyles.filter(s => s.id !== cur.id);
+                      setCustomStyles(next); saveCustomStyles(next);
+                      if (stylePreset === cur.id) { setStylePreset('anime'); try { localStorage.setItem(STYLE_PRESET_KEY, 'anime'); } catch {} }
+                    }}
+                    className="text-[10px] text-rose-500 font-bold shrink-0"
+                    title="删除这个自定义风格"
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* 添加自定义风格 弹层 */}
+          {showAddStyle && (
+            <div className="mt-2 p-2.5 rounded-xl bg-rose-50/60 border border-rose-100 space-y-2">
+              <input
+                value={newStyleLabel}
+                onChange={(e) => setNewStyleLabel(e.target.value)}
+                placeholder="风格名（例：胶片感）"
+                maxLength={20}
+                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+              />
+              <textarea
+                value={newStylePrompt}
+                onChange={(e) => setNewStylePrompt(e.target.value)}
+                placeholder="英文描述词（例：film grain, faded colors, vintage tone, kodak portra 400）"
+                maxLength={300}
+                rows={2}
+                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+              />
+              <div className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowAddStyle(false)}
+                  className="text-[11px] font-bold px-3 py-1 rounded-md bg-white text-slate-500 border border-slate-200"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={!newStyleLabel.trim() || !newStylePrompt.trim()}
+                  onClick={() => {
+                    const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                    const next = [...customStyles, { id, label: newStyleLabel.trim(), prompt: newStylePrompt.trim() }];
+                    setCustomStyles(next); saveCustomStyles(next);
+                    setStylePreset(id);
+                    try { localStorage.setItem(STYLE_PRESET_KEY, id); } catch {}
+                    setShowAddStyle(false);
+                    setNewStyleLabel(''); setNewStylePrompt('');
+                  }}
+                  className="text-[11px] font-bold px-3 py-1 rounded-md bg-rose-500 text-white disabled:opacity-50 active:scale-95 transition-transform"
+                >
+                  添加并使用
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ---- 锁脸参考图 ---- */}

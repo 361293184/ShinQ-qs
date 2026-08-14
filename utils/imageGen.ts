@@ -1,7 +1,9 @@
 // 共享的生图调用工具
 // 关键原则：自动生图和手动面板共用同一套调用逻辑，避免重复
-// 锁脸图片（lockImage）使用 multipart/form-data 走 /images/edits（OpenAI 官方方式）
-// 不带锁脸走 /images/generations（兼容性最好）
+// 固定竖版 9:16 比例（1024x1792），统一走 /images/generations。
+// 锁脸参考图不再走 /images/edits（该端点通常只支持 1:1），而是通过参考图字段传进
+// generations。国产中转/聚合服务普遍兼容这两种写法，优先传标准 reference_images 数组，
+// 部分服务只认旧的 image 字段，故一并带上，服务端会忽略不认识的字段。
 
 export interface ImageGenOptions {
   baseUrl: string;
@@ -10,6 +12,8 @@ export interface ImageGenOptions {
   prompt: string;
   /** 锁脸参考图 dataURL（可选） */
   lockImageDataUrl?: string | null;
+  /** 出图尺寸，默认 1024x1792（9:16 竖版） */
+  size?: string;
   /** 信号控制器 */
   signal?: AbortSignal;
   /** 超时毫秒，默认 300000 */
@@ -23,90 +27,49 @@ export interface ImageGenResult {
 }
 
 /**
- * 调用 /images/generations 或 /images/edits
- * - 带 lockImage 时尝试 multipart/form-data 走 edits（OpenAI 标准）
- * - 不带或 edits 不支持时退回 generations（JSON 通用协议）
+ * 调用 /images/generations（JSON 通用协议，兼容性最好）。
+ * 固定竖版 9:16（1024x1792）；带锁脸参考图时把 base64 塞进 reference_images / image 字段。
  */
 export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResult> {
-  const { baseUrl, apiKey, model, prompt, lockImageDataUrl, signal, timeoutMs = 300000 } = opts;
+  const { baseUrl, apiKey, model, prompt, lockImageDataUrl, size, signal, timeoutMs = 300000 } = opts;
   const base = baseUrl.replace(/\/+$/, '');
-
-  // 带锁脸：先尝试 multipart/form-data 走 edits
-  if (lockImageDataUrl) {
-    try {
-      const refB64 = lockImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-      const binaryStr = atob(refB64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-      // 推断 mime 和扩展名
-      const mimeMatch = lockImageDataUrl.match(/^data:(image\/\w+);base64,/);
-      const mime = mimeMatch?.[1] || 'image/png';
-      const ext = mime.split('/')[1] || 'png';
-
-      const form = new FormData();
-      form.append('model', model);
-      form.append('prompt', prompt);
-      form.append('n', '1');
-      form.append('size', '1024x1024');
-      form.append('response_format', 'b64_json');
-      form.append('image', new Blob([bytes], { type: mime }), `ref.${ext}`);
-
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-      const editSig = signal
-        ? (() => { const c = new AbortController(); signal.addEventListener('abort', () => c.abort()); return c.signal; })()
-        : ctrl.signal;
-
-      try {
-        const res = await fetch(`${base}/images/edits`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}` },
-          body: form,
-          signal: editSig,
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const data = await res.json();
-          const b64 = data?.data?.[0]?.b64_json;
-          const url = data?.data?.[0]?.url;
-          if (b64) return { url: `data:image/png;base64,${b64}`, isBase64: true };
-          if (url) return { url, isBase64: false };
-          throw new Error('/images/edits 返回数据格式异常');
-        }
-        // 415/400/422 → 不支持 multipart，回退
-        if (res.status === 400 || res.status === 404 || res.status === 415 || res.status === 422) {
-          // 不报错，继续走 generations 回退
-          console.warn('[ImageGen] /edits 不支持，回退到 /generations:', res.status);
-        } else {
-          const errText = await res.text().catch(() => '');
-          throw new Error(`/images/edits ${res.status}: ${errText.slice(0, 200)}`);
-        }
-      } finally {
-        clearTimeout(timer);
-      }
-    } catch (e: any) {
-      // 不是 abort 就忽略错误往下走（继续 generations 回退）
-      if (e?.name === 'AbortError') throw e;
-      console.warn('[ImageGen] /edits 失败，回退到 /generations:', e?.message);
-    }
-  }
+  const outSize = size || '1024x1792';
 
   // 标准 /images/generations
-  const ctrl2 = new AbortController();
-  const timer2 = setTimeout(() => ctrl2.abort(), timeoutMs);
-  const sig2 = signal
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const sig = signal
     ? (() => { const c = new AbortController(); signal.addEventListener('abort', () => c.abort()); return c.signal; })()
-    : ctrl2.signal;
+    : ctrl.signal;
+
+  // 参考图统一转成纯 base64（去掉 data: 前缀），塞进兼容字段
+  const refPureB64 = lockImageDataUrl
+    ? lockImageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+    : null;
+
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    n: 1,
+    size: outSize,
+    response_format: 'b64_json',
+  };
+  // 标准字段 image 必须是数组（参考 OpenAI 兼容规范 / gpt-image-1/2）。
+  // 部分国产中转还认 reference_images 字段，一并带上以兼容老聚合服务。
+  // 注意：image 数组里只放纯 base64 字符串，不要带 data:image/png;base64, 前缀。
+  if (refPureB64) {
+    body.image = [refPureB64];
+    body.reference_images = [refPureB64];
+  }
 
   try {
     const res = await fetch(`${base}/images/generations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, prompt, n: 1, size: '1024x1024', response_format: 'b64_json' }),
-      signal: sig2,
+      body: JSON.stringify(body),
+      signal: sig,
     });
-    clearTimeout(timer2);
+    clearTimeout(timer);
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       throw new Error(`API ${res.status}: ${errText.slice(0, 200)}`);
@@ -119,7 +82,7 @@ export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResu
     const apiErr = data?.error?.message || JSON.stringify(data?.error || {});
     throw new Error(`API 未返回图片: ${apiErr}`);
   } finally {
-    clearTimeout(timer2);
+    clearTimeout(timer);
   }
 }
 
@@ -168,4 +131,31 @@ export function saveUserImageSettings(settings: Partial<UserImageSettings>) {
   const current = loadUserImageSettings();
   const updated = { ...current, ...settings };
   localStorage.setItem(USER_IMAGE_SETTINGS_KEY, JSON.stringify(updated));
+}
+
+/* ---------- 自定义生图风格 ---------- */
+export interface CustomStyle {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+const CUSTOM_STYLE_KEY = 'os_imagegen_custom_styles';
+
+export function loadCustomStyles(): CustomStyle[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_STYLE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(x => x && typeof x.id === 'string' && typeof x.label === 'string' && typeof x.prompt === 'string');
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomStyles(styles: CustomStyle[]): void {
+  try {
+    localStorage.setItem(CUSTOM_STYLE_KEY, JSON.stringify(styles));
+  } catch {}
 }
