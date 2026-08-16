@@ -38,19 +38,8 @@ const DEFAULT_WORD_PRESET = 1000;
 const MIN_CUSTOM_WORDS = 100;
 const MAX_CUSTOM_WORDS = 20000;
 
-/** 文风 → 卡片渐变底色（暖色治愈系）。 */
-const STYLE_GRADIENTS: Record<string, string> = {
-    healing: 'from-[#FDE7D7] to-[#F5C6A5]',
-    ancient: 'from-[#F8E3C2] to-[#EBC184]',
-    suspense: 'from-[#EAE0EE] to-[#CFC0DA]',
-    daily: 'from-[#F9DCE3] to-[#EFB6C6]',
-    custom: 'from-[#F3EBDD] to-[#E2D2B8]',
-};
-
-const DEFAULT_GRADIENT = 'from-[#F3EBDD] to-[#E2D2B8]';
-
-/** 输入框通用样式（贴合 SullyOS 基线：白底 + 细描边 + 暖色焦点）。 */
-const INPUT_BASE = 'w-full rounded-xl border border-[#EADFCB] bg-white/85 px-3 py-2.5 text-sm text-[#4A3F35] placeholder:text-[#C4B8A9] outline-none focus:border-[#F0A93B] focus:ring-2 focus:ring-[#F0A93B]/15 transition-colors';
+/** 输入框通用样式（贴合 SullyOS 基线：白底 + 细描边 + 中性灰焦点）。 */
+const INPUT_BASE = 'w-full rounded-xl border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#1F1F1F] placeholder:text-[#9A9A9A] outline-none focus:border-[#1F1F1F] focus:ring-2 focus:ring-[#1F1F1F]/10 transition-colors';
 
 export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addToast, onClose, onCollect }: FanwaiGeneratePageProps) {
     const [style, setStyle] = useState<string>('healing');
@@ -128,7 +117,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
         const result = await generateFanwai(
             char, userProfile,
-            { styleId: randomMode ? 'random' : style, styleCustomDesc, wordCount, wordCountIsCustom, pov, worldSetting, recentMessages, randomMode },
+            { styleId: randomMode ? 'random' : style, styleCustomDesc: styleCustomDesc.trim() || undefined, wordCount, wordCountIsCustom, pov, worldSetting, recentMessages, randomMode },
             subApi,
         );
         setGenerating(false);
@@ -169,43 +158,44 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
     const currentPov = FANWAI_POVS.find(p => p.id === pov);
 
     return (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-[#FDF8F0]">
-            {/* 顶部导航（让位状态栏 / 刘海） */}
-            <header className="flex items-center justify-between px-4 pt-2 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 2.5rem)' }}>
+        <div className="fixed inset-0 z-[70] flex flex-col bg-white">
+            {/* 顶部导航（让位状态栏 / 刘海）；生成中时隐藏，避免与遮罩内返回键位置重叠导致点错 */}
+            {!generating && (
+                <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
                 <button
                     onClick={onClose}
-                    className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A7A6C] hover:bg-white/70 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
                     aria-label="返回"
                 >
                     <span className="text-sm leading-none">←</span>
                     <span>返回</span>
                 </button>
                 <div className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#F0A93B] animate-pulse" />
-                    <h1 className="text-sm font-bold text-[#4A3F35] tracking-wide">番外</h1>
-                    <span className="text-[10px] text-[#C96F8A] font-semibold">Fanwai</span>
+                    <h1 className="text-sm font-bold text-[#1F1F1F] tracking-wide">番外</h1>
+                    <span className="text-[10px] text-[#9A9A9A] font-medium">Fanwai</span>
                 </div>
                 <div className="w-12" />
             </header>
+            )}
 
             {/* 内容区 */}
             <div className="flex-1 overflow-y-auto px-4 pb-32">
                 {/* 角色卡：为谁而写 */}
                 {char && (
-                    <div className="flex items-center gap-2.5 rounded-2xl bg-white/70 backdrop-blur border border-[#F0E4D2] px-3 py-2.5 mb-4 shadow-sm">
-                        <img src={char.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-2 ring-[#F0A93B]/40" />
+                    <div className="flex items-center gap-2.5 rounded-2xl bg-[#FAFAFA] border border-[#E5E5E5] px-3 py-2.5 mb-4">
+                        <img src={char.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-[#E5E5E5]" />
                         <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-[#4A3F35]">为 {char.name} 写一篇番外</p>
-                            <p className="text-[11px] text-[#8A7A6C] truncate">设定将结合 ta 的人设、记忆与你们的关系</p>
+                            <p className="text-xs font-bold text-[#1F1F1F]">为 {char.name} 写一篇番外</p>
+                            <p className="text-[11px] text-[#666666] truncate">设定将结合 ta 的人设、记忆与你们的关系</p>
                         </div>
-                        <span className="text-[#C96F8A] text-base leading-none">✦</span>
+                        <span className="text-[#D4D4D4] text-base leading-none">✦</span>
                     </div>
                 )}
 
                 {/* 文风 */}
                 <section className="mb-4">
-                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#4A3F35] mb-2">
-                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#F0A93B]" />
+                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#1F1F1F] mb-2">
+                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#D4D4D4]" />
                         文风
                     </h2>
                     <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin">
@@ -217,8 +207,8 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                                     onClick={() => setStyle(p.id)}
                                     className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
                                         active
-                                            ? 'bg-[#F0A93B] text-white shadow-sm shadow-[#F0A93B]/30'
-                                            : 'bg-white/80 text-[#8A7A6C] hover:bg-white border border-[#F0E4D2]'
+                                            ? 'bg-[#1F1F1F] text-white shadow-sm shadow-[#1F1F1F]/20'
+                                            : 'bg-white/80 text-[#666666] hover:bg-white border border-[#E5E5E5]'
                                     }`}
                                 >
                                     {p.name}
@@ -226,9 +216,14 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                             );
                         })}
                     </div>
-                    <p className="mt-1.5 text-[11px] text-[#8A7A6C] leading-relaxed">
+                    <p className="mt-1.5 text-[11px] text-[#666666] leading-relaxed">
                         {currentStyle?.hint}
                     </p>
+                    {worldSetting.trim() && (
+                        <p className="mt-1 text-[10px] text-[#9A9A9A]">
+                            已贴指令时以指令为准，AI 用足笔力执行；下方预设仅在留空时生效。
+                        </p>
+                    )}
                     {style === 'custom' && (
                         <textarea
                             value={styleCustomDesc}
@@ -242,8 +237,8 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
                 {/* 字数 */}
                 <section className="mb-4">
-                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#4A3F35] mb-2">
-                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#E8845A]" />
+                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#1F1F1F] mb-2">
+                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#D4D4D4]" />
                         字数
                     </h2>
                     <div className="flex gap-1.5">
@@ -264,8 +259,8 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                                     }}
                                     className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all cursor-pointer ${
                                         active
-                                            ? 'bg-[#E8845A] text-white shadow-sm shadow-[#E8845A]/25'
-                                            : 'bg-white/80 text-[#8A7A6C] hover:bg-white border border-[#F0E4D2]'
+                                            ? 'bg-[#1F1F1F] text-white shadow-sm shadow-[#1F1F1F]/20'
+                                            : 'bg-white/80 text-[#666666] hover:bg-white border border-[#E5E5E5]'
                                     }`}
                                 >
                                     {label}
@@ -287,15 +282,15 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                                 }}
                                 className={`${INPUT_BASE} w-28 text-center`}
                             />
-                            <span className="text-xs text-[#8A7A6C]">字（{MIN_CUSTOM_WORDS} ~ {MAX_CUSTOM_WORDS}）</span>
+                            <span className="text-xs text-[#666666]">字（{MIN_CUSTOM_WORDS} ~ {MAX_CUSTOM_WORDS}）</span>
                         </div>
                     )}
                 </section>
 
                 {/* 视角（原"第几人称"） */}
                 <section className="mb-4">
-                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#4A3F35] mb-2">
-                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#C96F8A]" />
+                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#1F1F1F] mb-2">
+                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#D4D4D4]" />
                         视角
                     </h2>
                     <div className="flex gap-1.5">
@@ -307,12 +302,12 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                                     onClick={() => setPov(p.id)}
                                     className={`flex-1 rounded-xl px-2 py-2 transition-all cursor-pointer text-left ${
                                         active
-                                            ? 'bg-[#C96F8A] text-white shadow-sm shadow-[#C96F8A]/25'
-                                            : 'bg-white/80 text-[#8A7A6C] hover:bg-white border border-[#F0E4D2]'
+                                            ? 'bg-[#1F1F1F] text-white shadow-sm shadow-[#1F1F1F]/20'
+                                            : 'bg-white/80 text-[#666666] hover:bg-white border border-[#E5E5E5]'
                                     }`}
                                 >
                                     <span className="block text-xs font-bold leading-tight">{p.name}</span>
-                                    <span className={`block text-[10px] font-normal mt-0.5 leading-tight ${active ? 'text-white/85' : 'text-[#B5A89A]'}`}>
+                                    <span className={`block text-[10px] font-normal mt-0.5 leading-tight ${active ? 'text-white/85' : 'text-[#9A9A9A]'}`}>
                                         {p.desc}
                                     </span>
                                 </button>
@@ -323,35 +318,35 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
                 {/* 世界设定 */}
                 <section className="mb-4">
-                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#4A3F35] mb-2">
-                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#F0A93B]" />
+                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#1F1F1F] mb-2">
+                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#D4D4D4]" />
                         世界设定
                     </h2>
                     <textarea
                         value={worldSetting}
                         onChange={e => setWorldSetting(e.target.value)}
-                        placeholder="粘贴番外设定：时间背景、地点、出场人物、剧情走向……AI 会严格按它来写。"
+                        placeholder="请输入"
                         rows={4}
                         className={`${INPUT_BASE} resize-none leading-relaxed`}
                     />
-                    <p className="mt-1 text-[10px] text-[#B5A89A]">留空则基于角色本身的世界观自由发挥</p>
+                    <p className="mt-1 text-[10px] text-[#9A9A9A]">贴指令即可，AI 忠实执行并用足笔力。留空则自由发挥</p>
                 </section>
             </div>
 
             {/* 底部操作（生成前：随机入口小字 + 生成按钮，让位 home 条） */}
             {!generated && (
-                <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-[#FDF8F0] via-[#FDF8F0]/90 to-transparent" style={{ paddingBottom: 'max(1.25rem, var(--safe-bottom, env(safe-area-inset-bottom, 0px)))' }}>
+                <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
                     <button
-                        onClick={() => setRandomMode(true)}
+                        onClick={() => setRandomMode(v => !v)}
                         disabled={generating}
-                        className="w-full mb-2 text-[11px] text-[#B5A89A] hover:text-[#E8845A] transition-colors cursor-pointer"
+                        className="w-full mb-2 text-[11px] text-[#9A9A9A] hover:text-[#1F1F1F] transition-colors cursor-pointer"
                     >
-                        ✦ 随机生成：字数、风格、视角全由 AI 决定
+                        {randomMode ? '✦ 自定义番外：按你选的文风 / 字数 / 视角生成' : '✦ 随机生成：字数、风格、视角全由 AI 决定'}
                     </button>
                     <button
                         onClick={handleGenerate}
                         disabled={generating}
-                        className="w-full rounded-2xl py-3 text-sm font-bold text-white bg-gradient-to-r from-[#F0A93B] via-[#E8845A] to-[#C96F8A] shadow-md shadow-[#E8845A]/30 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="w-full rounded-2xl py-3 text-sm font-bold text-white bg-[#1F1F1F] shadow-md shadow-[#1F1F1F]/20 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {generating ? (
                             <span className="flex items-center justify-center gap-2">
@@ -370,56 +365,69 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
             {/* 生成中遮罩 */}
             {generating && (
-                <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-3 bg-[#FDF8F0]/85 backdrop-blur-sm">
-                    <div className="relative h-14 w-14">
-                        <div className="absolute inset-0 rounded-full border-2 border-[#F0E4D2]" />
-                        <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#F0A93B] animate-spin" />
-                        <span className="absolute inset-0 flex items-center justify-center text-xl text-[#E8845A]">✎</span>
+                <div className="fixed inset-0 z-[80] bg-white/85 backdrop-blur-sm">
+                    {/* 左上角返回键：万一不想等了直接返回（z 高于中央进度区，确保可点击） */}
+                    <button
+                        onClick={onClose}
+                        className="absolute left-4 z-[90] flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
+                        style={{ top: 'calc(var(--chrome-top) + 1.25rem)' }}
+                        aria-label="返回"
+                    >
+                        <span className="text-sm leading-none">←</span>
+                        <span>返回</span>
+                    </button>
+                    {/* 中央进度区（inset-0 会盖住先渲染的兄弟，故返回键须 z 更高） */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                        <div className="relative h-14 w-14">
+                            <div className="absolute inset-0 rounded-full border-2 border-[#E5E5E5]" />
+                            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#1F1F1F] animate-spin" />
+                            <span className="absolute inset-0 flex items-center justify-center text-xl text-[#1F1F1F]">✎</span>
+                        </div>
+                        <p className="text-xs font-semibold text-[#666666]">正在为 ta 编织故事…</p>
+                        <p className="text-[10px] text-[#9A9A9A]">番外较长，请稍候片刻</p>
                     </div>
-                    <p className="text-xs font-semibold text-[#8A7A6C]">正在为 ta 编织故事…</p>
-                    <p className="text-[10px] text-[#B5A89A]">番外较长，请稍候片刻</p>
                 </div>
             )}
 
             {/* 生成结果预览（书籍排版） */}
             {generated && (
-                <div className="fixed inset-0 z-[75] flex flex-col bg-[#FDF8F0] overflow-hidden">
-                    <header className="flex items-center justify-between px-4 pt-2 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 2.5rem)' }}>
+                <div className="fixed inset-0 z-[75] flex flex-col bg-white overflow-hidden">
+                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
                         <button
                             onClick={() => setGenerated('')}
-                            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#8A7A6C] hover:bg-white/70 transition-colors cursor-pointer"
+                            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
                         >
                             <span className="text-sm leading-none">←</span>
                             <span>调整</span>
                         </button>
-                        <div className="text-xs font-bold text-[#4A3F35]">故事预览</div>
+                        <div className="text-xs font-bold text-[#1F1F1F]">故事预览</div>
                         <div className="w-12" />
                     </header>
                     <div className="flex-1 overflow-y-auto px-4 pb-28">
-                        <div className="mx-auto max-w-md rounded-2xl bg-[#FFFDF9] shadow-[0_6px_32px_rgba(74,63,53,0.08)] border border-[#F0E4D2] p-5">
+                        <div className="mx-auto max-w-md rounded-2xl bg-white shadow-[0_6px_32px_rgba(0,0,0,0.06)] border border-[#E5E5E5] p-5">
                             {/* 书名 */}
-                            <h2 className="text-center font-serif text-base font-bold text-[#4A3F35] leading-relaxed">
+                            <h2 className="text-center font-serif text-base font-bold text-[#1F1F1F] leading-relaxed">
                                 {title}
                             </h2>
-                            <div className="mx-auto mt-2 h-px w-10 bg-gradient-to-r from-transparent via-[#F0A93B] to-transparent" />
-                            <p className="mt-2 text-[10px] text-[#B5A89A]">
+                            <div className="mx-auto mt-2 h-px w-10 bg-gradient-to-r from-transparent via-[#9A9A9A] to-transparent" />
+                            <p className="mt-2 text-[10px] text-[#9A9A9A]">
                                 {char?.name} · {currentStyle?.name} · 约{wordCount}字 · {currentPov?.name}
                             </p>
                             {/* 正文 */}
-                            <article className="mt-4 whitespace-pre-wrap text-[13px] leading-[1.85] text-[#4A3F35] font-light">
+                            <article className="mt-4 whitespace-pre-wrap text-[13px] leading-[1.85] text-[#1F1F1F] font-light">
                                 {body}
                             </article>
                         </div>
                     </div>
                     {/* 预览区底部：收藏（让位 home 条） */}
-                    <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-[#FDF8F0] via-[#FDF8F0]/90 to-transparent" style={{ paddingBottom: 'max(1.25rem, var(--safe-bottom, env(safe-area-inset-bottom, 0px)))' }}>
+                    <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
                         <button
                             onClick={handleCollect}
                             disabled={collected}
                             className={`w-full rounded-2xl py-3 text-sm font-bold text-white transition-all active:scale-[0.98] cursor-pointer disabled:cursor-default ${
                                 collected
                                     ? 'bg-[#34C77B] shadow-sm'
-                                    : 'bg-gradient-to-r from-[#F0A93B] via-[#E8845A] to-[#C96F8A] shadow-md shadow-[#E8845A]/30'
+                                    : 'bg-[#1F1F1F] shadow-md shadow-[#1F1F1F]/20'
                             }`}
                         >
                             {collected ? '已收藏到拾光 ✓' : '收藏到拾光'}
