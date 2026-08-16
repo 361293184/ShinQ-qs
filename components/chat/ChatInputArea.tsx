@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
@@ -703,7 +703,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">番外</span>
                             </button>
 
-                            {/* 占位图标：手账（暂未开放） */}
+                            {/* 占位图标：定位（暂未开放，后续接入高德地图） */}
                             <button
                               type="button"
                               onClick={() => {}}
@@ -711,9 +711,9 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
                             >
                               <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
-                                <PencilSimple className="w-6 h-6" weight="bold" />
+                                <MapPin className="w-6 h-6" weight="bold" />
                               </div>
-                              <span className="text-xs font-bold">手账</span>
+                              <span className="text-xs font-bold">定位</span>
                             </button>
 
                           </div>
