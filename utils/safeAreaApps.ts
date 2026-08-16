@@ -39,6 +39,7 @@ export const SELF_SAFE_AREA_APPS: ReadonlySet<AppID> = new Set<AppID>([
     AppID.LifeSim,
     AppID.MemoryPalace,
     AppID.Handbook,
+    AppID.Techo,
     AppID.QQBridge,
     AppID.HotNews,
     AppID.WorldHome,

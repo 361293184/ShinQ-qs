@@ -39,6 +39,7 @@ export enum AppID {
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
+  Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
 }
 
 export interface SystemLog {
@@ -1169,6 +1170,100 @@ export interface FanwaiStory {
     worldSetting: string; // 用户粘贴的世界设定
     content: string;     // 生成的全文
     createdAt: number;   // 时间戳
+}
+
+// =====================================================================
+// --- TECNO HANDOU (手账) TYPES ---
+// 个人日程/打卡/碎碎念手账（源自 techo 插件 React 移植）。
+// 存储走 STORE_TECHO 通用 KV store，key 见 utils/techoStore.ts。
+// =====================================================================
+
+/** 时间轴任务（有固定时间的任务）。 */
+export interface TechoTimelineItem {
+    id: string;
+    time: string;        // "HH:mm"
+    text: string;
+    done: boolean;
+    star?: boolean;
+}
+
+/** 灵活任务（Todo，无固定时间）。 */
+export interface TechoTodoItem {
+    id: string;
+    text: string;
+    done: boolean;
+    star?: boolean;
+    overdue?: boolean;   // 延期滚入次日标记
+}
+
+/** 单日数据。 */
+export interface TechoDayData {
+    date: string;        // YYYY-MM-DD
+    timeline: TechoTimelineItem[];
+    todos: TechoTodoItem[];
+    notes: string;       // 碎碎念
+}
+
+/** 习惯频率。 */
+export type TechoHabitFrequency =
+    | { type: 'daily' }
+    | { type: 'weekly_count'; count: number }
+    | { type: 'weekly_fixed'; days: number[] }; // 0-6 周日-周六
+
+/** 习惯。 */
+export interface TechoHabit {
+    id: string;
+    name: string;
+    icon: string;
+    frequency: TechoHabitFrequency;
+    targetDays?: number;   // 养成目标（每日习惯=天数，每周习惯=周数）
+    startDate: string;
+    phase: 'growing' | 'sustained';
+    checkins: Record<string, number>; // { YYYY-MM-DD: 次数 }
+}
+
+/** 大事记。 */
+export interface TechoMilestone {
+    id: string;
+    date: string;
+    text: string;
+}
+
+/** 年度目标。 */
+export interface TechoGoal {
+    id: string;
+    text: string;
+    target: number;
+    type: 'habit_count';
+    habitId: string;
+}
+
+/** 生理期记录（存月数据里）。 */
+export interface TechoPeriod {
+    start: string;
+    end: string;
+}
+
+/** 月数据（月备注 + 生理期）。 */
+export interface TechoMonthData {
+    note: string;
+    period: TechoPeriod | null;
+}
+
+/** 手账设置。 */
+export interface TechoSettings {
+    theme: string;
+    fontSize: number;
+    notebookName: string;
+    city: string;
+    characterFrequency: 'high' | 'medium' | 'low';
+    characterTone: 'gentle' | 'direct';
+    charWhitelist: string[];
+    charData: Record<string, { name: string; lastSeen: number }>;
+    nodeSwitches: { period: boolean; weather: boolean; habit: boolean; milestone: boolean };
+    habitReminder: boolean;
+    bgUrl: string;
+    bgOpacity: number;
 }
 
 // =====================================================================
