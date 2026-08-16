@@ -745,24 +745,24 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
 
             {/* 角色感知：哪些角色能感知手账 */}
             <Section title="角色感知（白名单）" theme={t}>
-                <p className={`text-[10px] ${t.muted} mb-3`}>勾选后，这些角色能基于你的日程/习惯/碎碎念说话</p>
+                <p className={`text-[10px] ${t.muted} mb-3`}>勾选后，这些角色能基于你的日程/习惯/碎碎念说话（头像取自角色档案，换头像后自动更新）</p>
                 {characters.length === 0 ? (
                     <p className={`text-[10px] ${t.muted}`}>还没有角色</p>
                 ) : (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
                         {characters.map(c => {
                             const on = settings.charWhitelist.includes(c.id);
                             return (
                                 <button
                                     key={c.id}
                                     onClick={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })}
-                                    className={`relative flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all cursor-pointer ${on ? 'border-[#1F1F1F] bg-black/5 shadow-sm' : 'border-black/10 bg-white/40 hover:bg-black/5'}`}
+                                    className={`w-full flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer ${on ? 'border-[#1F1F1F] bg-black/5' : 'border-black/10 bg-white/40 hover:bg-black/5'}`}
                                 >
-                                    {on && (
-                                        <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#1F1F1F] text-white text-[10px] flex items-center justify-center">✓</span>
-                                    )}
-                                    <CharAvatar avatar={c.avatar} name={c.name} size={48} />
-                                    <span className="text-xs font-semibold truncate max-w-full">{c.name}</span>
+                                    <CharAvatar avatar={c.avatar} name={c.name} size={40} />
+                                    <span className="flex-1 text-left text-sm font-semibold truncate">{c.name}</span>
+                                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${on ? 'border-[#1F1F1F] bg-[#1F1F1F] text-white text-xs' : 'border-black/20'}`}>
+                                        {on && '✓'}
+                                    </span>
                                 </button>
                             );
                         })}
@@ -781,14 +781,8 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
                         </button>
                     ))}
                 </div>
-                <p className={`text-[10px] ${t.muted} mb-2`}>语气</p>
-                <div className="flex gap-1.5">
-                    {([['gentle', '温柔'], ['direct', '直白']] as const).map(([v, label]) => (
-                        <button key={v} onClick={() => set({ characterTone: v })}
-                            className={`flex-1 py-1.5 rounded-full text-xs cursor-pointer ${settings.characterTone === v ? 'bg-[#1F1F1F] text-white' : 'bg-black/5'}`}>
-                            {label}
-                        </button>
-                    ))}
+                <div className={`text-[10px] ${t.muted} mt-2 leading-relaxed`}>
+                    语气、称呼、亲疏由<b className={t.text}>角色人设 + 你和 ta 的关系</b>自动决定，无需手动设置
                 </div>
             </Section>
 
