@@ -15,7 +15,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem } from '../types';
+import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, CharacterProfile } from '../types';
 import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid,
@@ -38,7 +38,7 @@ const THEMES: Record<string, { name: string; bg: string; card: string; text: str
 
 /* ---------- 主组件 ---------- */
 const TechoApp: React.FC = () => {
-    const { closeApp, characters, addToast, realtimeConfig } = useOS();
+    const { closeApp, characters, addToast, realtimeConfig, updateCharacter } = useOS();
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [settings, setSettings] = useState<TechoSettings>(() => getSettings());
     const [page, setPage] = useState<'cover' | 'day' | 'week' | 'month' | 'year' | 'habit' | 'settings'>('cover');
@@ -151,6 +151,7 @@ const TechoApp: React.FC = () => {
                         settings={settings}
                         onChange={saveSettingsAndState}
                         characters={characters}
+                        updateCharacter={updateCharacter}
                         addToast={addToast}
                     />
                 )}
@@ -719,11 +720,9 @@ function QuickAddModal(props: { theme: any; date: string; dayData: TechoDayData;
 }
 
 /* ---------- 设置 ---------- */
-function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s: TechoSettings) => void; characters: { id: string; name: string }[]; addToast: (m: string, type?: 'error' | 'success' | 'info') => void }) {
-    const { theme: t, settings, onChange, characters, addToast } = props;
+function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s: TechoSettings) => void; characters: CharacterProfile[]; updateCharacter: (id: string, updates: Partial<CharacterProfile>) => void; addToast: (m: string, type?: 'error' | 'success' | 'info') => void }) {
+    const { theme: t, settings, onChange, characters, updateCharacter, addToast } = props;
     const set = (patch: Partial<TechoSettings>) => onChange({ ...settings, ...patch });
-    const setNode = (key: keyof TechoSettings['nodeSwitches'], val: boolean) =>
-        set({ nodeSwitches: { ...settings.nodeSwitches, [key]: val } });
 
     return (
         <div className="py-3 space-y-4">
@@ -770,11 +769,11 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
                 ) : (
                     <div className="space-y-1.5">
                         {characters.map(c => {
-                            const on = settings.charWhitelist.includes(c.id);
+                            const on = c.journalSensingEnabled === true;
                             return (
                                 <button
                                     key={c.id}
-                                    onClick={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })}
+                                    onClick={() => updateCharacter(c.id, { journalSensingEnabled: !on })}
                                     className={`w-full flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer ${on ? 'border-[#1F1F1F] bg-black/5' : 'border-black/10 bg-white/40 hover:bg-black/5'}`}
                                 >
                                     <CharAvatar avatar={c.avatar} name={c.name} size={40} />
@@ -787,42 +786,6 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
                         })}
                     </div>
                 )}
-            </Section>
-
-            {/* 说话：频率 + 语气 */}
-            <Section title="说话风格" theme={t}>
-                <p className={`text-[10px] ${t.muted} mb-2`}>频率</p>
-                <div className="flex gap-1.5 mb-3">
-                    {([['high', '频繁'], ['medium', '适中'], ['low', '偶尔']] as const).map(([v, label]) => (
-                        <button key={v} onClick={() => set({ characterFrequency: v })}
-                            className={`flex-1 py-1.5 rounded-full text-xs cursor-pointer ${settings.characterFrequency === v ? 'bg-[#1F1F1F] text-white' : 'bg-black/5'}`}>
-                            {label}
-                        </button>
-                    ))}
-                </div>
-                <div className={`text-[10px] ${t.muted} mt-2 leading-relaxed`}>
-                    语气、称呼、亲疏由<b className={t.text}>角色人设 + 你和 ta 的关系</b>自动决定，无需手动设置
-                </div>
-            </Section>
-
-            {/* 节点开关（4 个） */}
-            <Section title="关键节点触发" theme={t}>
-                <p className={`text-[10px] ${t.muted} mb-2`}>勾选后，角色会在对应节点主动说话</p>
-                <Toggle label="生理期" theme={t} on={settings.nodeSwitches.period}
-                    onChange={(v) => setNode('period', v)} />
-                <Toggle label="天气变化" theme={t} on={settings.nodeSwitches.weather}
-                    onChange={(v) => setNode('weather', v)} />
-                <Toggle label="习惯未打卡" theme={t} on={settings.nodeSwitches.habit}
-                    onChange={(v) => setNode('habit', v)} />
-                <Toggle label="里程碑达成" theme={t} on={settings.nodeSwitches.milestone}
-                    onChange={(v) => setNode('milestone', v)} />
-            </Section>
-
-            {/* 习惯提醒 */}
-            <Section title="习惯提醒" theme={t}>
-                <Toggle label="今日习惯未全部打卡时提醒" theme={t}
-                    on={settings.habitReminder}
-                    onChange={(v) => set({ habitReminder: v })} />
             </Section>
 
             {/* 数据 */}
@@ -882,20 +845,6 @@ function CharAvatar(props: { avatar: string; name: string; size?: number }) {
                 <span style={{ fontSize: Math.round(size * 0.55) }}>{avatar || '👤'}</span>
             )}
         </span>
-    );
-}
-
-function Toggle(props: { label: string; theme: any; on: boolean; onChange: (v: boolean) => void }) {
-    return (
-        <label className="flex items-center justify-between py-1.5 cursor-pointer">
-            <span className="text-sm">{props.label}</span>
-            <span
-                onClick={() => props.onChange(!props.on)}
-                className={`relative inline-block w-9 h-5 rounded-full transition-colors cursor-pointer ${props.on ? 'bg-[#1F1F1F]' : 'bg-black/15'}`}
-            >
-                <span className={`absolute top-0.5 ${props.on ? 'left-[18px]' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow transition-all`} />
-            </span>
-        </label>
     );
 }
 

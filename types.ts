@@ -2944,6 +2944,9 @@ export interface CharacterProfile {
   // 总开关：默认关（opt-in）。开启后才注入「用户生活记录」section（潜意识背景约束 +
   // 各模块今日摘要 + [[LIFE:...]] 代记指令说明）。关闭时连指令说明都不给角色看。
   lifeRecordEnabled?: boolean;
+  // 手账感知总开关：默认关（opt-in）。开启后把用户手账（techo：今日日程/碎碎念/习惯）
+  // 作为「潜意识背景」注入角色对话上下文，角色自然接话（不点破、不逐条复述）。
+  journalSensingEnabled?: boolean;
   // 小开关：默认开（!== false 即开），受总开关统辖；分别控制对应模块的数据摘要与代记指令。
   lifeRecordPeriodEnabled?: boolean;    // 生理期
   lifeRecordMedEnabled?: boolean;       // 药盒

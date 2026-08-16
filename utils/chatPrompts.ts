@@ -15,6 +15,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { buildLifeRecordInjection } from './lifeRecords';
+import { buildJournalInjection } from './journalInjection';
 import { isWorkerReachableUrl } from './amsgToolPack';
 import { isAmsg2EnabledForChar } from './amsg2Tasks';
 import { getCharNameById } from './charNameRegistry';
@@ -528,6 +529,9 @@ ${groupLogStr}\n`;
         baseSystemPrompt += feishuDiaryText;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;
+        // 手账感知注入：用户勾选「感知手账」的角色，把 ta 今日手账（日程/习惯/碎碎念）
+        // 作为潜意识背景注入，角色自然接话。同步函数，开关关闭时返回 '' 不注入。
+        baseSystemPrompt += buildJournalInjection(char, userProfile.name);
 
         // 彼方常驻设定：仅对启用了「彼方」的角色注入。让角色在聊天里始终知道彼方是什么，
         // 不再依赖累积的 vr_card 动态 / 记忆总结（那些会被压缩、丢掉"彼方=VR游戏"的框定，
