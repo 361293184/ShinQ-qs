@@ -23,6 +23,7 @@ import {
 import {
     GearSix, CaretLeft, CaretRight,
     Star, PencilSimple, Trash, Plus, CheckCircle, Circle,
+    ClipboardText, CalendarBlank, SquaresFour, ChartBar, CheckSquare,
 } from '@phosphor-icons/react';
 
 /* ---------- 主题配色 ---------- */
@@ -145,21 +146,24 @@ const TechoApp: React.FC = () => {
                 style={{ paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)' }}
             >
                 {[
-                    { key: 'day', label: '今日', icon: '📋' },
-                    { key: 'week', label: '周', icon: '📅' },
-                    { key: 'month', label: '月', icon: '🗓️' },
-                    { key: 'year', label: '年', icon: '🌐' },
-                    { key: 'habit', label: '习惯', icon: '✅' },
-                ].map(b => (
-                    <button
-                        key={b.key}
-                        onClick={() => setPage(b.key as typeof page)}
-                        className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${page === b.key ? 'text-[#1F1F1F] font-bold' : 'text-[#9A9A9A]'}`}
-                    >
-                        <span className="text-lg leading-none">{b.icon}</span>
-                        <span className="text-[10px]">{b.label}</span>
-                    </button>
-                ))}
+                    { key: 'day', label: '今日', Icon: ClipboardText },
+                    { key: 'week', label: '周', Icon: CalendarBlank },
+                    { key: 'month', label: '月', Icon: SquaresFour },
+                    { key: 'year', label: '年', Icon: ChartBar },
+                    { key: 'habit', label: '习惯', Icon: CheckSquare },
+                ].map(b => {
+                    const active = page === b.key;
+                    return (
+                        <button
+                            key={b.key}
+                            onClick={() => setPage(b.key as typeof page)}
+                            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${active ? 'text-[#1F1F1F] font-bold' : 'text-[#9A9A9A]'}`}
+                        >
+                            <b.Icon size={20} weight={active ? 'fill' : 'regular'} />
+                            <span className="text-[10px]">{b.label}</span>
+                        </button>
+                    );
+                })}
             </nav>
 
             {/* 全局 + 快速添加 */}
@@ -741,19 +745,25 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
 
             {/* 角色感知：哪些角色能感知手账 */}
             <Section title="角色感知（白名单）" theme={t}>
-                <p className={`text-[10px] ${t.muted} mb-2`}>勾选后，这些角色能基于你的日程/习惯/碎碎念说话</p>
+                <p className={`text-[10px] ${t.muted} mb-3`}>勾选后，这些角色能基于你的日程/习惯/碎碎念说话</p>
                 {characters.length === 0 ? (
                     <p className={`text-[10px] ${t.muted}`}>还没有角色</p>
                 ) : (
-                    <div className="space-y-1">
+                    <div className="grid grid-cols-2 gap-2">
                         {characters.map(c => {
                             const on = settings.charWhitelist.includes(c.id);
                             return (
-                                <label key={c.id} className="flex items-center gap-2 py-1 cursor-pointer">
-                                    <input type="checkbox" checked={on}
-                                        onChange={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })} />
-                                    <span className="text-sm">{c.name}</span>
-                                </label>
+                                <button
+                                    key={c.id}
+                                    onClick={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })}
+                                    className={`relative flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all cursor-pointer ${on ? 'border-[#1F1F1F] bg-black/5 shadow-sm' : 'border-black/10 bg-white/40 hover:bg-black/5'}`}
+                                >
+                                    {on && (
+                                        <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#1F1F1F] text-white text-[10px] flex items-center justify-center">✓</span>
+                                    )}
+                                    <CharAvatar avatar={c.avatar} name={c.name} size={48} />
+                                    <span className="text-xs font-semibold truncate max-w-full">{c.name}</span>
+                                </button>
                             );
                         })}
                     </div>
@@ -840,6 +850,25 @@ function Section(props: { title: string; theme: any; children: React.ReactNode }
             <p className="text-xs font-semibold mb-2">{props.title}</p>
             {props.children}
         </div>
+    );
+}
+
+/** 角色头像：URL/data:image 显示图片，其他当作 emoji 文字。 */
+function CharAvatar(props: { avatar: string; name: string; size?: number }) {
+    const { avatar, name, size = 40 } = props;
+    const isUrl = avatar && (avatar.startsWith('http') || avatar.startsWith('data:image'));
+    return (
+        <span
+            className="rounded-full overflow-hidden bg-black/10 flex items-center justify-center shrink-0"
+            style={{ width: size, height: size }}
+            aria-label={name}
+        >
+            {isUrl ? (
+                <img src={avatar} alt={name} className="w-full h-full object-cover" />
+            ) : (
+                <span style={{ fontSize: Math.round(size * 0.55) }}>{avatar || '👤'}</span>
+            )}
+        </span>
     );
 }
 
