@@ -83,20 +83,37 @@ export function uid(): string {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
 }
 
-/** 天气 code → emoji。 */
+/** 天气 code → emoji。兼容 OWM icon code（'01d' 等字符串）和 Open-Meteo WMO 数字码。 */
 export function weatherIcon(code: number | string | undefined): string {
-    if (code == null) return '';
-    const c = parseInt(String(code), 10);
-    if (c === 0 || c === 1) return '☀️';
-    if (c === 2 || c === 3) return '☁️';
-    if (c >= 4 && c <= 19) return '🌧️';
-    if (c >= 20 && c <= 29) return '🌨️';
-    if (c >= 30 && c <= 39) return '🌪️';
-    if (c >= 40 && c <= 49) return '🌨️';
-    if (c >= 50 && c <= 59) return '🌫️';
-    if (c >= 60 && c <= 79) return '🌧️';
-    if (c >= 80 && c <= 89) return '🌦️';
-    if (c >= 90 && c <= 99) return '🌡️';
+    if (code == null) return '🌤️';
+    const s = String(code);
+    // OWM icon code：01d/01n… 取前两位数字
+    const m = s.match(/^(\d{2})/);
+    if (m) {
+        const c = parseInt(m[1], 10);
+        if (c === 1) return '☀️';   // 01 晴
+        if (c === 2) return '🌤️';   // 02 大致晴朗
+        if (c === 3) return '☁️';   // 03 局部多云
+        if (c === 4) return '☁️';   // 04 阴
+        if (c === 9) return '🌧️';   // 09 雨
+        if (c === 10) return '🌦️';  // 10 阵雨
+        if (c === 11) return '⛈️';  // 11 雷雨
+        if (c === 13) return '🌨️';  // 13 雪
+        if (c === 50) return '🌫️';  // 50 雾
+        return '🌤️';
+    }
+    const n = parseInt(s, 10);
+    if (isNaN(n)) return '🌤️';
+    if (n === 0 || n === 1) return '☀️';
+    if (n === 2 || n === 3) return '☁️';
+    if (n >= 4 && n <= 19) return '🌧️';
+    if (n >= 20 && n <= 29) return '🌨️';
+    if (n >= 30 && n <= 39) return '🌪️';
+    if (n >= 40 && n <= 49) return '🌨️';
+    if (n >= 50 && n <= 59) return '🌫️';
+    if (n >= 60 && n <= 79) return '🌧️';
+    if (n >= 80 && n <= 89) return '🌦️';
+    if (n >= 90 && n <= 99) return '⛈️';
     return '🌤️';
 }
 

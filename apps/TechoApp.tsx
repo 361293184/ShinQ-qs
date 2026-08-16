@@ -16,6 +16,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem } from '../types';
+import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid,
     weatherIcon, getDay, saveDay, getHabits, saveHabits, getSettings, saveSettings,
@@ -37,7 +38,8 @@ const THEMES: Record<string, { name: string; bg: string; card: string; text: str
 
 /* ---------- 主组件 ---------- */
 const TechoApp: React.FC = () => {
-    const { closeApp, characters, addToast } = useOS();
+    const { closeApp, characters, addToast, realtimeConfig } = useOS();
+    const [weather, setWeather] = useState<WeatherData | null>(null);
     const [settings, setSettings] = useState<TechoSettings>(() => getSettings());
     const [page, setPage] = useState<'cover' | 'day' | 'week' | 'month' | 'year' | 'habit' | 'settings'>('cover');
     const [date, setDate] = useState(() => todayStr());
@@ -56,6 +58,19 @@ const TechoApp: React.FC = () => {
 
     // 保存当前 day 数据
     const persistDay = (next: TechoDayData) => { saveDay(next.date, next); setDayData(next); };
+
+    /* ---------- 天气（复用 Sully 的实时天气） ---------- */
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const w = await RealtimeContextManager.fetchWeather(realtimeConfig);
+                if (!cancelled && w) setWeather(w);
+            } catch (e) { /* 拉不到天气不阻断 */ }
+        };
+        load();
+        return () => { cancelled = true; };
+    }, [realtimeConfig.weatherEnabled, realtimeConfig.weatherCity, realtimeConfig.weatherApiKey]);
 
     /* ---------- 今日统计 ---------- */
     const todayStats = useMemo(() => {
@@ -107,6 +122,7 @@ const TechoApp: React.FC = () => {
                         todayStats={todayStats}
                         habits={habits}
                         todayHabitsTodo={todayHabitsTodo}
+                        weather={weather}
                         onEnter={() => { setPage('day'); setDate(todayStr()); setDayData(getDay(todayStr())); }}
                         onSettings={() => setPage('settings')}
                     />
@@ -192,11 +208,11 @@ const TechoApp: React.FC = () => {
 /* ---------- 封面 ---------- */
 function Cover(props: {
     theme: any; settings: TechoSettings; date: string; todayStats: { total: number; done: number; rate: number };
-    habits: TechoHabit[]; todayHabitsTodo: TechoHabit[]; onEnter: () => void; onSettings: () => void;
+    habits: TechoHabit[]; todayHabitsTodo: TechoHabit[]; weather: WeatherData | null;
+    onEnter: () => void; onSettings: () => void;
 }) {
-    const { theme, settings, date, todayStats, todayHabitsTodo, onEnter } = props;
+    const { theme, settings, date, todayStats, todayHabitsTodo, weather, onEnter } = props;
     const d = new Date(date + 'T00:00:00');
-    const weather = { text: '', temp: '' };
     const t = theme;
 
     return (
@@ -204,8 +220,11 @@ function Cover(props: {
             <div className={`rounded-3xl ${t.card} p-5 shadow-sm mb-4`}>
                 <p className={`text-sm ${t.muted}`}>{greeting()}{settings.notebookName ? `，${settings.notebookName}` : ''}</p>
                 <h2 className="text-2xl font-bold mt-1">{weekdayCN(d)} · {d.getMonth() + 1}月{d.getDate()}日</h2>
-                {weather.text && (
-                    <p className={`text-sm ${t.muted} mt-1`}>{weatherIcon(1)} {weather.text}{settings.city ? ` · ${settings.city}` : ''}</p>
+                {weather && (
+                    <p className={`text-sm ${t.muted} mt-1`}>
+                        {weatherIcon(weather.icon)} {weather.description} {weather.temp}°C
+                        {settings.city ? ` · ${settings.city}` : weather.city ? ` · ${weather.city}` : ''}
+                    </p>
                 )}
             </div>
 
