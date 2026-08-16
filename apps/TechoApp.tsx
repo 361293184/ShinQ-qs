@@ -91,7 +91,9 @@ const TechoApp: React.FC = () => {
                     <CaretLeft className="w-4 h-4" /><span>返回</span>
                 </button>
                 <span className="text-sm font-bold tracking-wide">{settings.notebookName || '手账'}</span>
-                <div className="w-12" />
+                <button onClick={() => setPage('settings')} className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-black/5 transition-colors cursor-pointer" aria-label="设置">
+                    <GearSix className={`w-5 h-5 ${theme.muted}`} />
+                </button>
             </header>
 
             {/* 内容区 */}
@@ -697,10 +699,13 @@ function QuickAddModal(props: { theme: any; date: string; dayData: TechoDayData;
 function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s: TechoSettings) => void; characters: { id: string; name: string }[]; addToast: (m: string, type?: 'error' | 'success' | 'info') => void }) {
     const { theme: t, settings, onChange, characters, addToast } = props;
     const set = (patch: Partial<TechoSettings>) => onChange({ ...settings, ...patch });
+    const setNode = (key: keyof TechoSettings['nodeSwitches'], val: boolean) =>
+        set({ nodeSwitches: { ...settings.nodeSwitches, [key]: val } });
+
     return (
         <div className="py-3 space-y-4">
-            <div className={`rounded-2xl ${t.card} p-4`}>
-                <p className="text-xs font-semibold mb-2">外观</p>
+            {/* 外观：主题 */}
+            <Section title="主题" theme={t}>
                 <div className="flex flex-wrap gap-1.5">
                     {Object.entries(THEMES).map(([id, th]) => (
                         <button key={id} onClick={() => set({ theme: id })}
@@ -709,61 +714,163 @@ function SettingsView(props: { theme: any; settings: TechoSettings; onChange: (s
                         </button>
                     ))}
                 </div>
-            </div>
+            </Section>
 
-            <div className={`rounded-2xl ${t.card} p-4`}>
-                <p className="text-xs font-semibold mb-2">手账名</p>
+            {/* 手账名 + 字号 */}
+            <Section title="手账" theme={t}>
                 <input value={settings.notebookName} onChange={e => set({ notebookName: e.target.value })}
                     placeholder="给手账起个名字" className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm" />
-            </div>
-
-            <div className={`rounded-2xl ${t.card} p-4`}>
-                <p className="text-xs font-semibold mb-2">角色</p>
-                <p className={`text-[10px] ${t.muted} mb-2`}>勾选后，这些角色在手账里能基于你的日程/习惯说话</p>
-                <div className="space-y-1">
-                    {characters.map(c => {
-                        const on = settings.charWhitelist.includes(c.id);
-                        return (
-                            <label key={c.id} className="flex items-center gap-2 py-1 cursor-pointer">
-                                <input type="checkbox" checked={on}
-                                    onChange={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })} />
-                                <span className="text-sm">{c.name}</span>
-                            </label>
-                        );
-                    })}
+                <div className="flex items-center justify-between mt-3">
+                    <span className="text-sm">字号</span>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => set({ fontSize: Math.max(12, settings.fontSize - 1) })}
+                            className="w-7 h-7 rounded-full bg-black/5 text-sm cursor-pointer">-</button>
+                        <span className="text-sm w-6 text-center">{settings.fontSize}</span>
+                        <button onClick={() => set({ fontSize: Math.min(22, settings.fontSize + 1) })}
+                            className="w-7 h-7 rounded-full bg-black/5 text-sm cursor-pointer">+</button>
+                    </div>
                 </div>
-            </div>
+            </Section>
 
-            <div className={`rounded-2xl ${t.card} p-4`}>
-                <p className="text-xs font-semibold mb-2">数据</p>
-                <div className="flex gap-2">
-                    <button onClick={() => {
-                        const data = exportJsonSafe(settings);
-                        navigator.clipboard.writeText(data).then(() => addToast('已复制手账数据 JSON')).catch(() => addToast('复制失败'));
-                    }} className="flex-1 py-2 rounded-xl text-xs bg-black/5 cursor-pointer">导出</button>
+            {/* 城市（天气用） */}
+            <Section title="城市（用于天气）" theme={t}>
+                <input value={settings.city} onChange={e => set({ city: e.target.value })}
+                    placeholder="例如：北京 / Shanghai" className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm" />
+                <p className={`text-[10px] ${t.muted} mt-2`}>接入高德/和风天气后会自动拉取；当前为占位</p>
+            </Section>
+
+            {/* 角色感知：哪些角色能感知手账 */}
+            <Section title="角色感知（白名单）" theme={t}>
+                <p className={`text-[10px] ${t.muted} mb-2`}>勾选后，这些角色能基于你的日程/习惯/碎碎念说话</p>
+                {characters.length === 0 ? (
+                    <p className={`text-[10px] ${t.muted}`}>还没有角色</p>
+                ) : (
+                    <div className="space-y-1">
+                        {characters.map(c => {
+                            const on = settings.charWhitelist.includes(c.id);
+                            return (
+                                <label key={c.id} className="flex items-center gap-2 py-1 cursor-pointer">
+                                    <input type="checkbox" checked={on}
+                                        onChange={() => set({ charWhitelist: on ? settings.charWhitelist.filter(x => x !== c.id) : [...settings.charWhitelist, c.id] })} />
+                                    <span className="text-sm">{c.name}</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                )}
+            </Section>
+
+            {/* 说话：频率 + 语气 */}
+            <Section title="说话风格" theme={t}>
+                <p className={`text-[10px] ${t.muted} mb-2`}>频率</p>
+                <div className="flex gap-1.5 mb-3">
+                    {([['high', '频繁'], ['medium', '适中'], ['low', '偶尔']] as const).map(([v, label]) => (
+                        <button key={v} onClick={() => set({ characterFrequency: v })}
+                            className={`flex-1 py-1.5 rounded-full text-xs cursor-pointer ${settings.characterFrequency === v ? 'bg-[#1F1F1F] text-white' : 'bg-black/5'}`}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+                <p className={`text-[10px] ${t.muted} mb-2`}>语气</p>
+                <div className="flex gap-1.5">
+                    {([['gentle', '温柔'], ['direct', '直白']] as const).map(([v, label]) => (
+                        <button key={v} onClick={() => set({ characterTone: v })}
+                            className={`flex-1 py-1.5 rounded-full text-xs cursor-pointer ${settings.characterTone === v ? 'bg-[#1F1F1F] text-white' : 'bg-black/5'}`}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </Section>
+
+            {/* 节点开关（4 个） */}
+            <Section title="关键节点触发" theme={t}>
+                <p className={`text-[10px] ${t.muted} mb-2`}>勾选后，角色会在对应节点主动说话</p>
+                <Toggle label="生理期" theme={t} on={settings.nodeSwitches.period}
+                    onChange={(v) => setNode('period', v)} />
+                <Toggle label="天气变化" theme={t} on={settings.nodeSwitches.weather}
+                    onChange={(v) => setNode('weather', v)} />
+                <Toggle label="习惯未打卡" theme={t} on={settings.nodeSwitches.habit}
+                    onChange={(v) => setNode('habit', v)} />
+                <Toggle label="里程碑达成" theme={t} on={settings.nodeSwitches.milestone}
+                    onChange={(v) => setNode('milestone', v)} />
+            </Section>
+
+            {/* 习惯提醒 */}
+            <Section title="习惯提醒" theme={t}>
+                <Toggle label="今日习惯未全部打卡时提醒" theme={t}
+                    on={settings.habitReminder}
+                    onChange={(v) => set({ habitReminder: v })} />
+            </Section>
+
+            {/* 数据 */}
+            <Section title="数据管理" theme={t}>
+                <div className="flex gap-2 flex-wrap">
+                    <button onClick={async () => {
+                        const data = exportJsonSafe(true);
+                        try { await navigator.clipboard.writeText(data); addToast('已复制手账 JSON（含生理期）', 'success'); }
+                        catch { addToast('复制失败', 'error'); }
+                    }} className="flex-1 min-w-[110px] py-2 rounded-xl text-xs bg-black/5 cursor-pointer">复制导出</button>
+                    <button onClick={async () => {
+                        const data = exportJsonSafe(false);
+                        try { await navigator.clipboard.writeText(data); addToast('已复制（已去除生理期）', 'success'); }
+                        catch { addToast('复制失败', 'error'); }
+                    }} className="flex-1 min-w-[110px] py-2 rounded-xl text-xs bg-black/5 cursor-pointer">导出（隐生理期）</button>
                     <button onClick={() => {
                         const raw = window.prompt('粘贴手账 JSON 导入');
-                        if (raw) { try { importJsonSafe(raw); addToast('导入成功'); } catch { addToast('导入失败'); } }
-                    }} className="flex-1 py-2 rounded-xl text-xs bg-black/5 cursor-pointer">导入</button>
+                        if (raw) {
+                            try { importJsonSafe(raw); addToast('导入成功', 'success'); }
+                            catch { addToast('导入失败：JSON 格式错误', 'error'); }
+                        }
+                    }} className="flex-1 min-w-[110px] py-2 rounded-xl text-xs bg-black/5 cursor-pointer">导入</button>
+                    <button onClick={() => {
+                        if (window.confirm('确定清空所有手账数据？此操作不可恢复。')) {
+                            try { clearAllTecho(); addToast('已清空手账数据', 'success'); }
+                            catch { addToast('清空失败', 'error'); }
+                        }
+                    }} className="flex-1 min-w-[110px] py-2 rounded-xl text-xs bg-red-50 text-red-500 cursor-pointer">清除所有数据</button>
                 </div>
-            </div>
+            </Section>
         </div>
     );
 }
 
+function Section(props: { title: string; theme: any; children: React.ReactNode }) {
+    return (
+        <div className={`rounded-2xl ${props.theme.card} p-4`}>
+            <p className="text-xs font-semibold mb-2">{props.title}</p>
+            {props.children}
+        </div>
+    );
+}
+
+function Toggle(props: { label: string; theme: any; on: boolean; onChange: (v: boolean) => void }) {
+    return (
+        <label className="flex items-center justify-between py-1.5 cursor-pointer">
+            <span className="text-sm">{props.label}</span>
+            <span
+                onClick={() => props.onChange(!props.on)}
+                className={`relative inline-block w-9 h-5 rounded-full transition-colors cursor-pointer ${props.on ? 'bg-[#1F1F1F]' : 'bg-black/15'}`}
+            >
+                <span className={`absolute top-0.5 ${props.on ? 'left-[18px]' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow transition-all`} />
+            </span>
+        </label>
+    );
+}
+
 // 工具函数：避免顶部循环依赖（简单实现）
-function exportJsonSafe(settings: TechoSettings): string {
-    // 导出核心数据（简化：每日 + 习惯 + 设置）
-    const out: Record<string, unknown> = { settings };
-    // 遍历 localStorage techo_ 前缀
+function exportJsonSafe(includePeriod: boolean): string {
+    const out: Record<string, unknown> = {};
     try {
         for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith('techo_')) {
                 const key = k.substring('techo_'.length);
-                if (!key.startsWith('settings')) {
-                    out[key] = JSON.parse(localStorage.getItem(k) || 'null');
+                let val: unknown = JSON.parse(localStorage.getItem(k) || 'null');
+                // 隐生理期
+                if (!includePeriod && key.startsWith('month_') && val && typeof val === 'object' && 'period' in (val as object)) {
+                    val = { ...(val as Record<string, unknown>), period: null };
                 }
+                out[key] = val;
             }
         }
     } catch (e) { /* ignore */ }
@@ -771,9 +878,16 @@ function exportJsonSafe(settings: TechoSettings): string {
 }
 function importJsonSafe(raw: string): void {
     const data = JSON.parse(raw);
-    try {
-        Object.entries(data).forEach(([k, v]) => localStorage.setItem('techo_' + k, JSON.stringify(v)));
-    } catch (e) { /* ignore */ }
+    if (typeof data !== 'object' || data === null) throw new Error('invalid');
+    Object.entries(data).forEach(([k, v]) => localStorage.setItem('techo_' + k, JSON.stringify(v)));
+}
+function clearAllTecho(): void {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('techo_')) toRemove.push(k);
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
 }
 
 export default TechoApp;
