@@ -159,8 +159,9 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
     return (
         <div className="fixed inset-0 z-[70] flex flex-col bg-white">
-            {/* 顶部导航（让位状态栏 / 刘海） */}
-            <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
+            {/* 顶部导航（让位状态栏 / 刘海）；生成中时隐藏，避免与遮罩内返回键位置重叠导致点错 */}
+            {!generating && (
+                <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
                 <button
                     onClick={onClose}
                     className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
@@ -175,6 +176,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                 </div>
                 <div className="w-12" />
             </header>
+            )}
 
             {/* 内容区 */}
             <div className="flex-1 overflow-y-auto px-4 pb-32">
@@ -219,7 +221,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                     </p>
                     {worldSetting.trim() && (
                         <p className="mt-1 text-[10px] text-[#9A9A9A]">
-                            已贴指令时文风由指令自动适配，下方预设仅在留空时生效。
+                            已贴指令时以指令为准，AI 用足笔力执行；下方预设仅在留空时生效。
                         </p>
                     )}
                     {style === 'custom' && (
@@ -323,11 +325,11 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                     <textarea
                         value={worldSetting}
                         onChange={e => setWorldSetting(e.target.value)}
-                        placeholder="直接把小红书番外指令贴进来即可……AI 会从指令里感知情绪与节奏，自动适配对应的文风来写。也可点名某位作家/某本书。字数仍以本页选择为准。"
+                        placeholder="请输入"
                         rows={4}
                         className={`${INPUT_BASE} resize-none leading-relaxed`}
                     />
-                    <p className="mt-1 text-[10px] text-[#9A9A9A]">贴指令即可，AI 自动适配文风要领。留空则自由发挥</p>
+                    <p className="mt-1 text-[10px] text-[#9A9A9A]">贴指令即可，AI 忠实执行并用足笔力。留空则自由发挥</p>
                 </section>
             </div>
 
@@ -363,14 +365,27 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
             {/* 生成中遮罩 */}
             {generating && (
-                <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-3 bg-white/85 backdrop-blur-sm">
-                    <div className="relative h-14 w-14">
-                        <div className="absolute inset-0 rounded-full border-2 border-[#E5E5E5]" />
-                        <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#1F1F1F] animate-spin" />
-                        <span className="absolute inset-0 flex items-center justify-center text-xl text-[#1F1F1F]">✎</span>
+                <div className="fixed inset-0 z-[80] bg-white/85 backdrop-blur-sm">
+                    {/* 左上角返回键：万一不想等了直接返回（z 高于中央进度区，确保可点击） */}
+                    <button
+                        onClick={onClose}
+                        className="absolute left-4 z-[90] flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
+                        style={{ top: 'calc(var(--chrome-top) + 1.25rem)' }}
+                        aria-label="返回"
+                    >
+                        <span className="text-sm leading-none">←</span>
+                        <span>返回</span>
+                    </button>
+                    {/* 中央进度区（inset-0 会盖住先渲染的兄弟，故返回键须 z 更高） */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                        <div className="relative h-14 w-14">
+                            <div className="absolute inset-0 rounded-full border-2 border-[#E5E5E5]" />
+                            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#1F1F1F] animate-spin" />
+                            <span className="absolute inset-0 flex items-center justify-center text-xl text-[#1F1F1F]">✎</span>
+                        </div>
+                        <p className="text-xs font-semibold text-[#666666]">正在为 ta 编织故事…</p>
+                        <p className="text-[10px] text-[#9A9A9A]">番外较长，请稍候片刻</p>
                     </div>
-                    <p className="text-xs font-semibold text-[#666666]">正在为 ta 编织故事…</p>
-                    <p className="text-[10px] text-[#9A9A9A]">番外较长，请稍候片刻</p>
                 </div>
             )}
 
