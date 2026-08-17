@@ -27,13 +27,29 @@ import {
     ClipboardText, CalendarBlank, SquaresFour, ChartBar, CheckSquare,
 } from '@phosphor-icons/react';
 
-/* ---------- 主题配色 ---------- */
-const THEMES: Record<string, { name: string; bg: string; card: string; text: string; muted: string; accent: string }> = {
-    warm:  { name: '暖纸', bg: 'bg-[#FDF6EC]', card: 'bg-white/90', text: 'text-[#3A3229]', muted: 'text-[#9A8B7A]', accent: 'bg-[#E8A87C]' },
-    calm:  { name: '青蓝', bg: 'bg-[#EEF4F8]', card: 'bg-white/90', text: 'text-[#2F3E4E]', muted: 'text-[#8FA2B4]', accent: 'bg-[#6C9BD1]' },
-    forest:{ name: '森绿', bg: 'bg-[#EEF4EC]', card: 'bg-white/90', text: 'text-[#2E3D30]', muted: 'text-[#93A894]', accent: 'bg-[#7CA982]' },
-    dusk:  { name: '暮紫', bg: 'bg-[#F1EEF6]', card: 'bg-white/90', text: 'text-[#3A3350]', muted: 'text-[#A198B8]', accent: 'bg-[#9B8FD0]' },
-    plain: { name: '素白', bg: 'bg-white', card: 'bg-white', text: 'text-[#333]', muted: 'text-[#999]', accent: 'bg-[#1F1F1F]' },
+/* ---------- 主题配色 ----------
+ * bg：内容区底色；headerBg：顶栏加深色；card/text/muted/accent 沿用；
+ * pattern：内容区背景纹路（内联 SVG data URI，低透明度）；navBg：底栏对比色。
+ */
+const THEMES: Record<string, {
+    name: string; bg: string; headerBg: string; card: string; text: string; muted: string; accent: string;
+    pattern: string; navBg: string; navActive: string;
+}> = {
+    warm:  { name: '暖纸', bg: 'bg-[#FDF6EC]', headerBg: 'bg-[#F2E4CC]', card: 'bg-white/90', text: 'text-[#3A3229]', muted: 'text-[#9A8B7A]', accent: 'bg-[#E8A87C]',
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23C89A6B' stroke-width='0.9' opacity='0.28'%3E%3Cpath d='M18 20c-4 2-6 6-4 10 1 3 4 5 6 2 2-2 1-7-2-12z'/%3E%3Cpath d='M22 18c-1 5-4 9-8 12'/%3E%3Cpath d='M46 48c4-1 6-5 4-9-1-3-4-4-5-2-2 2-1 7 1 11z'/%3E%3Cpath d='M43 46c1-5 3-8 7-10'/%3E%3C/g%3E%3C/svg%3E")`,
+             navBg: 'bg-[#3A3229]', navActive: 'text-[#F2E4CC]' },
+    calm:  { name: '青蓝', bg: 'bg-[#EEF4F8]', headerBg: 'bg-[#D9E8F2]', card: 'bg-white/90', text: 'text-[#2F3E4E]', muted: 'text-[#8FA2B4]', accent: 'bg-[#6C9BD1]',
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='72' viewBox='0 0 56 72'%3E%3Cg fill='none' stroke='%238FB6CE' stroke-width='0.9' opacity='0.3'%3E%3Cpath d='M12 8v34c0 6-3 10-8 12'/%3E%3Ccircle cx='12' cy='50' r='1.6' fill='%238FB6CE' stroke='none'/%3E%3Cpath d='M40 12v30c0 6-2 10-7 12'/%3E%3Ccircle cx='40' cy='50' r='1.4' fill='%238FB6CE' stroke='none'/%3E%3Cpath d='M26 16v24'/%3E%3Ccircle cx='26' cy='46' r='1.2' fill='%238FB6CE' stroke='none'/%3E%3C/g%3E%3C/svg%3E")`,
+             navBg: 'bg-[#2F3E4E]', navActive: 'text-[#D9E8F2]' },
+    forest:{ name: '森绿', bg: 'bg-[#EEF4EC]', headerBg: 'bg-[#DCEAD5]', card: 'bg-white/90', text: 'text-[#2E3D30]', muted: 'text-[#93A894]', accent: 'bg-[#7CA982]',
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='80' viewBox='0 0 60 80'%3E%3Cg fill='none' stroke='%2393B18A' stroke-width='0.9' opacity='0.3'%3E%3Cpath d='M14 4c-3 12 2 20 4 30 1 8 0 20-1 30'/%3E%3Cpath d='M16 14c-6-1-10 1-12 5'/%3E%3Cpath d='M17 22c-7 0-11 2-13 6'/%3E%3Cpath d='M16 34c-5-2-9-1-11 2'/%3E%3Cpath d='M38 10c3 12-2 20-3 30-1 8 0 20 1 30'/%3E%3Cpath d='M37 24c6 0 10 2 12 6'/%3E%3Cpath d='M37 36c5 2 9 1 11 2'/%3E%3C/g%3E%3C/svg%3E")`,
+             navBg: 'bg-[#2E3D30]', navActive: 'text-[#DCEAD5]' },
+    dusk:  { name: '暮紫', bg: 'bg-[#F1EEF6]', headerBg: 'bg-[#E0D8EF]', card: 'bg-white/90', text: 'text-[#3A3350]', muted: 'text-[#A198B8]', accent: 'bg-[#9B8FD0]',
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='%23C0A9D6' opacity='0.28'%3E%3Ccircle cx='16' cy='18' r='2.6'/%3E%3Ccircle cx='22' cy='14' r='1.6'/%3E%3Ccircle cx='13' cy='24' r='1.4'/%3E%3Ccircle cx='46' cy='46' r='2.8'/%3E%3Ccircle cx='53' cy='42' r='1.6'/%3E%3Ccircle cx='42' cy='52' r='1.4'/%3E%3Ccircle cx='32' cy='30' r='2'/%3E%3C/g%3E%3C/svg%3E")`,
+             navBg: 'bg-[#3A3350]', navActive: 'text-[#E0D8EF]' },
+    plain: { name: '素白', bg: 'bg-white', headerBg: 'bg-[#F0F0F0]', card: 'bg-white', text: 'text-[#333]', muted: 'text-[#999]', accent: 'bg-[#1F1F1F]',
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='%23CCCCCC' opacity='0.3'%3E%3Cpath d='M14 16l4 4M18 16l-4 4M14 30l4 4M18 30l-4 4M14 44l4 4M18 44l-4 4M44 18l4 4M48 18l-4 4M44 32l4 4M48 32l-4 4M44 46l4 4M48 46l-4 4'/%3E%3C/g%3E%3C/svg%3E")`,
+             navBg: 'bg-[#2B2B2B]', navActive: 'text-white' },
 };
 
 /* ---------- 主组件 ---------- */
@@ -97,10 +113,12 @@ const TechoApp: React.FC = () => {
     );
 
     return (
-        <div className={`fixed inset-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ fontSize: settings.fontSize }}>
+        <div className={`fixed inset-0 flex flex-col ${theme.bg} ${theme.text} relative`} style={{ fontSize: settings.fontSize }}>
+            {/* 内容区背景纹路（落叶/雨水/柳枝/花瓣/雪花，极淡） */}
+            <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: theme.pattern, backgroundSize: 'auto' }} />
             {/* 顶部导航 */}
             <header
-                className={`flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 ${theme.bg}`}
+                className={`flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 ${theme.headerBg}`}
                 style={{ paddingTop: 'calc(var(--chrome-top) + 1rem - 0.5cm)' }}
             >
                 <button onClick={closeApp} className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs hover:bg-black/5 transition-colors cursor-pointer" aria-label="返回">
@@ -113,7 +131,7 @@ const TechoApp: React.FC = () => {
             </header>
 
             {/* 内容区 */}
-            <div className="flex-1 overflow-y-auto px-4 pb-24">
+            <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-24">
                 {page === 'cover' && (
                     <Cover
                         theme={theme}
@@ -159,8 +177,8 @@ const TechoApp: React.FC = () => {
 
             {/* 底部导航 */}
             <nav
-                className="fixed inset-x-0 z-10 flex items-center justify-around px-4"
-                style={{ bottom: '0.5cm', paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)' }}
+                className={`fixed inset-x-0 z-20 flex items-center justify-around px-4 ${theme.navBg} rounded-t-2xl`}
+                style={{ bottom: '0.5cm', paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))' }}
             >
                 {[
                     { key: 'day', label: '今日', Icon: ClipboardText },
@@ -174,7 +192,7 @@ const TechoApp: React.FC = () => {
                         <button
                             key={b.key}
                             onClick={() => setPage(b.key as typeof page)}
-                            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${active ? 'text-[#1F1F1F] font-bold' : 'text-[#9A9A9A]'}`}
+                            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${active ? `${theme.navActive} font-bold` : 'text-white/45'}`}
                         >
                             <b.Icon size={20} weight={active ? 'fill' : 'regular'} />
                             <span className="text-[10px]">{b.label}</span>
