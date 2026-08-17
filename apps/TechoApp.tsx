@@ -108,7 +108,7 @@ const TechoApp: React.FC = () => {
     );
 
     return (
-        <div className={`fixed inset-0 flex flex-col ${theme.bg} ${theme.text} relative`} style={{ fontSize: settings.fontSize }}>
+        <div className={`absolute inset-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ fontSize: settings.fontSize }}>
             {/* 内容区背景纹路（落叶/雨水/柳枝/花瓣/雪花，极淡） */}
             <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: theme.pattern, backgroundSize: 'auto' }} />
             {/* 顶部导航 */}
