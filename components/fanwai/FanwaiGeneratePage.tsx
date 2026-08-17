@@ -161,7 +161,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
         <div className="fixed inset-0 z-[70] flex flex-col bg-white">
             {/* 顶部导航（让位状态栏 / 刘海）；生成中时隐藏，避免与遮罩内返回键位置重叠导致点错 */}
             {!generating && (
-                <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
+                <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 bg-white" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem - 0.5cm)' }}>
                 <button
                     onClick={onClose}
                     className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
@@ -335,7 +335,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
             {/* 底部操作（生成前：随机入口小字 + 生成按钮，让位 home 条） */}
             {!generated && (
-                <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
+                <div className="fixed inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ bottom: '0.5cm', paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
                     <button
                         onClick={() => setRandomMode(v => !v)}
                         disabled={generating}
@@ -392,7 +392,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             {/* 生成结果预览（书籍排版） */}
             {generated && (
                 <div className="fixed inset-0 z-[75] flex flex-col bg-white overflow-hidden">
-                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem)' }}>
+                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 bg-white" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem - 0.5cm)' }}>
                         <button
                             onClick={() => setGenerated('')}
                             className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
@@ -420,7 +420,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                         </div>
                     </div>
                     {/* 预览区底部：收藏（让位 home 条） */}
-                    <div className="fixed bottom-0 inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
+                    <div className="fixed inset-x-0 z-10 px-4 pt-3 bg-gradient-to-t from-white via-white/90 to-transparent" style={{ bottom: '0.5cm', paddingBottom: 'max(1.5rem, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 0.5rem))' }}>
                         <button
                             onClick={handleCollect}
                             disabled={collected}

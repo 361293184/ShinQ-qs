@@ -100,13 +100,13 @@ const TechoApp: React.FC = () => {
         <div className={`fixed inset-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ fontSize: settings.fontSize }}>
             {/* 顶部导航 */}
             <header
-                className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0"
-                style={{ paddingTop: 'calc(var(--chrome-top) + 1rem)' }}
+                className={`flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 ${theme.bg}`}
+                style={{ paddingTop: 'calc(var(--chrome-top) + 1rem - 0.5cm)' }}
             >
                 <button onClick={closeApp} className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs hover:bg-black/5 transition-colors cursor-pointer" aria-label="返回">
                     <CaretLeft className="w-4 h-4" /><span>返回</span>
                 </button>
-                <span className="text-sm font-bold tracking-wide">{settings.notebookName || '手账'}</span>
+                <span className="text-base font-bold tracking-wide">{settings.notebookName || '手账'}</span>
                 <button onClick={() => setPage('settings')} className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-black/5 transition-colors cursor-pointer" aria-label="设置">
                     <GearSix className={`w-5 h-5 ${theme.muted}`} />
                 </button>
@@ -159,8 +159,8 @@ const TechoApp: React.FC = () => {
 
             {/* 底部导航 */}
             <nav
-                className="fixed bottom-0 inset-x-0 z-10 flex items-center justify-around px-4"
-                style={{ paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)' }}
+                className="fixed inset-x-0 z-10 flex items-center justify-around px-4"
+                style={{ bottom: '0.5cm', paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)' }}
             >
                 {[
                     { key: 'day', label: '今日', Icon: ClipboardText },
