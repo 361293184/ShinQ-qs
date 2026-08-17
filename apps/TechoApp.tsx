@@ -28,28 +28,23 @@ import {
 } from '@phosphor-icons/react';
 
 /* ---------- 主题配色 ----------
- * bg：内容区底色；headerBg：顶栏加深色；card/text/muted/accent 沿用；
- * pattern：内容区背景纹路（内联 SVG data URI，低透明度）；navBg：底栏对比色。
+ * bg：内容区底色；headerBg：顶栏加深色（顶/底栏同色）；card/text/muted/accent 沿用；
+ * pattern：内容区背景纹路（内联 SVG data URI，低透明度、不元素位置随机）。
  */
 const THEMES: Record<string, {
     name: string; bg: string; headerBg: string; card: string; text: string; muted: string; accent: string;
-    pattern: string; navBg: string; navActive: string;
+    pattern: string;
 }> = {
     warm:  { name: '暖纸', bg: 'bg-[#FDF6EC]', headerBg: 'bg-[#F2E4CC]', card: 'bg-white/90', text: 'text-[#3A3229]', muted: 'text-[#9A8B7A]', accent: 'bg-[#E8A87C]',
-             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23C89A6B' stroke-width='0.9' opacity='0.28'%3E%3Cpath d='M18 20c-4 2-6 6-4 10 1 3 4 5 6 2 2-2 1-7-2-12z'/%3E%3Cpath d='M22 18c-1 5-4 9-8 12'/%3E%3Cpath d='M46 48c4-1 6-5 4-9-1-3-4-4-5-2-2 2-1 7 1 11z'/%3E%3Cpath d='M43 46c1-5 3-8 7-10'/%3E%3C/g%3E%3C/svg%3E")`,
-             navBg: 'bg-[#3A3229]', navActive: 'text-[#F2E4CC]' },
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='240' viewBox='0 0 160 240'%3E%3Cg fill='none' stroke='%23C89A6B' stroke-width='1' opacity='0.32'%3E%3Cpath transform='translate(22 30) rotate(18)' d='M0 0c-4 2-6 6-4 10 1 3 4 5 6 2 2-2 1-7-2-12z'/%3E%3Cpath transform='translate(28 28) rotate(15)' d='M4 -2c-1 5-4 9-8 12'/%3E%3Cpath transform='translate(108 70) rotate(-25)' d='M0 0c4-1 6-5 4-9-1-3-4-4-5-2-2 2-1 7 1 11z'/%3E%3Cpath transform='translate(105 68) rotate(-22)' d='M3 -2c1-5 3-8 7-10'/%3E%3Cpath transform='translate(56 122) rotate(45)' d='M0 0c-3 2-5 5-3 8 1 2 3 4 5 2 1-2 1-6-2-10z'/%3E%3Cpath transform='translate(132 158) rotate(-40)' d='M0 0c3-2 4-4 2-7-1-2-3-3-4-1-1 1 0 5 2 8z'/%3E%3Cpath transform='translate(40 198) rotate(12)' d='M0 0c-3 2-4 5-2 8 1 2 3 3 4 1 1-2 0-6-2-9z'/%3E%3Cpath transform='translate(96 210) rotate(-15)' d='M0 0c-3 1-5 4-3 7 1 2 3 3 4 1 1-2 1-5-1-8z'/%3E%3C/g%3E%3C/svg%3E")` },
     calm:  { name: '青蓝', bg: 'bg-[#EEF4F8]', headerBg: 'bg-[#D9E8F2]', card: 'bg-white/90', text: 'text-[#2F3E4E]', muted: 'text-[#8FA2B4]', accent: 'bg-[#6C9BD1]',
-             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='72' viewBox='0 0 56 72'%3E%3Cg fill='none' stroke='%238FB6CE' stroke-width='0.9' opacity='0.3'%3E%3Cpath d='M12 8v34c0 6-3 10-8 12'/%3E%3Ccircle cx='12' cy='50' r='1.6' fill='%238FB6CE' stroke='none'/%3E%3Cpath d='M40 12v30c0 6-2 10-7 12'/%3E%3Ccircle cx='40' cy='50' r='1.4' fill='%238FB6CE' stroke='none'/%3E%3Cpath d='M26 16v24'/%3E%3Ccircle cx='26' cy='46' r='1.2' fill='%238FB6CE' stroke='none'/%3E%3C/g%3E%3C/svg%3E")`,
-             navBg: 'bg-[#2F3E4E]', navActive: 'text-[#D9E8F2]' },
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='220' viewBox='0 0 140 220'%3E%3Cg fill='%238FB6CE' opacity='0.36'%3E%3Cellipse transform='translate(18 22) rotate(8)' cx='0' cy='0' rx='1.6' ry='3'/%3E%3Cellipse transform='translate(88 38) rotate(-12)' cx='0' cy='0' rx='1.4' ry='2.8'/%3E%3Cellipse transform='translate(48 64) rotate(15)' cx='0' cy='0' rx='1.8' ry='3.2'/%3E%3Cellipse transform='translate(112 82) rotate(-6)' cx='0' cy='0' rx='1.5' ry='2.6'/%3E%3Cellipse transform='translate(28 108) rotate(20)' cx='0' cy='0' rx='1.7' ry='3'/%3E%3Cellipse transform='translate(72 132) rotate(-18)' cx='0' cy='0' rx='1.5' ry='2.8'/%3E%3Cellipse transform='translate(108 156) rotate(10)' cx='0' cy='0' rx='1.6' ry='3'/%3E%3Cellipse transform='translate(36 178) rotate(-22)' cx='0' cy='0' rx='1.4' ry='2.6'/%3E%3Cellipse transform='translate(82 198) rotate(14)' cx='0' cy='0' rx='1.5' ry='2.8'/%3E%3C/g%3E%3C/svg%3E")` },
     forest:{ name: '森绿', bg: 'bg-[#EEF4EC]', headerBg: 'bg-[#DCEAD5]', card: 'bg-white/90', text: 'text-[#2E3D30]', muted: 'text-[#93A894]', accent: 'bg-[#7CA982]',
-             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='80' viewBox='0 0 60 80'%3E%3Cg fill='none' stroke='%2393B18A' stroke-width='0.9' opacity='0.3'%3E%3Cpath d='M14 4c-3 12 2 20 4 30 1 8 0 20-1 30'/%3E%3Cpath d='M16 14c-6-1-10 1-12 5'/%3E%3Cpath d='M17 22c-7 0-11 2-13 6'/%3E%3Cpath d='M16 34c-5-2-9-1-11 2'/%3E%3Cpath d='M38 10c3 12-2 20-3 30-1 8 0 20 1 30'/%3E%3Cpath d='M37 24c6 0 10 2 12 6'/%3E%3Cpath d='M37 36c5 2 9 1 11 2'/%3E%3C/g%3E%3C/svg%3E")`,
-             navBg: 'bg-[#2E3D30]', navActive: 'text-[#DCEAD5]' },
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='240' viewBox='0 0 150 240'%3E%3Cg fill='none' stroke='%2393B18A' stroke-width='1' opacity='0.36' stroke-linecap='round'%3E%3Cpath transform='translate(20 20) rotate(-8)' d='M0 0c-2 18 2 30 4 46 1 12 0 30-1 46'/%3E%3Cpath transform='translate(22 36)' d='M-6 -2c-6-1-10 1-12 5'/%3E%3Cpath transform='translate(23 50)' d='M-7 0c-7 0-11 2-13 6'/%3E%3Cpath transform='translate(24 70)' d='M-5 -2c-5-2-9-1-11 2'/%3E%3Cpath transform='translate(90 30) rotate(12)' d='M0 0c2 18-2 30-3 46-1 12 0 30 1 46'/%3E%3Cpath transform='translate(91 50)' d='M6 -2c6 0 10 2 12 6'/%3E%3Cpath transform='translate(91 70)' d='M5 0c5 2 9 1 11 2'/%3E%3Cpath transform='translate(120 110) rotate(-15)' d='M0 0c-1 14 1 24 2 36'/%3E%3Cpath transform='translate(122 124)' d='M-5 0c-5-1-8 1-10 4'/%3E%3Cpath transform='translate(45 150) rotate(10)' d='M0 0c-1 16 1 28 2 42'/%3E%3Cpath transform='translate(47 168)' d='M-5 -2c-5-1-8 1-10 4'/%3E%3Cpath transform='translate(48 184)' d='M-5 0c-5 1-8 2-9 5'/%3E%3C/g%3E%3C/svg%3E")` },
     dusk:  { name: '暮紫', bg: 'bg-[#F1EEF6]', headerBg: 'bg-[#E0D8EF]', card: 'bg-white/90', text: 'text-[#3A3350]', muted: 'text-[#A198B8]', accent: 'bg-[#9B8FD0]',
-             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='%23C0A9D6' opacity='0.28'%3E%3Ccircle cx='16' cy='18' r='2.6'/%3E%3Ccircle cx='22' cy='14' r='1.6'/%3E%3Ccircle cx='13' cy='24' r='1.4'/%3E%3Ccircle cx='46' cy='46' r='2.8'/%3E%3Ccircle cx='53' cy='42' r='1.6'/%3E%3Ccircle cx='42' cy='52' r='1.4'/%3E%3Ccircle cx='32' cy='30' r='2'/%3E%3C/g%3E%3C/svg%3E")`,
-             navBg: 'bg-[#3A3350]', navActive: 'text-[#E0D8EF]' },
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='240' viewBox='0 0 160 240'%3E%3Cg fill='%23C0A9D6' opacity='0.32'%3E%3Ccircle transform='translate(24 28) rotate(20)' cx='0' cy='0' r='3'/%3E%3Ccircle transform='translate(30 24)' cx='0' cy='0' r='1.6'/%3E%3Ccircle transform='translate(18 36)' cx='0' cy='0' r='1.2'/%3E%3Ccircle transform='translate(112 52) rotate(-30)' cx='0' cy='0' r='2.6'/%3E%3Ccircle transform='translate(118 48)' cx='0' cy='0' r='1.4'/%3E%3Ccircle transform='translate(64 86) rotate(45)' cx='0' cy='0' r='2.2'/%3E%3Ccircle transform='translate(70 82)' cx='0' cy='0' r='1.2'/%3E%3Ccircle transform='translate(38 128) rotate(-15)' cx='0' cy='0' r='2.8'/%3E%3Ccircle transform='translate(44 134)' cx='0' cy='0' r='1.5'/%3E%3Ccircle transform='translate(126 162) rotate(25)' cx='0' cy='0' r='2.4'/%3E%3Ccircle transform='translate(132 158)' cx='0' cy='0' r='1.4'/%3E%3Ccircle transform='translate(78 198) rotate(-40)' cx='0' cy='0' r='2.6'/%3E%3Ccircle transform='translate(84 204)' cx='0' cy='0' r='1.3'/%3E%3Ccircle transform='translate(22 212) rotate(10)' cx='0' cy='0' r='2.2'/%3E%3C/g%3E%3C/svg%3E")` },
     plain: { name: '素白', bg: 'bg-white', headerBg: 'bg-[#F0F0F0]', card: 'bg-white', text: 'text-[#333]', muted: 'text-[#999]', accent: 'bg-[#1F1F1F]',
-             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='%23CCCCCC' opacity='0.3'%3E%3Cpath d='M14 16l4 4M18 16l-4 4M14 30l4 4M18 30l-4 4M14 44l4 4M18 44l-4 4M44 18l4 4M48 18l-4 4M44 32l4 4M48 32l-4 4M44 46l4 4M48 46l-4 4'/%3E%3C/g%3E%3C/svg%3E")`,
-             navBg: 'bg-[#2B2B2B]', navActive: 'text-white' },
+             pattern: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='240' viewBox='0 0 160 240'%3E%3Cg fill='none' stroke='%23CCCCCC' stroke-width='1' opacity='0.4' stroke-linecap='round'%3E%3Cg transform='translate(20 28) rotate(15)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3Cg transform='translate(28 22) rotate(20)'%3E%3Cpath d='M0 0l3 3M3 0l-3 3'/%3E%3C/g%3E%3Cg transform='translate(96 40) rotate(-12)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3Cg transform='translate(104 34) rotate(-18)'%3E%3Cpath d='M0 0l3 3M3 0l-3 3'/%3E%3C/g%3E%3Cg transform='translate(48 82) rotate(30)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3Cg transform='translate(118 98) rotate(-25)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3Cg transform='translate(34 142) rotate(10)'%3E%3Cpath d='M0 0l3 3M3 0l-3 3'/%3E%3C/g%3E%3Cg transform='translate(124 168) rotate(-35)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3Cg transform='translate(56 198) rotate(18)'%3E%3Cpath d='M0 0l3 3M3 0l-3 3'/%3E%3C/g%3E%3Cg transform='translate(110 220) rotate(-8)'%3E%3Cpath d='M0 0l4 4M4 0l-4 4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")` },
 };
 
 /* ---------- 主组件 ---------- */
@@ -175,9 +170,9 @@ const TechoApp: React.FC = () => {
                 )}
             </div>
 
-            {/* 底部导航 */}
+            {/* 底部导航（和顶栏同色） */}
             <nav
-                className={`fixed inset-x-0 z-20 flex items-center justify-around px-4 ${theme.navBg} rounded-t-2xl`}
+                className={`fixed inset-x-0 z-20 flex items-center justify-around px-4 ${theme.headerBg} rounded-t-2xl`}
                 style={{ bottom: '0.5cm', paddingBottom: 'max(0.75rem, var(--safe-bottom, 0px))' }}
             >
                 {[
@@ -192,7 +187,7 @@ const TechoApp: React.FC = () => {
                         <button
                             key={b.key}
                             onClick={() => setPage(b.key as typeof page)}
-                            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${active ? `${theme.navActive} font-bold` : 'text-white/45'}`}
+                            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors cursor-pointer ${active ? `${theme.text} font-bold` : `${theme.muted} opacity-60`}`}
                         >
                             <b.Icon size={20} weight={active ? 'fill' : 'regular'} />
                             <span className="text-[10px]">{b.label}</span>
