@@ -1,5 +1,5 @@
 
-import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, DailySchedule } from '../types';
+import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, DailySchedule, Anniversary } from '../types';
 import { ContextBuilder } from './context';
 import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
@@ -16,6 +16,20 @@ import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { buildLifeRecordInjection } from './lifeRecords';
 import { buildJournalInjection } from './journalInjection';
+
+/**
+ * 读取某角色的纪念日（含无 charId 归属的全局纪念日）。
+ * 返回 [] 表示没有；失败也返回 []，不阻断对话。
+ */
+const loadCharAnniversaries = async (charId: string): Promise<Anniversary[]> => {
+    try {
+        const all = await DB.getAllAnniversaries();
+        if (!all || all.length === 0) return [];
+        return all.filter(a => !a.charId || a.charId === charId);
+    } catch (e) {
+        return [];
+    }
+};
 import { isWorkerReachableUrl } from './amsgToolPack';
 import { isAmsg2EnabledForChar } from './amsg2Tasks';
 import { getCharNameById } from './charNameRegistry';
@@ -311,17 +325,20 @@ export const ChatPrompts = {
         const realtimePromise: Promise<string> = (async () => {
             if (forFirePack || timelyByWorker) return '';
             try {
+                // 读当前角色的纪念日（含无 charId 的全局纪念日），让角色感知用户自定义的重要日子
+                const anniversaries = await loadCharAnniversaries(char.id);
                 if (config.weatherEnabled || config.newsEnabled) {
                     // 时间行跟着角色的「时间感知」开关走：关掉的角色不该从天气块里读到
                     // 「当前真实时间」，那是这个开关本来要挡住的东西。
                     const realtimeContext = await RealtimeContextManager.buildFullContext(config, charTz, {
                         includeTime: char.timeAwarenessEnabled !== false,
+                        anniversaries,
                     });
                     return `\n${realtimeContext}\n`;
                 }
                 // 基础当前时间 + 时差提示已由 ContextBuilder.buildCoreContext 统一注入（受 timeAwarenessEnabled
                 // 控制，按角色自定义时区折算）；这里只在关闭天气/新闻时补一条"今日特殊节日"，不再重复注入时间/时差，避免双份。
-                const specialDates = RealtimeContextManager.checkSpecialDates(charTz);
+                const specialDates = RealtimeContextManager.checkSpecialDates(charTz, anniversaries);
                 if (specialDates.length > 0 && char.timeAwarenessEnabled !== false) {
                     return `\n### 【今日特殊】\n${specialDates.join('、')}\n`;
                 }

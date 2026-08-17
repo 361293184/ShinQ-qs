@@ -148,3 +148,38 @@ describe('pickRandomNews', () => {
         expect(pool.map(p => p.title)).toEqual(['t0', 't1', 't2']);
     });
 });
+
+describe('checkSpecialDates 跨年夜', () => {
+    const noonInShanghai = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 4, 0, 0);
+    it('12-31 感知跨年夜', () => {
+        expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 12, 31))).toContain('跨年夜');
+    });
+    it('1-1 感知元旦（跨年和元旦是两天，不互相覆盖）', () => {
+        expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2027, 1, 1))).toContain('元旦');
+        // 元旦那天不再把「跨年夜」带进来
+        const list = checkSpecialDates('Asia/Shanghai', noonInShanghai(2027, 1, 1));
+        expect(list).not.toContain('跨年夜');
+    });
+});
+
+describe('checkSpecialDates 用户纪念日', () => {
+    const noonInShanghai = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 4, 0, 0);
+    const mk = (date: string, title: string, charId = 'c1') => ({ id: 'a1', date, title, charId });
+
+    it('匹配当天纪念日（按月-日，不管年份）', () => {
+        const anniversaries = [mk('2024-08-16', '在一起的日子')];
+        const list = checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 8, 16), anniversaries);
+        expect(list).toContain('在一起的日子');
+    });
+
+    it('不是纪念日那天不给', () => {
+        const anniversaries = [mk('2024-08-16', '在一起的日子')];
+        const list = checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 8, 17), anniversaries);
+        expect(list).not.toContain('在一起的日子');
+    });
+
+    it('没传纪念日时不报错、不影响普通节日', () => {
+        expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 2, 14))).toContain('情人节');
+        expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 2, 14), [])).toEqual(['情人节']);
+    });
+});

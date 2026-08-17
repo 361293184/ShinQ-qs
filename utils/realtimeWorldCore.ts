@@ -14,6 +14,7 @@
  */
 
 import { nowInTimeZone } from './timezone';
+import type { Anniversary } from '../types';
 
 export interface WeatherData {
     temp: number;
@@ -226,7 +227,8 @@ const SPECIAL_DATES: Record<string, string> = {
     '10-31': '万圣节',
     '11-11': '光棍节',
     '12-24': '平安夜',
-    '12-25': '圣诞节'
+    '12-25': '圣诞节',
+    '12-31': '跨年夜'
 };
 
 /**
@@ -291,7 +293,11 @@ const LUNAR_FESTIVAL_DATES: Record<string, string> = {
  *
  * 公历和农历撞在同一天时两个都给（比如 2031 年的中秋恰好也是国庆）。
  */
-export const checkSpecialDates = (tz?: string, nowMs?: number): string[] => {
+export const checkSpecialDates = (
+    tz?: string,
+    nowMs?: number,
+    anniversaries?: Anniversary[],
+): string[] => {
     const now = nowInTimeZone(tz, nowMs == null ? undefined : new Date(nowMs));
     const monthDay = `${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
     const fullDate = `${now.getFullYear()}-${monthDay}`;
@@ -304,6 +310,17 @@ export const checkSpecialDates = (tz?: string, nowMs?: number): string[] => {
 
     if (LUNAR_FESTIVAL_DATES[fullDate]) {
         special.push(LUNAR_FESTIVAL_DATES[fullDate]);
+    }
+
+    // 用户自定义纪念日：按「月-日」每年同一天匹配（不管年份），当天感知。
+    // charId 过滤由调用方在传入前做好（只传当前角色的纪念日）。
+    if (anniversaries && anniversaries.length > 0) {
+        for (const a of anniversaries) {
+            const aMonthDay = (a.date || '').slice(5); // 取 YYYY-MM-DD 的 MM-DD
+            if (aMonthDay === monthDay && a.title) {
+                special.push(a.title);
+            }
+        }
     }
 
     return special;
