@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, CharacterProfile } from '../types';
 import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
+import { getDayFestival } from '../utils/calendarFestivals';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid,
     weatherIcon, getDay, saveDay, getHabits, saveHabits, getSettings, saveSettings,
@@ -569,17 +570,22 @@ function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDa
                     const total = day.timeline.length + day.todos.length;
                     const done = day.timeline.filter(x => x.done).length + day.todos.filter(x => x.done).length;
                     const hasHabit = habits.some(h => h.checkins && h.checkins[d]);
+                    const fest = getDayFestival(d);
                     const dd = new Date(d + 'T00:00:00');
+                    // 节日/补班标记（格子空间有限，只显示首名）
+                    const festLabel = fest && fest.names.length > 0 ? (fest.type === 'workday' ? '班' : fest.names[0]) : '';
+                    const festColor = fest
+                        ? (fest.type === 'workday'
+                            ? (d === todayStr() ? 'text-white/80' : t.muted)
+                            : (d === todayStr() ? 'text-amber-300' : 'text-red-500'))
+                        : '';
                     return (
                         <button key={d} onClick={() => onDayClick(d)}
                             className={`flex flex-col items-center py-1 rounded-lg cursor-pointer ${d === todayStr() ? 'bg-[#1F1F1F] text-white' : t.card} ${d !== todayStr() ? 'hover:bg-black/5' : ''}`}>
-                            <span className="text-sm">{dd.getDate()}</span>
-                            {total > 0 && (
-                                <span className={`text-[8px] ${d === todayStr() ? 'text-white/80' : done === total ? 'text-green-500' : t.muted}`}>
-                                    {done === total ? '●' : total ? '◐' : ''}
-                                </span>
-                            )}
-                            {hasHabit && <span className="text-[8px]">✅</span>}
+                            <span className="text-sm leading-none">{dd.getDate()}</span>
+                            <span className={`text-[7px] leading-tight truncate max-w-full ${festColor || (hasHabit ? '' : t.muted)}`}>
+                                {festLabel || (total > 0 ? (done === total ? '✓' : total ? '·' : '') : hasHabit ? '✦' : '')}
+                            </span>
                         </button>
                     );
                 })}
