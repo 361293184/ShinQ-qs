@@ -619,6 +619,7 @@ const FAQApp: React.FC = () => {
     const { closeApp } = useOS();
     const [tab, setTab] = useState<Tab>('faq');
     const [activeChangelog, setActiveChangelog] = useState<ChangelogEntry | null>(null);
+    const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
 
     useEffect(() => {
         try {
@@ -812,42 +813,74 @@ const FAQApp: React.FC = () => {
                         </p>
                     </div>
 
-                    {/* Guide Cards */}
-                    <div className="space-y-4">
-                        {GUIDE_DATA.map((item, index) => (
-                            <div key={item.name} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 animate-slide-up" style={{ animationDelay: `${index * 30}ms` }}>
-                                <div className="flex items-center gap-3 mb-3">
-                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-100">
-                                        <img src={item.icon} className="w-5 h-5" alt="" />
-                                    </div>
-                                    <h3 className="text-sm font-bold text-slate-800">{item.name}</h3>
-                                </div>
+                    {/* Guide Accordion List — 一行一个 App，点开展开详细说明 */}
+                    <div className="space-y-2">
+                        {GUIDE_DATA.map((item) => {
+                            const isOpen = expandedGuide === item.name;
+                            return (
+                                <div
+                                    key={item.name}
+                                    className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-colors ${
+                                        isOpen ? 'border-indigo-200' : 'border-slate-100'
+                                    }`}
+                                >
+                                    {/* 折叠行：图标 + 名字 + 展开箭头 */}
+                                    <button
+                                        onClick={() => {
+                                            setExpandedGuide(isOpen ? null : item.name);
+                                            trackEvent('展开使用说明', { app: item.name });
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-slate-50"
+                                    >
+                                        <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-100">
+                                            <img src={item.icon} className="w-5 h-5" alt="" />
+                                        </div>
+                                        <h3 className={`text-sm font-bold flex-1 min-w-0 ${isOpen ? 'text-indigo-600' : 'text-slate-800'}`}>{item.name}</h3>
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            strokeWidth={2}
+                                            stroke="currentColor"
+                                            className={`w-4 h-4 shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                                        >
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                                        </svg>
+                                    </button>
 
-                                <p className="text-xs text-slate-600 leading-relaxed mb-3">{item.desc}</p>
+                                    {/* 展开内容 */}
+                                    {isOpen && (
+                                        <div className="px-4 pb-4 animate-slide-up">
+                                            <div className="border-t border-slate-100 pt-3 space-y-3">
+                                                <p className="text-xs text-slate-600 leading-relaxed">{item.desc}</p>
 
-                                {item.how.length > 0 && (
-                                    <div className="bg-slate-50 rounded-lg p-3 space-y-1.5 mb-3">
-                                        {item.how.map((step, i) => (
-                                            <div key={i} className="flex gap-2 items-start">
-                                                <span className="text-xs font-bold text-indigo-500 shrink-0 mt-0.5">{i + 1}.</span>
-                                                <p className="text-xs text-slate-700 leading-relaxed">{step}</p>
+                                                {item.how.length > 0 && (
+                                                    <div className="bg-slate-50 rounded-lg p-3 space-y-1.5">
+                                                        {item.how.map((step, i) => (
+                                                            <div key={i} className="flex gap-2 items-start">
+                                                                <span className="text-xs font-bold text-indigo-500 shrink-0 mt-0.5">{i + 1}.</span>
+                                                                <p className="text-xs text-slate-700 leading-relaxed">{step}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {item.links.length > 0 && (
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="text-[10px] font-bold text-slate-400 shrink-0">关联:</span>
+                                                        {item.links.map(link => (
+                                                            <span key={link} className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                                                                {link}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {item.links.length > 0 && (
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-[10px] font-bold text-slate-400 shrink-0">关联:</span>
-                                        {item.links.map(link => (
-                                            <span key={link} className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
-                                                {link}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <div className="mt-8 text-center text-[10px] text-slate-400">
