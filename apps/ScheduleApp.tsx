@@ -13,6 +13,7 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import { getCalendarDayDifference, getLocalDateKey } from '../utils/localDate';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
+import { getDayFestival } from '../utils/calendarFestivals';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -76,12 +77,136 @@ const THEMES: Record<ThemeMode, any> = {
     }
 };
 
+/* ---------- 日历月视图（节假日 + 纪念日 + 任务标记） ---------- */
+function CalendarMonthView(props: {
+    theme: any;
+    currentThemeMode: ThemeMode;
+    anniversaries: Anniversary[];
+    tasks: Task[];
+}) {
+    const { theme, currentThemeMode, anniversaries, tasks } = props;
+    const today = getLocalDateKey();
+    const [base, setBase] = useState(() => {
+        const t = today.split('-').map(Number);
+        return new Date(t[0], t[1] - 1, 1);
+    });
+    const year = base.getFullYear();
+    const month = base.getMonth();
+
+    const anniversaryDates = useMemo(() => {
+        const map: Record<string, string[]> = {};
+        anniversaries.forEach(a => {
+            const md = (a.date || '').slice(5); // MM-DD
+            const key = `${year}-${md}`;
+            if (!map[key]) map[key] = [];
+            map[key].push(a.title);
+        });
+        return map;
+    }, [anniversaries, year]);
+
+    const taskDoneOn = useMemo(() => {
+        const map: Record<string, number> = {};
+        tasks.forEach(t => {
+            if (!t.isCompleted) return;
+            const d = t.completedAt ? getLocalDateKey(new Date(t.completedAt)) : '';
+            if (d) map[d] = (map[d] || 0) + 1;
+        });
+        return map;
+    }, [tasks]);
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startWeekday = new Date(year, month, 1).getDay();
+    const cells: (string | '')[] = Array.from({ length: startWeekday }, () => '');
+    for (let d = 1; d <= daysInMonth; d++) {
+        cells.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+
+    const nav = (delta: number) => setBase(new Date(year, month + delta, 1));
+    const chipCls = currentThemeMode === 'cyber' ? 'bg-cyan-900/40 border border-cyan-800/40' : 'bg-white/60';
+
+    return (
+        <div className="space-y-3">
+            {/* 头部导航 */}
+            <div className="flex items-center justify-between px-1">
+                <button onClick={() => nav(-1)} className={`p-2 rounded-full hover:opacity-70 cursor-pointer ${theme.textSub}`} aria-label="上一月">‹</button>
+                <div className={`text-sm font-bold ${theme.text}`}>{year}年{month + 1}月</div>
+                <button onClick={() => nav(1)} className={`p-2 rounded-full hover:opacity-70 cursor-pointer ${theme.textSub}`} aria-label="下一月">›</button>
+            </div>
+
+            {/* 星期表头 */}
+            <div className="grid grid-cols-7 gap-1">
+                {['日', '一', '二', '三', '四', '五', '六'].map(w => (
+                    <span key={w} className={`text-center text-[10px] ${theme.textSub}`}>{w}</span>
+                ))}
+            </div>
+
+            {/* 日期格子 */}
+            <div className="grid grid-cols-7 gap-1">
+                {cells.map((d, i) => {
+                    if (!d) return <span key={`empty-${i}`} />;
+                    const dd = new Date(d + 'T00:00:00');
+                    const fest = getDayFestival(d);
+                    const annis = anniversaryDates[d] || [];
+                    const doneCount = taskDoneOn[d] || 0;
+                    const isToday = d === today;
+                    const isHoliday = fest?.type === 'holiday';
+                    const isWorkday = fest?.type === 'workday';
+                    const festName = fest ? (isWorkday ? '班' : fest.names[0]) : '';
+                    const festText = isToday
+                        ? (isHoliday ? 'text-amber-300' : isWorkday ? 'text-white/70' : theme.textSub)
+                        : (isHoliday ? 'text-red-400' : isWorkday ? theme.textSub : theme.textSub);
+                    return (
+                        <div
+                            key={d}
+                            className={`flex flex-col items-center py-1 rounded-lg min-h-[2.2rem] ${isToday ? 'bg-cyan-600 text-white' : currentThemeMode === 'cyber' ? 'bg-black/30' : currentThemeMode === 'minimal' ? 'bg-[#eef2f6] shadow-[2px_2px_5px_#d1d9e6,-2px_-2px_5px_#ffffff]' : 'bg-white/50'}`}
+                        >
+                            <span className="text-xs leading-none">{dd.getDate()}</span>
+                            <span className={`text-[7px] leading-tight truncate max-w-full ${festText}`}>
+                                {festName || (annis.length > 0 ? '♥' : doneCount > 0 ? '✓' : '')}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* 图例 + 当日明细 */}
+            <div className={`mt-2 p-3 rounded-lg ${chipCls}`}>
+                <div className={`text-[10px] ${theme.textSub} mb-1`}>图例：红字=法定假 · 班=补班 · ♥=纪念日 · ✓=当日完成任务</div>
+                <div className="flex flex-wrap gap-2 text-[10px]">
+                    {festivalLegend(cells, anniversaryDates).map(([label, color]) => (
+                        <span key={label} className={color}>{label}</span>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/** 当月有名字的节假日/纪念日做成小图例。 */
+function festivalLegend(cells: (string | '')[], annis: Record<string, string[]>): [string, string][] {
+    const seen = new Set<string>();
+    const out: [string, string][] = [];
+    cells.forEach(d => {
+        if (!d) return;
+        const fest = getDayFestival(d);
+        if (fest && fest.names[0] && fest.type !== 'workday' && !seen.has(fest.names[0])) {
+            seen.add(fest.names[0]);
+            out.push([fest.names[0], 'text-red-400']);
+        }
+        const a = annis[d] || [];
+        a.forEach(n => {
+            if (!seen.has('♥' + n)) { seen.add('♥' + n); out.push([`♥ ${n}`, 'text-pink-400']); }
+        });
+    });
+    return out;
+}
+
 const ScheduleApp: React.FC = () => {
     const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, characterGroups } = useOS();
     const localDateKey = useLocalDateKey();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [anniversaries, setAnniversaries] = useState<Anniversary[]>([]);
-    const [activeTab, setActiveTab] = useState<'quest' | 'server_events'>('quest');
+    const [activeTab, setActiveTab] = useState<'quest' | 'server_events' | 'calendar'>('quest');
     
     // Processing State for feedback
     const [processingTaskIds, setProcessingTaskIds] = useState<Set<string>>(new Set());
@@ -403,6 +528,7 @@ const ScheduleApp: React.FC = () => {
                 <div className={`flex gap-1 p-1 rounded-lg ${currentThemeMode === 'cyber' ? 'bg-black/40 border border-cyan-900/50' : (currentThemeMode === 'minimal' ? 'bg-[#eef2f6] shadow-[inset_2px_2px_5px_#d1d9e6,inset_-2px_-2px_5px_#ffffff]' : 'bg-white/50')}`}>
                     <button onClick={() => { setActiveTab('quest'); trackEvent('切换日程标签页', { tab: 'quest' }); }} className={`px-4 py-1.5 rounded text-xs font-bold transition-all ${activeTab === 'quest' ? `${theme.accent} ${currentThemeMode === 'cyber' ? 'bg-cyan-900/50 shadow-sm' : (currentThemeMode === 'minimal' ? 'shadow-[2px_2px_5px_#d1d9e6,-2px_-2px_5px_#ffffff] bg-[#eef2f6]' : 'bg-white shadow-sm')}` : `${theme.textSub}`}`}>{theme.label}</button>
                     <button onClick={() => { setActiveTab('server_events'); trackEvent('切换日程标签页', { tab: 'server_events' }); }} className={`px-4 py-1.5 rounded text-xs font-bold transition-all ${activeTab === 'server_events' ? `${theme.accent} ${currentThemeMode === 'cyber' ? 'bg-cyan-900/50 shadow-sm' : (currentThemeMode === 'minimal' ? 'shadow-[2px_2px_5px_#d1d9e6,-2px_-2px_5px_#ffffff] bg-[#eef2f6]' : 'bg-white shadow-sm')}` : `${theme.textSub}`}`}>{theme.eventLabel}</button>
+                    <button onClick={() => { setActiveTab('calendar'); trackEvent('切换日程标签页', { tab: 'calendar' }); }} className={`px-4 py-1.5 rounded text-xs font-bold transition-all ${activeTab === 'calendar' ? `${theme.accent} ${currentThemeMode === 'cyber' ? 'bg-cyan-900/50 shadow-sm' : (currentThemeMode === 'minimal' ? 'shadow-[2px_2px_5px_#d1d9e6,-2px_-2px_5px_#ffffff] bg-[#eef2f6]' : 'bg-white shadow-sm')}` : `${theme.textSub}`}`}>日历</button>
                 </div>
 
                 {/* Right Actions */}
@@ -550,6 +676,15 @@ const ScheduleApp: React.FC = () => {
                              </div>
                          </div>
                     </div>
+                )}
+
+                {activeTab === 'calendar' && (
+                    <CalendarMonthView
+                        theme={theme}
+                        currentThemeMode={currentThemeMode}
+                        anniversaries={anniversaries}
+                        tasks={tasks}
+                    />
                 )}
 
             </div>
