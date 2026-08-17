@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, CharacterProfile } from '../types';
 import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
-import { getDayFestival } from '../utils/calendarFestivals';
+import { getDayFestival, prefetchFestivals } from '../utils/calendarFestivals';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid,
     weatherIcon, getDay, saveDay, getHabits, saveHabits, getSettings, saveSettings,
@@ -550,6 +550,8 @@ function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDa
     const [base] = useState(() => new Date(date + 'T00:00:00'));
     const year = base.getFullYear();
     const month = base.getMonth();
+    // 联网刷新该年节假日（自动更新；本地表兜底）
+    useEffect(() => { prefetchFestivals(year); }, [year]);
     const first = new Date(year, month, 1);
     const startWeekday = first.getDay(); // 0=周日
     const daysInMonth = new Date(year, month + 1, 0).getDate();

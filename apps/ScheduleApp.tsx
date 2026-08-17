@@ -13,7 +13,7 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import { getCalendarDayDifference, getLocalDateKey } from '../utils/localDate';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
-import { getDayFestival } from '../utils/calendarFestivals';
+import { getDayFestival, prefetchFestivals } from '../utils/calendarFestivals';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -92,6 +92,8 @@ function CalendarMonthView(props: {
     });
     const year = base.getFullYear();
     const month = base.getMonth();
+    // 联网刷新该年节假日（自动更新；本地表兜底）
+    useEffect(() => { prefetchFestivals(year); }, [year]);
 
     const anniversaryDates = useMemo(() => {
         const map: Record<string, string[]> = {};
