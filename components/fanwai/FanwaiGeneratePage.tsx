@@ -392,16 +392,16 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             {/* 生成结果预览（书籍排版） */}
             {generated && (
                 <div className="fixed inset-0 z-[75] flex flex-col bg-white overflow-hidden">
-                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 bg-white" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem - 0.5cm)' }}>
+                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 bg-[#1F1F1F]" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem - 0.5cm)' }}>
                         <button
                             onClick={() => setGenerated('')}
-                            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-[#666666] hover:bg-white/70 transition-colors cursor-pointer"
+                            aria-label="返回调整"
+                            className="p-2 -ml-2 rounded-full text-white hover:bg-white/10 active:scale-90 transition-transform cursor-pointer"
                         >
-                            <span className="text-sm leading-none">←</span>
-                            <span>调整</span>
+                            <span className="text-base leading-none">&lt;</span>
                         </button>
-                        <div className="text-xs font-bold text-[#1F1F1F]">故事预览</div>
-                        <div className="w-12" />
+                        <div className="text-base font-bold text-white tracking-wide">番外</div>
+                        <div className="w-10" />
                     </header>
                     <div className="flex-1 overflow-y-auto px-4 pb-28">
                         <div className="mx-auto max-w-md rounded-2xl bg-white shadow-[0_6px_32px_rgba(0,0,0,0.06)] border border-[#E5E5E5] p-5">

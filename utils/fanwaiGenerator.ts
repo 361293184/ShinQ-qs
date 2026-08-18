@@ -16,7 +16,7 @@
 
 import { CharacterProfile, UserProfile } from '../types';
 import { safeResponseJson, extractContent } from './safeApi';
-import { formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections } from './worldbook';
+import { expandWorldbookMacros, formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections, WorldbookScanMessage, ResolvedWorldbookEntry } from './worldbook';
 import { normalizeUserImpression } from './impression';
 
 /** 副 API 配置（对应 types.ts APIConfig 的 subBaseUrl / subApiKey / subModel）。 */
@@ -81,6 +81,31 @@ export interface FanwaiGenResult {
 }
 
 /**
+ * 判断番外情节是否可能走到 NSFW（亲密/成人）。
+ *
+ * 依据（任一命中即视为可能 NSFW）：指令里含成人/涩涩关键词，或最近聊天里有明显亲密/成人内容。
+ * 命中的话，番外会把角色挂载的所有世界书（含需关键词激活的）强制注入，保证世界书里
+ * 身体/亲密/尺度的设定能被番外读到并遵循。
+ */
+function isNSFWTarget(
+    char: CharacterProfile,
+    worldSetting: string,
+    recentMessages?: { role: string; content: string }[],
+): boolean {
+    const nsfwKeywords = [
+        '成人', '涩涩', '色色', '性爱', '做爱', '床戏', '肉文', '黄文', 'h文', 'sex',
+        'nsfw', 'r18', '18禁', '开车', '飙车', 'do it', 'make love', '亲密', '做到最后',
+        '身体结合', '深入', '高潮', '口交', '舔', '插入', '抚摸身体', '脱衣服', '裸体',
+        '做到底', 'sm', '性交',
+    ];
+    const text = [
+        worldSetting || '',
+        ...(recentMessages || []).map(m => m.content || ''),
+    ].join('\n').toLowerCase();
+    return nsfwKeywords.some(k => text.includes(k.toLowerCase()));
+}
+
+/**
  * 番外专属上下文（小说家视角）——与聊天用的 buildCoreContext 区分开。
  *
  * 番外是**独立的虚构小说**：char 和 user 是两个虚构人物，只保留能塑造「他们是谁」
@@ -95,7 +120,11 @@ export interface FanwaiGenResult {
  *   - refinedMemories / activeMemoryMonths 记忆（作为两人的"过往背景"，非实时对话）
  *   - user.bio（用户性格）
  */
-function buildFanwaiContext(char: CharacterProfile, user: UserProfile): string {
+function buildFanwaiContext(
+    char: CharacterProfile,
+    user: UserProfile,
+    opts?: { scanMessages?: WorldbookScanMessage[]; forceAllBooks?: boolean },
+): string {
     const uname = user?.name || '对方';
     const sections: string[] = [];
 
@@ -109,10 +138,30 @@ function buildFanwaiContext(char: CharacterProfile, user: UserProfile): string {
     if (char.worldview && char.worldview.trim()) {
         charBlock += `- **原有背景与世界观（参考，可被指令覆盖）**：${char.worldview.trim()}\n`;
     }
-    // 世界书（全量注入，含"性直白"等关键设定）
+    // 世界书：读取角色挂载的所有世界书。
+    // 默认用「指令 + 最近聊天」文本做关键词匹配，让与剧情相关的世界书自然激活（不强制注入）；
+    // 若番外情节可能走到 NSFW（forceAllBooks=true），则把常驻之外的挂载世界书也一并强制注入，
+    // 保证世界书里涉及身体/亲密/尺度的设定能被番外读到并遵循。
     try {
         const filteredBooks = char.mountedWorldbooks || [];
-        const wbSections = splitWorldbookSections(resolveWorldbookEntries(filteredBooks, [], char.name, uname));
+        const scanMsgs: WorldbookScanMessage[] = opts?.scanMessages || [];
+        let entries: ResolvedWorldbookEntry[] = [];
+        if (opts?.forceAllBooks) {
+            // NSFW 强制注入：把所有挂载世界书都当作"需要读到"的条目，忽略关键词激活。
+            entries = filteredBooks
+                .filter(b => !b.disable)
+                .map(b => ({
+                    book: b,
+                    content: expandWorldbookMacros(b.content || '', char.name, uname),
+                    position: b.position ?? 1,
+                    order: Number.isFinite(b.order) ? b.order : 100,
+                }))
+                .filter(e => e.content.trim())
+                .sort((a, b) => a.order - b.order);
+        } else {
+            entries = resolveWorldbookEntries(filteredBooks, scanMsgs, char.name, uname);
+        }
+        const wbSections = splitWorldbookSections(entries);
         const wbText = [
             formatWorldbookSection(wbSections.beforeCharacter, '世界书 · 设定前'),
             formatWorldbookSection(wbSections.afterCharacter, '世界书 · 设定后'),
@@ -122,7 +171,7 @@ function buildFanwaiContext(char: CharacterProfile, user: UserProfile): string {
             formatWorldbookSection(wbSections.authorsNoteBottom, '世界书 · 尾注'),
         ].join('');
         if (wbText.trim()) {
-            charBlock += `- **世界书设定（参考，可被指令覆盖；性直白等尺度设定遵循）**：\n${wbText.trim()}\n`;
+            charBlock += `- **世界书设定（含角色身体/亲密/尺度的描述，剧情走到亲密或成人情节时须遵循）**：\n${wbText.trim()}\n`;
         }
     } catch (e) {
         // 世界书解析失败不阻断生成
@@ -203,9 +252,19 @@ export function buildFanwaiPrompt(
     },
 ): string {
     const uname = user?.name || '对方';
+
+    // 世界书关键词匹配的扫描文本：用「指令 + 最近聊天」，让与剧情相关的挂载世界书能自然激活。
+    const scanMessages: WorldbookScanMessage[] = [
+        ...(opts.worldSetting?.trim() ? [{ role: 'user', content: opts.worldSetting.trim() } as WorldbookScanMessage] : []),
+        ...(opts.recentMessages || []).map(m => ({ role: m.role, content: m.content }) as WorldbookScanMessage),
+    ];
+    // 判断番外情节是否可能走到 NSFW（指令/聊天里有成人信号）：是则强制注入所有挂载世界书，
+    // 保证世界书里身体/亲密/尺度的设定能被番外读到。
+    const forceAllBooks = isNSFWTarget(char, opts.worldSetting || '', opts.recentMessages);
+
     // 番外用「小说家视角」上下文：保留人物设定/记忆/世界书（含性直白书），
     // 但剥离"你是AI/角色本人/真实时间"等元认知，避免文章冒出"AI"字样。
-    const baseContext = buildFanwaiContext(char, user);
+    const baseContext = buildFanwaiContext(char, user, { scanMessages, forceAllBooks });
 
     // 聊天上下文仅作为"灵感触点"。常规模式提示可从对话自然生长；随机模式则特别强调
     // 番外是独立虚构创作，记忆只负责给一个"起火点"，故事允许（也应该）长出没发生过的情节。
