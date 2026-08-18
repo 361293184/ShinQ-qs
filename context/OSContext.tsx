@@ -232,6 +232,9 @@ const defaultRealtimeConfig: RealtimeConfig = {
   feishuBaseId: '',
   feishuTableId: '',
   xhsEnabled: false,
+  locationEnabled: false,
+  amapKey: '',
+  amapSecurityJsCode: '',
   cacheMinutes: 30
 };
 

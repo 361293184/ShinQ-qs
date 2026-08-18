@@ -588,6 +588,9 @@ const Settings: React.FC = () => {
   const [rtFeishuBaseId, setRtFeishuBaseId] = useState(realtimeConfig.feishuBaseId);
   const [rtFeishuTableId, setRtFeishuTableId] = useState(realtimeConfig.feishuTableId);
   const [rtXhsEnabled, setRtXhsEnabled] = useState(realtimeConfig.xhsEnabled);
+  const [rtLocationEnabled, setRtLocationEnabled] = useState(realtimeConfig.locationEnabled);
+  const [rtAmapKey, setRtAmapKey] = useState(realtimeConfig.amapKey);
+  const [rtAmapSecurityJsCode, setRtAmapSecurityJsCode] = useState(realtimeConfig.amapSecurityJsCode);
   // lite 模式走中心配置的主代理 worker（/api 是 worker/index.js 里的 XHSLite 桥）。
   // 用户改了「自定义网络代理」，lite 模式自动跟着切到新 worker。
   const XHS_LITE_URL = `${getProxyWorkerUrl()}/api`;
@@ -1991,7 +1994,10 @@ const Settings: React.FC = () => {
               loggedInNickname: rtXhsNickname || undefined,
               loggedInUserId: rtXhsUserId || undefined,
               userXsecToken: realtimeConfig.xhsMcpConfig?.userXsecToken,
-          }
+          },
+          locationEnabled: rtLocationEnabled,
+          amapKey: rtAmapKey,
+          amapSecurityJsCode: rtAmapSecurityJsCode
       };
       updateRealtimeConfig(updates);
       RealtimeContextManager.clearCache();
@@ -3688,7 +3694,7 @@ const Settings: React.FC = () => {
                 让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。
             </p>
 
-            <div className="grid grid-cols-5 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-2 text-center">
                 <div className={`py-3 rounded-xl text-xs font-bold ${rtWeatherEnabled ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
                     <div className="text-lg mb-1">{rtWeatherEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2600.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f32b.png" className="w-5 h-5 inline" alt="" />}</div>
                     天气
@@ -3708,6 +3714,10 @@ const Settings: React.FC = () => {
                 <div className={`py-3 rounded-xl text-xs font-bold ${rtXhsEnabled ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-400'}`}>
                     <div className="text-lg mb-1">{rtXhsEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d5.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cb.png" className="w-5 h-5 inline" alt="" />}</div>
                     小红书
+                </div>
+                <div className={`py-3 rounded-xl text-xs font-bold ${rtLocationEnabled ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
+                    <div className="text-lg mb-1">{rtLocationEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cd.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cb.png" className="w-5 h-5 inline" alt="" />}</div>
+                    定位
                 </div>
             </div>
         </SettingsSection>
@@ -5090,6 +5100,38 @@ const Settings: React.FC = () => {
                           </div>
                           <p className="text-[10px] text-slate-400 leading-relaxed bg-slate-100/60 rounded-lg px-2 py-1.5">
                               🔒 隐私：cookie 经 HTTPS 加密发到云端 Worker 仅用于请求签名，服务器<b>不保存、不记录</b>，运营方看不到。正常使用是安全的；但凡经第三方云服务都存在理论风险，介意可自行评估。
+                          </p>
+                      </div>
+                  )}
+              </div>
+
+              {/* 定位（位置分享） */}
+              <div className="bg-amber-50/60 p-4 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                      <div>
+                          <span className="text-sm font-bold text-amber-700">定位</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">位置分享（真实定位 / 虚拟定位）</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={rtLocationEnabled} onChange={e => setRtLocationEnabled(e.target.checked)} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-slate-200 peer-checked:bg-amber-500 rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4"></div>
+                      </label>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                      在私聊输入区「+」里发送定位。真实定位需要高德 JS API 的 Key 和安全密钥（可留空，此时只能用手动输入的「虚拟定位」）。
+                  </p>
+                  {rtLocationEnabled && (
+                      <div className="space-y-2">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">高德 JS API Key</label>
+                              <input value={rtAmapKey} onChange={e => setRtAmapKey(e.target.value)} className="w-full bg-white/80 border border-amber-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="Web端(JS API)类型的Key，可留空" />
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">安全密钥 securityJsCode</label>
+                              <input value={rtAmapSecurityJsCode} onChange={e => setRtAmapSecurityJsCode(e.target.value)} className="w-full bg-white/80 border border-amber-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="高德 JS 安全密钥，可留空" />
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-relaxed bg-slate-100/60 rounded-lg px-2 py-1.5">
+                              🔒 这些 Key 只保存在你的浏览器本地（localStorage），不会写入开源仓库，也不会上传服务器。Key 已暴露可到高德控制台重置。
                           </p>
                       </div>
                   )}

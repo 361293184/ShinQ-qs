@@ -113,6 +113,9 @@ export const defaultRealtimeConfig: RealtimeConfig = {
         loggedInUserId: undefined,
         userXsecToken: undefined,
     },
+    locationEnabled: false,
+    amapKey: '',
+    amapSecurityJsCode: '',
     cacheMinutes: 30
 };
 

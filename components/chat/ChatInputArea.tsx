@@ -703,11 +703,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">番外</span>
                             </button>
 
-                            {/* 占位图标：定位（暂未开放，后续接入高德地图） */}
+                            {/* 定位：位置分享（真实定位 / 虚拟定位） */}
                             <button
                               type="button"
-                              onClick={() => {}}
-                              aria-disabled="true"
+                              onClick={() => onPanelAction('location')}
                               className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
                             >
                               <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>

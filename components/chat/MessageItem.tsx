@@ -3094,6 +3094,48 @@ const MessageItem = React.memo(({
         return commonLayout(card);
     }
 
+    if (m.type === 'location_card') {
+        const md: any = m.metadata || {};
+        const name: string = md.name || (md.lat && md.lng ? `${md.lat.toFixed(4)}, ${md.lng.toFixed(4)}` : '未知位置');
+        const desc: string | undefined = md.desc;
+        const lat: number | undefined = md.lat;
+        const lng: number | undefined = md.lng;
+        const isReal = md.source === 'real' && lat != null && lng != null;
+        const card = (
+            <div className="w-56 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.06)]">
+                {/* 顶栏：定位图标 + 来源 */}
+                <div className="flex items-center justify-between px-3 pt-2.5">
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 256 256" className="w-3.5 h-3.5"><path d="M128 24a88.1 88.1 0 0 0-88 88c0 58 74 112 80 119.2a12 12 0 0 0 16 0c6-7.2 80-61.2 80-119.2a88.1 88.1 0 0 0-88-88Zm0 56a32 32 0 1 1-32 32 32 32 0 0 1 32-32Z"/></svg>
+                        位置
+                    </span>
+                    <span className="flex items-center gap-1 text-[9px] text-slate-400">
+                        {isReal ? (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 0 1 15 0Z" /></svg>
+                                真实定位
+                            </>
+                        ) : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" /></svg>
+                                手动填写
+                            </>
+                        )}
+                    </span>
+                </div>
+                {/* 地点名 */}
+                <div className="px-3 py-2">
+                    <p className="text-[13px] font-bold text-slate-800 leading-snug">{name}</p>
+                    {desc && <p className="text-[11px] text-slate-500 leading-snug mt-0.5">{desc}</p>}
+                    {isReal && (
+                        <p className="text-[9px] text-slate-400 font-mono mt-1">({lat!.toFixed(4)}, {lng!.toFixed(4)})</p>
+                    )}
+                </div>
+            </div>
+        );
+        return commonLayout(card);
+    }
+
     if (m.type === 'html_card') {
         const meta: any = m.metadata || {};
         const html: string = (typeof meta.htmlSource === 'string' && meta.htmlSource) ? meta.htmlSource : '';

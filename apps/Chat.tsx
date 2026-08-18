@@ -47,6 +47,7 @@ import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
+import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { useChatAI } from '../hooks/useChatAI';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
@@ -196,6 +197,7 @@ const Chat: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
@@ -1440,6 +1442,7 @@ const Chat: React.FC = () => {
             case 'chrome-css': setModalType('chrome-css'); break;
             case 'chrome-sound': setModalType('chrome-sound'); break;
             case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
+            case 'location': setShowPanel('none'); setShowLocationPicker(true); break;
             case 'emoji-import': setModalType('emoji-import'); break;
             case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji'); break;
             case 'delete-emoji-req': setSelectedEmoji(payload); setModalType('delete-emoji'); break;
@@ -4116,6 +4119,17 @@ const Chat: React.FC = () => {
                         activeMsg2Config: updater(prev.activeMsg2Config),
                     }))}
                     addToast={addToast}
+                />
+            )}
+
+            {/* 位置分享 Modal — 入口：聊天加号面板「定位」按钮 */}
+            {showLocationPicker && char && (
+                <LocationPickerModal
+                    realtimeConfig={realtimeConfig}
+                    onClose={() => setShowLocationPicker(false)}
+                    onSend={(name, desc, source) => {
+                        handleSendText(name, 'location_card', { name, desc, source });
+                    }}
                 />
             )}
 

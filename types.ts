@@ -584,6 +584,11 @@ export interface RealtimeConfig {
   xhsEnabled: boolean;
   xhsMcpConfig?: XhsMcpConfig;
 
+  // 定位配置（位置分享：真实定位走高德 JS API，虚拟定位免配置）
+  locationEnabled: boolean;
+  amapKey: string;            // 高德 JS API Key（真实定位选点用）
+  amapSecurityJsCode: string; // 高德安全密钥 securityJsCode
+
   // 缓存配置
   cacheMinutes: number;
 }
@@ -3797,7 +3802,20 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card';
+
+/** 位置消息的数据（存在 Message.metadata 里） */
+export interface LocationMeta {
+    /** 地点展示名（如「北京 · 朝阳公园」） */
+    name: string;
+    /** 补充描述（可选，如「我在公司楼下」） */
+    desc?: string;
+    /** 真实定位：经纬度；虚拟定位：无 */
+    lat?: number;
+    lng?: number;
+    /** 来源：real=真实定位 / manual=虚拟手动输入 */
+    source: 'real' | 'manual';
+}
 
 export interface Message {
     id: number;

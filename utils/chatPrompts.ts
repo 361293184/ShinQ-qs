@@ -1401,6 +1401,17 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     text += `\n\n（注意：这是用户创作的小说式番外，是虚构的创作，并非你们真实发生过的事。你可以把它当作一篇你已完整读过的故事来回应，可以聊感想、代入角色去讨论，但心里清楚它是虚构创作，别当成真实记忆。）`;
                     content = text;
                 }
+                else if ((m.type as string) === 'location_card') {
+                    // 位置卡片：用户分享了当前位置/手动填写的地点，角色应自然地聊到/响应这个位置。
+                    const lm: any = m.metadata || {};
+                    const name = (lm.name || m.content || '').trim();
+                    const desc = (lm.desc || '').trim();
+                    const isReal = lm.source === 'real' && lm.lat != null && lm.lng != null;
+                    let text = `${timeStr} [${m.role === 'user' ? '用户' : '你'}${isReal ? '分享了当前位置' : '发来一个位置'}：${name}]`;
+                    if (desc) text += `（${desc}）`;
+                    if (isReal) text += `（坐标 ${Number(lm.lat).toFixed(4)}, ${Number(lm.lng).toFixed(4)}）`;
+                    content = text;
+                }
                 else content = `${timeStr} ${sourceTag} ${content}`;
 
                 return { role: m.role, content };
