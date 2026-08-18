@@ -15,12 +15,15 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, CharacterProfile } from '../types';
+import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, TechoChallenge, CharacterProfile } from '../types';
 import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
 import { getDayFestival, prefetchFestivals } from '../utils/calendarFestivals';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid,
     weatherIcon, getDay, saveDay, getHabits, saveHabits, getSettings, saveSettings,
+    getChallenges, saveChallenges,
+    getYearNotes, saveYearNotes,
+    habitColor,
 } from '../utils/techoStore';
 import {
     GearSix, CaretLeft, CaretRight,
@@ -53,10 +56,11 @@ const TechoApp: React.FC = () => {
     const { closeApp, characters, addToast, realtimeConfig, updateCharacter } = useOS();
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [settings, setSettings] = useState<TechoSettings>(() => getSettings());
-    const [page, setPage] = useState<'cover' | 'day' | 'week' | 'month' | 'year' | 'habit' | 'settings'>('cover');
+    const [page, setPage] = useState<'cover' | 'day' | 'week' | 'month' | 'year' | 'habit' | 'challenge' | 'settings'>('cover');
     const [date, setDate] = useState(() => todayStr());
     const [dayData, setDayData] = useState<TechoDayData>(() => getDay(todayStr()));
     const [habits, setHabitsState] = useState<TechoHabit[]>(() => getHabits());
+    const [challenges, setChallengesState] = useState<TechoChallenge[]>(() => getChallenges());
     const [dayTab, setDayTab] = useState(0);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
 
@@ -64,6 +68,7 @@ const TechoApp: React.FC = () => {
 
     const saveSettingsAndState = (s: TechoSettings) => { saveSettings(s); setSettings(s); };
     const saveHabitsAndState = (h: TechoHabit[]) => { saveHabits(h); setHabitsState(h); };
+    const saveChallengesAndState = (c: TechoChallenge[]) => { saveChallenges(c); setChallengesState(c); };
 
     // 切换日期时加载当天数据
     const loadDay = (d: string) => { setDate(d); setDayData(getDay(d)); };
@@ -150,14 +155,19 @@ const TechoApp: React.FC = () => {
                         setDayTab={setDayTab}
                         onNav={loadDay}
                         onPersist={persistDay}
-                        onHabit={todayHabitsTodo}
+                        onHabit={habits}
+                        onHabitChange={saveHabitsAndState}
+                        onManageHabits={() => setPage('habit')}
                     />
                 )}
-                {page === 'week' && <WeekView theme={theme} date={date} onDayClick={loadDay} onGoDay={() => setPage('day')} />}
-                {page === 'month' && <MonthView theme={theme} date={date} habits={habits} onDayClick={loadDay} />}
+                {page === 'week' && <WeekView theme={theme} date={date} habits={habits} onDayClick={loadDay} onGoDay={() => setPage('day')} />}
+                {page === 'month' && <MonthView theme={theme} date={date} habits={habits} onDayClick={loadDay} onGoDay={() => setPage('day')} />}
                 {page === 'year' && <YearView theme={theme} habits={habits} />}
                 {page === 'habit' && (
                     <HabitView theme={theme} habits={habits} onChange={saveHabitsAndState} addToast={addToast} />
+                )}
+                {page === 'challenge' && (
+                    <ChallengeView theme={theme} challenges={challenges} onChange={saveChallengesAndState} addToast={addToast} />
                 )}
                 {page === 'settings' && (
                     <SettingsView
@@ -181,7 +191,7 @@ const TechoApp: React.FC = () => {
                     { key: 'week', label: '周', Icon: CalendarBlank },
                     { key: 'month', label: '月', Icon: SquaresFour },
                     { key: 'year', label: '年', Icon: ChartBar },
-                    { key: 'habit', label: '习惯', Icon: CheckSquare },
+                    { key: 'challenge', label: '21天', Icon: CheckSquare },
                 ].map(b => {
                     const active = page === b.key;
                     return (
@@ -272,8 +282,11 @@ function Cover(props: {
                 <div className={`rounded-3xl ${t.card} p-5 shadow-sm mb-4`}>
                     <p className="text-xs font-semibold mb-2 text-[#8A7B6A]">今天还有 {todayHabitsTodo.length} 个习惯没打卡</p>
                     <div className="flex flex-wrap gap-2">
-                        {todayHabitsTodo.slice(0, 4).map(h => (
-                            <span key={h.id} className="text-sm">{h.icon} {h.name}</span>
+                        {todayHabitsTodo.slice(0, 4).map((h, hi) => (
+                            <span key={h.id} className="text-sm flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: habitColor(h, hi) }} />
+                                {h.name}
+                            </span>
                         ))}
                     </div>
                 </div>
@@ -293,10 +306,13 @@ function Cover(props: {
 function DayView(props: {
     theme: any; date: string; dayData: TechoDayData; dayTab: number; setDayTab: (n: number) => void;
     onNav: (d: string) => void; onPersist: (d: TechoDayData) => void; onHabit: TechoHabit[];
+    onHabitChange?: (h: TechoHabit[]) => void;
+    onManageHabits?: () => void;
 }) {
-    const { theme: t, date, dayData, dayTab, setDayTab, onNav, onPersist } = props;
+    const { theme: t, date, dayData, dayTab, setDayTab, onNav, onPersist, onHabit, onHabitChange, onManageHabits } = props;
     const [showTimelineModal, setShowTimelineModal] = useState(false);
     const [editItem, setEditItem] = useState<TechoTimelineItem | null>(null);
+    const [showAddHabit, setShowAddHabit] = useState(false);
 
     const d = new Date(date + 'T00:00:00');
     const isToday = date === todayStr();
@@ -354,7 +370,7 @@ function DayView(props: {
 
             {/* Tab */}
             <div className="flex gap-1 mb-3">
-                {['时间轴', 'Todo', '碎碎念'].map((tab, i) => (
+                {['时间轴', 'Todo', 'habit', '碎碎念'].map((tab, i) => (
                     <button
                         key={tab}
                         onClick={() => setDayTab(i)}
@@ -434,8 +450,71 @@ function DayView(props: {
                 </div>
             )}
 
-            {/* 碎碎念 */}
+            {/* 习惯打卡（当日） */}
             {dayTab === 2 && (
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <p className={`text-xs font-bold ${t.muted}`}>今日习惯</p>
+                        <div className="flex items-center gap-2">
+                            {onManageHabits && (
+                                <button onClick={onManageHabits}
+                                    className="h-7 px-3 rounded-full text-xs font-bold bg-black/5 cursor-pointer">管理</button>
+                            )}
+                            <button onClick={() => setShowAddHabit(true)}
+                                className="h-7 px-3 rounded-full text-xs font-bold bg-[#1F1F1F] text-white cursor-pointer">+ 添加</button>
+                        </div>
+                    </div>
+                    {onHabit.length === 0 ? (
+                        <p className={`text-sm text-center ${t.muted} py-6`}>还没有习惯，点右上角添加</p>
+                    ) : (
+                        <div className="space-y-1">
+                            {onHabit.map((h, idx) => {
+                                const done = h.checkins && h.checkins[date];
+                                const color = habitColor(h, idx);
+                                return (
+                                    <div key={h.id} className={`flex items-center gap-2 p-2 rounded-xl ${t.card}`}>
+                                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold">{h.name}</p>
+                                            <p className={`text-[10px] ${t.muted}`}>{habitFreqText(h)}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                if (!onHabitChange) return;
+                                                const key = date;
+                                                const checkins = { ...(h.checkins || {}) };
+                                                checkins[key] = checkins[key] ? 0 : 1;
+                                                onHabitChange(onHabit.map(x => x.id === h.id ? { ...x, checkins } : x));
+                                            }}
+                                            className={`h-8 px-3 rounded-full text-xs font-bold cursor-pointer ${done ? 'text-white' : 'bg-black/5'}`}
+                                            style={done ? { backgroundColor: color } : {}}
+                                        >
+                                            {done ? '已打卡' : '打卡'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {showAddHabit && (
+                        <AddHabitModal
+                            theme={t}
+                            onClose={() => setShowAddHabit(false)}
+                            onAdd={(name, color) => {
+                                const nh: TechoHabit = {
+                                    id: uid(), name, icon: '', color, frequency: 'daily',
+                                    targetDays: 21, startDate: date, phase: 'growing', checkins: {},
+                                };
+                                if (onHabitChange) onHabitChange([...onHabit, nh]);
+                                setShowAddHabit(false);
+                            }}
+                        />
+                    )}
+                </div>
+            )}
+
+            {/* 碎碎念 */}
+            {dayTab === 3 && (
                 <NotesPanel theme={t} date={date} notes={dayData.notes} onSave={(n) => onPersist({ ...dayData, notes: n })} />
             )}
 
@@ -504,8 +583,9 @@ function TimelineModal(props: { theme: any; item: TechoTimelineItem | null; onCl
 }
 
 /* ---------- 周视图 ---------- */
-function WeekView(props: { theme: any; date: string; onDayClick: (d: string) => void; onGoDay: () => void }) {
-    const { theme: t, date, onDayClick, onGoDay } = props;
+function WeekView(props: { theme: any; date: string; habits: TechoHabit[]; onDayClick: (d: string) => void; onGoDay: () => void }) {
+    const { theme: t, date, habits, onDayClick, onGoDay } = props;
+    const [selectedDay, setSelectedDay] = useState<string | null>(null);
     const base = parseDateWeek(date);
     const days = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(base); d.setDate(base.getDate() + i); return dateStr(d);
@@ -519,21 +599,35 @@ function WeekView(props: { theme: any; date: string; onDayClick: (d: string) => 
                     const total = day.timeline.length + day.todos.length;
                     const done = day.timeline.filter(x => x.done).length + day.todos.filter(x => x.done).length;
                     const dd = new Date(d + 'T00:00:00');
+                    const isSelected = selectedDay === d;
                     return (
                         <button
                             key={d}
-                            onClick={() => { onDayClick(d); onGoDay(); }}
-                            className={`flex flex-col items-center p-1.5 rounded-xl ${t.card} cursor-pointer ${d === todayStr() ? 'ring-2 ring-[#1F1F1F]' : ''}`}
+                            onClick={() => { setSelectedDay(isSelected ? null : d); }}
+                            className={`flex flex-col items-center p-1.5 rounded-xl cursor-pointer transition-colors ${
+                                isSelected ? 'bg-[#1F1F1F] text-white'
+                                : d === todayStr() ? `${t.card} ring-2 ring-[#1F1F1F]`
+                                : t.card
+                            }`}
                         >
-                            <span className={`text-[10px] ${t.muted}`}>{weekdayCN(dd)}</span>
+                            <span className={`text-[10px] ${isSelected ? 'text-white/70' : t.muted}`}>{weekdayCN(dd)}</span>
                             <span className="text-sm font-bold">{dd.getDate()}</span>
-                            <span className={`text-[9px] ${total ? (done === total ? 'text-green-500' : t.muted) : t.muted}`}>
+                            <span className={`text-[9px] ${isSelected ? 'text-white/70' : (done === total && total > 0 ? 'text-green-500' : t.muted)}`}>
                                 {total ? `${done}/${total}` : '·'}
                             </span>
                         </button>
                     );
                 })}
             </div>
+            {selectedDay && (
+                <DaySummaryPanel
+                    theme={t}
+                    date={selectedDay}
+                    habits={habits}
+                    onClose={() => setSelectedDay(null)}
+                    onGoDay={() => { onDayClick(selectedDay); onGoDay(); }}
+                />
+            )}
         </div>
     );
 }
@@ -544,10 +638,60 @@ function parseDateWeek(str: string): Date {
     return d;
 }
 
+/* ---------- 周视图当日摘要面板 ---------- */
+function DaySummaryPanel(props: { theme: any; date: string; habits: TechoHabit[]; onClose: () => void; onGoDay: () => void }) {
+    const { theme: t, date, habits, onClose, onGoDay } = props;
+    const day = getDay(date);
+    const dd = new Date(date + 'T00:00:00');
+    const doneTodo = day.todos.filter(x => x.done).length;
+    const doneTimeline = day.timeline.filter(x => x.done).length;
+    const dayHabits = habits.filter(h => h.checkins && h.checkins[date]);
+    return (
+        <div className={`rounded-2xl p-4 mb-2 ${t.card}`}>
+            <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-bold">{dd.getMonth() + 1}月{dd.getDate()}日 {weekdayCN(dd)}</p>
+                <div className="flex items-center gap-2">
+                    <button onClick={onGoDay} className="text-[11px] px-2.5 py-1 rounded-full bg-[#1F1F1F] text-white cursor-pointer">进日视图</button>
+                    <button onClick={onClose} className={`text-[11px] px-2.5 py-1 rounded-full ${t.muted} hover:bg-black/5 cursor-pointer`}>收起</button>
+                </div>
+            </div>
+            <div className="space-y-1.5 text-xs">
+                {day.timeline.length === 0 && day.todos.length === 0 && dayHabits.length === 0 && (
+                    <p className={`${t.muted} py-2`}>这天没有记录</p>
+                )}
+                {day.timeline.slice(0, 4).map(x => (
+                    <div key={x.id} className="flex items-center gap-2">
+                        <span className={`font-mono ${t.muted} w-10`}>{x.time}</span>
+                        <span className={`flex-1 ${x.done ? 'line-through opacity-60' : ''}`}>{x.text}</span>
+                        {x.star && <span className="text-amber-400">★</span>}
+                    </div>
+                ))}
+                {day.todos.slice(0, 4).map(x => (
+                    <div key={x.id} className="flex items-center gap-2">
+                        <span className={x.done ? 'text-green-500' : t.muted}>{x.done ? '☑' : '☐'}</span>
+                        <span className={`flex-1 ${x.done ? 'line-through opacity-60' : ''}`}>{x.text}</span>
+                    </div>
+                ))}
+                {dayHabits.slice(0, 4).map(h => (
+                    <div key={h.id} className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: habitColor(h, habits.findIndex(x => x.id === h.id)) }} />
+                        <span className="flex-1">{h.name}</span>
+                        <span className="text-green-500">已打卡</span>
+                    </div>
+                ))}
+            </div>
+            {(day.timeline.length + day.todos.length) > 0 && (
+                <p className={`text-[10px] ${t.muted} mt-2`}>时间轴 {doneTimeline}/{day.timeline.length} · Todo {doneTodo}/{day.todos.length}</p>
+            )}
+        </div>
+    );
+}
+
 /* ---------- 月视图 ---------- */
-function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDayClick: (d: string) => void }) {
-    const { theme: t, date, habits, onDayClick } = props;
+function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDayClick: (d: string) => void; onGoDay: () => void }) {
+    const { theme: t, date, habits, onDayClick, onGoDay } = props;
     const [base] = useState(() => new Date(date + 'T00:00:00'));
+    const [selectedDay, setSelectedDay] = useState<string | null>(null);
     const year = base.getFullYear();
     const month = base.getMonth();
     // 联网刷新该年节假日（自动更新；本地表兜底）
@@ -574,45 +718,272 @@ function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDa
                     const hasHabit = habits.some(h => h.checkins && h.checkins[d]);
                     const fest = getDayFestival(d);
                     const dd = new Date(d + 'T00:00:00');
-                    // 节日/补班标记（格子空间有限，只显示首名）
+                    // 类型化标记并排：● 有记录完成 · ☑ 全部完成 · ✎ 有碎碎念 · ✦ 有习惯 · ★ 有星标
+                    const markers: string[] = [];
+                    if (day.timeline.length > 0 || day.todos.length > 0) markers.push(total > 0 && done === total ? '☑' : '●');
+                    if (day.notes && day.notes.trim()) markers.push('✎');
+                    if (hasHabit) markers.push('✦');
+                    if (day.timeline.some(x => x.star) || day.todos.some(x => x.star)) markers.push('★');
                     const festLabel = fest && fest.names.length > 0 ? (fest.type === 'workday' ? '班' : fest.names[0]) : '';
                     const festColor = fest
                         ? (fest.type === 'workday'
-                            ? (d === todayStr() ? 'text-white/80' : t.muted)
-                            : (d === todayStr() ? 'text-amber-300' : 'text-red-500'))
+                            ? (selectedDay === d || d === todayStr() ? 'text-white/80' : t.muted)
+                            : (selectedDay === d || d === todayStr() ? 'text-amber-300' : 'text-red-500'))
                         : '';
+                    const isSelected = selectedDay === d;
                     return (
-                        <button key={d} onClick={() => onDayClick(d)}
-                            className={`flex flex-col items-center py-1 rounded-lg cursor-pointer ${d === todayStr() ? 'bg-[#1F1F1F] text-white' : t.card} ${d !== todayStr() ? 'hover:bg-black/5' : ''}`}>
+                        <button key={d}
+                            onClick={() => { setSelectedDay(isSelected ? null : d); }}
+                            className={`flex flex-col items-center py-1 rounded-lg cursor-pointer transition-colors ${
+                                isSelected ? 'bg-[#1F1F1F] text-white'
+                                : d === todayStr() ? `${t.card} ring-2 ring-[#1F1F1F]`
+                                : `${t.card} hover:bg-black/5`
+                            }`}>
                             <span className="text-sm leading-none">{dd.getDate()}</span>
-                            <span className={`text-[7px] leading-tight truncate max-w-full ${festColor || (hasHabit ? '' : t.muted)}`}>
-                                {festLabel || (total > 0 ? (done === total ? '✓' : total ? '·' : '') : hasHabit ? '✦' : '')}
-                            </span>
+                            {festLabel ? (
+                                <span className={`text-[7px] leading-tight truncate max-w-full ${festColor || (isSelected ? 'text-white/70' : t.muted)}`}>{festLabel}</span>
+                            ) : markers.length > 0 ? (
+                                <span className={`text-[7px] leading-tight flex gap-[1px] ${isSelected ? 'text-white/70' : t.muted}`}>
+                                    {markers.slice(0, 3).map((m, mi) => (
+                                        <span key={mi}>{m}</span>
+                                    ))}
+                                </span>
+                            ) : (
+                                <span className="text-[7px] leading-tight text-transparent">.</span>
+                            )}
                         </button>
                     );
                 })}
             </div>
+            {selectedDay && (
+                <DaySummaryPanel
+                    theme={t}
+                    date={selectedDay}
+                    habits={habits}
+                    onClose={() => setSelectedDay(null)}
+                    onGoDay={() => { onDayClick(selectedDay); onGoDay(); }}
+                />
+            )}
         </div>
     );
 }
 
 /* ---------- 年视图 ---------- */
+/** 手动备注的统一色（生日/纪念日等特殊日子，与习惯专属色区分） */
+const YEAR_NOTE_COLOR = '#D4A574';
+
 function YearView(props: { theme: any; habits: TechoHabit[] }) {
     const { theme: t, habits } = props;
-    const year = new Date().getFullYear();
+    const [year, setYear] = useState(new Date().getFullYear());
+    const [yearNotes, setYearNotes] = useState<Record<string, string>>(() => getYearNotes());
+    const [editingDay, setEditingDay] = useState<string | null>(null);
+    const [focusedMonth, setFocusedMonth] = useState<number | null>(null); // 放大的月份（null=看整年）
     const totalChecks = habits.reduce((sum, h) => sum + Object.keys(h.checkins || {}).length, 0);
+    const thisYearChecks = habits.reduce((sum, h) => sum + Object.keys(h.checkins || {}).filter(k => k.startsWith(String(year))).length, 0);
+    const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+    const saveNotes = (n: Record<string, string>) => { setYearNotes(n); saveYearNotes(n); };
+
     return (
         <div className="py-3">
-            <p className="font-bold mb-1">{year}年</p>
+            {/* 年份切换 */}
+            <div className="flex items-center justify-between mb-3">
+                <button onClick={() => setYear(year - 1)} className="p-2 rounded-full hover:bg-black/5 cursor-pointer" aria-label="上一年">
+                    <CaretLeft className={`w-5 h-5 ${t.muted}`} />
+                </button>
+                <p className="font-bold">{year}年</p>
+                <button onClick={() => setYear(year + 1)} className="p-2 rounded-full hover:bg-black/5 cursor-pointer" aria-label="下一年">
+                    <CaretRight className={`w-5 h-5 ${t.muted}`} />
+                </button>
+            </div>
+
+            {/* 统计 */}
             <div className={`rounded-2xl ${t.card} p-4 mb-4`}>
                 <p className="text-xs font-semibold mb-1">持续事项</p>
-                <p className={`text-sm ${t.muted}`}>已累计打卡 <b className={t.text}>{totalChecks}</b> 次</p>
+                <p className={`text-sm ${t.muted}`}>累计打卡 <b className={t.text}>{totalChecks}</b> 次 · {year}年 <b className={t.text}>{thisYearChecks}</b> 次</p>
             </div>
-            {habits.map(h => (
-                <div key={h.id} className={`rounded-2xl ${t.card} p-4 mb-2`}>
-                    <p className="text-sm">{h.icon} {h.name} · 本年 {Object.keys(h.checkins || {}).length} 天</p>
+
+            {/* 整年 12 个月网格（未放大时显示） */}
+            {!focusedMonth && (
+            <div className="grid grid-cols-3 gap-2 mb-4">
+                {MONTHS.map(m => {
+                    const dims = new Date(year, m, 0).getDate();
+                    const firstWeekday = new Date(year, m - 1, 1).getDay();
+                    const lead = Array.from({ length: firstWeekday }, () => '' ) as string[];
+                    const cells: string[] = [...lead];
+                    for (let d = 1; d <= dims; d++) {
+                        cells.push(`${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+                    }
+                    return (
+                        <button key={m} onClick={() => setFocusedMonth(m)}
+                            className={`rounded-lg p-1.5 ${t.card} hover:bg-black/5 transition-colors cursor-pointer`}>
+                            <p className={`text-[9px] font-bold mb-1 ${t.muted}`}>{m}月</p>
+                            <div className="grid grid-cols-7 gap-[2px]">
+                                {cells.map((d, i) => {
+                                    if (d === '') return <span key={`e-${i}`} />;
+                                    // 当天打了哪些习惯（专属色圆点，显示全）
+                                    const habitDots = habits.map((h, idx) => (h.checkins && h.checkins[d]) ? habitColor(h, idx) : null).filter(Boolean) as string[];
+                                    const hasNote = !!yearNotes[d];
+                                    return (
+                                        <button key={d} onClick={() => setEditingDay(d)}
+                                            className="flex flex-col items-center gap-[2px] p-0.5 rounded-[3px] hover:bg-black/5 cursor-pointer">
+                                            <span className="text-[8px] leading-none opacity-70">{Number(d.slice(8))}</span>
+                                            <span className="flex gap-[1px] h-1.5 max-w-full flex-wrap">
+                                                {habitDots.slice(0, 3).map((c, ci) => (
+                                                    <span key={ci} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: c }} />
+                                                ))}
+                                                {hasNote && <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: YEAR_NOTE_COLOR }} />}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+            )}
+
+            {/* 单月放大视图（点击某个月后） */}
+            {focusedMonth && (
+                <MonthZoomView
+                    theme={t}
+                    year={year}
+                    month={focusedMonth}
+                    habits={habits}
+                    yearNotes={yearNotes}
+                    onBack={() => setFocusedMonth(null)}
+                    onEditDay={(d) => setEditingDay(d)}
+                />
+            )}
+
+            {/* 手动备注编辑弹层 */}
+            {editingDay && (
+                <YearNoteModal
+                    theme={t}
+                    day={editingDay}
+                    initial={yearNotes[editingDay] || ''}
+                    habitDots={habits.map((h, idx) => (h.checkins && h.checkins[editingDay]) ? habitColor(h, idx) : null).filter(Boolean) as string[]}
+                    onSave={(text) => {
+                        const next = { ...yearNotes };
+                        if (text.trim()) next[editingDay] = text.trim(); else delete next[editingDay];
+                        saveNotes(next);
+                        setEditingDay(null);
+                    }}
+                    onDelete={() => {
+                        const next = { ...yearNotes };
+                        delete next[editingDay];
+                        saveNotes(next);
+                        setEditingDay(null);
+                    }}
+                    onClose={() => setEditingDay(null)}
+                />
+            )}
+
+            {/* 每个习惯一行专属颜色的全年打卡色带（放大单月时隐藏，聚焦查看） */}
+            {!focusedMonth && habits.length > 0 && (
+                <div className="space-y-2 mb-2">
+                    <p className={`text-xs font-bold ${t.muted}`}>全年打卡色带（{year}年）</p>
+                    {habits.map((h, idx) => {
+                        const color = habitColor(h, idx);
+                        const days = 365;
+                        return (
+                            <div key={h.id} className={`rounded-2xl ${t.card} p-3`}>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs font-bold flex items-center gap-1.5">
+                                        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+                                        {h.name}
+                                    </p>
+                                    <span className="text-[10px]" style={{ color }}>{Object.keys(h.checkins || {}).filter(k => k.startsWith(String(year))).length} 天</span>
+                                </div>
+                                <div className="flex gap-[2px] h-4 overflow-hidden">
+                                    {Array.from({ length: days }, (_, i) => {
+                                        const d = new Date(year, 0, 1);
+                                        d.setDate(d.getDate() + i);
+                                        const key = dateStr(d);
+                                        const on = h.checkins && h.checkins[key];
+                                        return <span key={key} className="flex-1 rounded-[2px]" style={{ backgroundColor: on ? color : 'rgba(0,0,0,0.05)' }} />;
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
-            ))}
+            )}
+        </div>
+    );
+}
+
+/* ---------- 年视图单月放大 ---------- */
+function MonthZoomView(props: { theme: any; year: number; month: number; habits: TechoHabit[]; yearNotes: Record<string, string>; onBack: () => void; onEditDay: (d: string) => void }) {
+    const { theme: t, year, month, habits, yearNotes, onBack, onEditDay } = props;
+    const dims = new Date(year, month, 0).getDate();
+    const firstWeekday = new Date(year, month - 1, 1).getDay();
+    const lead = Array.from({ length: firstWeekday }, () => '') as string[];
+    const cells: string[] = [...lead];
+    for (let d = 1; d <= dims; d++) {
+        cells.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    return (
+        <div>
+            <button onClick={onBack} className="flex items-center gap-1 mb-3 px-2 py-1 rounded-full hover:bg-black/5 cursor-pointer">
+                <CaretLeft className={`w-4 h-4 ${t.muted}`} />
+                <span className={`text-xs ${t.muted}`}>返回整年</span>
+            </button>
+            <div className={`rounded-2xl p-4 ${t.card} mb-4`}>
+                <p className="font-bold mb-3 text-center">{year}年{month}月</p>
+                <div className="grid grid-cols-7 gap-1 mb-2">
+                    {['日', '一', '二', '三', '四', '五', '六'].map(w => <span key={w} className={`text-center text-[10px] ${t.muted}`}>{w}</span>)}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                    {cells.map((d, i) => {
+                        if (d === '') return <span key={`e-${i}`} />;
+                        const habitDots = habits.map((h, idx) => (h.checkins && h.checkins[d]) ? habitColor(h, idx) : null).filter(Boolean) as string[];
+                        const hasNote = !!yearNotes[d];
+                        return (
+                            <button key={d} onClick={() => onEditDay(d)}
+                                className="flex flex-col items-center gap-1 py-1 rounded-lg hover:bg-black/5 cursor-pointer">
+                                <span className="text-sm leading-none">{Number(d.slice(8))}</span>
+                                <span className="flex gap-[2px] h-2 max-w-full flex-wrap">
+                                    {habitDots.slice(0, 4).map((c, ci) => (
+                                        <span key={ci} className="w-2 h-2 rounded-full" style={{ backgroundColor: c }} />
+                                    ))}
+                                    {hasNote && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: YEAR_NOTE_COLOR }} />}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ---------- 年视图手动备注弹层 ---------- */
+function YearNoteModal(props: { theme: any; day: string; initial: string; habitDots: string[]; onSave: (text: string) => void; onDelete: () => void; onClose: () => void }) {
+    const { theme: t, day, initial, habitDots, onSave, onDelete, onClose } = props;
+    const [text, setText] = useState(initial);
+    const dd = new Date(day + 'T00:00:00');
+    return (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+            <div className={`w-full max-w-sm rounded-2xl p-5 ${t.card} shadow-xl`} onClick={e => e.stopPropagation()}>
+                <h3 className="text-sm font-bold mb-1">{dd.getMonth() + 1}月{dd.getDate()}日</h3>
+                {habitDots.length > 0 && (
+                    <div className="flex items-center gap-1 mb-2">
+                        {habitDots.map((c, i) => <span key={i} className="w-3 h-3 rounded-full" style={{ backgroundColor: c }} />)}
+                        <span className={`text-[10px] ${t.muted}`}>当天有习惯打卡</span>
+                    </div>
+                )}
+                <input value={text} onChange={e => setText(e.target.value)} placeholder="记一下这天（如：朋友生日）"
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm mb-4" autoFocus />
+                <div className="flex gap-2">
+                    {initial && (
+                        <button onClick={onDelete} className="px-3 py-2 rounded-xl text-sm bg-red-50 text-red-500 cursor-pointer">删除</button>
+                    )}
+                    <button onClick={onClose} className="flex-1 py-2 rounded-xl text-sm bg-black/5 cursor-pointer">取消</button>
+                    <button onClick={() => onSave(text)} className="flex-1 py-2 rounded-xl text-sm bg-[#1F1F1F] text-white cursor-pointer">保存</button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -621,29 +992,39 @@ function YearView(props: { theme: any; habits: TechoHabit[] }) {
 function HabitView(props: { theme: any; habits: TechoHabit[]; onChange: (h: TechoHabit[]) => void; addToast: (m: string, type?: 'error' | 'success' | 'info') => void }) {
     const { theme: t, habits, onChange, addToast } = props;
     const [showAdd, setShowAdd] = useState(false);
+    const [confirmDel, setConfirmDel] = useState<TechoHabit | null>(null);
     const toggle = (h: TechoHabit) => {
         const key = todayStr();
         const checkins = { ...(h.checkins || {}) };
         checkins[key] = checkins[key] ? 0 : 1;
         onChange(habits.map(x => x.id === h.id ? { ...x, checkins } : x));
     };
+    const delHabit = (h: TechoHabit) => {
+        onChange(habits.filter(x => x.id !== h.id));
+        setConfirmDel(null);
+        addToast(`已删除「${h.name}」`);
+    };
     return (
         <div className="py-3">
             {habits.length === 0 && <p className={`text-sm text-center ${t.muted} py-8`}>还没有习惯，点右下角添加</p>}
             <div className="space-y-2">
-                {habits.map(h => {
+                {habits.map((h, hi) => {
                     const key = todayStr();
                     const done = h.checkins && h.checkins[key];
+                    const c = habitColor(h, hi);
                     return (
-                        <div key={h.id} className={`flex items-center gap-3 p-3 rounded-2xl ${t.card}`}>
-                            <span className="text-xl">{h.icon}</span>
-                            <div className="flex-1">
+                        <div key={h.id}
+                            onContextMenu={(e) => { e.preventDefault(); setConfirmDel(h); }}
+                            className={`flex items-center gap-3 p-3 rounded-2xl ${t.card} cursor-pointer active:scale-[0.99] transition-transform`}>
+                            <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                            <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold">{h.name}</p>
-                                <p className={`text-[10px] ${t.muted}`}>{habitFreqText(h)}</p>
+                                <p className={`text-[10px] ${t.muted}`}>{habitFreqText(h)} · {Object.keys(h.checkins || {}).length} 天</p>
                             </div>
                             <button
-                                onClick={() => toggle(h)}
-                                className={`h-8 px-3 rounded-full text-xs font-bold cursor-pointer ${done ? 'bg-green-500 text-white' : 'bg-black/5'}`}
+                                onClick={(e) => { e.stopPropagation(); toggle(h); }}
+                                className={`h-8 px-3 rounded-full text-xs font-bold cursor-pointer ${done ? 'text-white' : 'bg-black/5'}`}
+                                style={done ? { backgroundColor: c } : {}}
                             >
                                 {done ? '已打卡' : '打卡'}
                             </button>
@@ -655,8 +1036,8 @@ function HabitView(props: { theme: any; habits: TechoHabit[]; onChange: (h: Tech
                 <AddHabitModal
                     theme={t}
                     onClose={() => setShowAdd(false)}
-                    onAdd={(name, icon) => {
-                        const h: TechoHabit = { id: uid(), name, icon, frequency: { type: 'daily' }, startDate: todayStr(), phase: 'growing', checkins: {} };
+                    onAdd={(name, color) => {
+                        const h: TechoHabit = { id: uid(), name, icon: '', color, frequency: { type: 'daily' }, startDate: todayStr(), phase: 'growing', checkins: {} };
                         onChange([...habits, h]);
                         setShowAdd(false);
                         addToast('习惯已添加');
@@ -667,6 +1048,21 @@ function HabitView(props: { theme: any; habits: TechoHabit[]; onChange: (h: Tech
                 className="mt-4 w-full rounded-xl py-2 text-xs font-bold border border-dashed border-black/20 hover:bg-black/5 cursor-pointer">
                 + 添加新习惯
             </button>
+            <p className={`text-[10px] text-center mt-2 ${t.muted}`}>长按习惯可删除</p>
+
+            {confirmDel && (
+                <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setConfirmDel(null)}>
+                    <div className={`w-full max-w-sm rounded-2xl p-5 ${t.card} shadow-xl`} onClick={e => e.stopPropagation()}>
+                        <h3 className="text-sm font-bold mb-2">删除习惯</h3>
+                        <p className={`text-xs ${t.muted} mb-1`}>「{confirmDel.name}」的 {Object.keys(confirmDel.checkins || {}).length} 天打卡记录会一起被清除，此操作不可撤销。</p>
+                        <p className="text-xs text-red-500 mb-4">确定要删除吗？</p>
+                        <div className="flex gap-2">
+                            <button onClick={() => setConfirmDel(null)} className="flex-1 py-2 rounded-xl text-sm bg-black/5 cursor-pointer">取消</button>
+                            <button onClick={() => delHabit(confirmDel)} className="flex-1 py-2 rounded-xl text-sm bg-red-500 text-white cursor-pointer">删除</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -675,28 +1071,217 @@ function habitFreqText(h: TechoHabit): string {
     if (h.frequency.type === 'weekly_count') return `每周 ${h.frequency.count} 次`;
     return `每周固定日`;
 }
-function AddHabitModal(props: { theme: any; onClose: () => void; onAdd: (name: string, icon: string) => void }) {
+function AddHabitModal(props: { theme: any; onClose: () => void; onAdd: (name: string, color: string) => void }) {
     const { theme: t, onClose, onAdd } = props;
     const [name, setName] = useState('');
-    const [icon, setIcon] = useState('✅');
-    const ICONS = ['✅', '💃', '📖', '🧘', '🏃', '💧', '🍎', '😴', '✍️', '🎸'];
+    const [color, setColor] = useState('#4ADE80');
+    const COLORS = ['#D9A0A0', '#E8B98A', '#E8C992', '#A8C99E', '#9FC9BD', '#9BC2CD', '#9CB1D1', '#B0A2C9', '#C9A2C5', '#D1A0B5'];
     return (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
             <div className={`w-full max-w-sm rounded-2xl p-5 ${t.card} shadow-xl`} onClick={e => e.stopPropagation()}>
                 <h3 className="text-sm font-bold mb-3">添加习惯</h3>
-                <label className="text-xs text-[#666]">图标</label>
-                <div className="flex flex-wrap gap-1 mb-3">
-                    {ICONS.map(ic => (
-                        <button key={ic} onClick={() => setIcon(ic)}
-                            className={`h-8 w-8 rounded-lg text-lg cursor-pointer ${icon === ic ? 'bg-black/10' : 'hover:bg-black/5'}`}>{ic}</button>
+                <label className="text-xs text-[#666]">颜色（会显示在年视图）</label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                    {COLORS.map(cc => (
+                        <button key={cc} onClick={() => setColor(cc)}
+                            className="h-8 w-8 rounded-full cursor-pointer"
+                            style={{ backgroundColor: cc, outline: color === cc ? '2px solid #1F1F1F' : 'none', outlineOffset: 2 }} />
                     ))}
                 </div>
                 <input value={name} onChange={e => setName(e.target.value)} placeholder="习惯名称（如：读书）"
                     className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm mb-4" />
                 <div className="flex gap-2">
                     <button onClick={onClose} className="flex-1 py-2 rounded-xl text-sm bg-black/5 cursor-pointer">取消</button>
-                    <button onClick={() => name.trim() && onAdd(name.trim(), icon)}
+                    <button onClick={() => name.trim() && onAdd(name.trim(), color)}
                         className="flex-1 py-2 rounded-xl text-sm bg-[#1F1F1F] text-white cursor-pointer">添加</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ---------- 21 天挑战 ---------- */
+function ChallengeView(props: { theme: any; challenges: TechoChallenge[]; onChange: (c: TechoChallenge[]) => void; addToast: (m: string, type?: 'error' | 'success' | 'info') => void }) {
+    const { theme: t, challenges, onChange, addToast } = props;
+    const [showAdd, setShowAdd] = useState(false);
+
+    // 从 startDate 起是否每天连续打卡（含今天）。用于判定「连续 21 天」是否成功/是否断签。
+    const streakTo = (c: TechoChallenge, upTo: string): number => {
+        // 从 startDate 数到 upTo，连续每天都有打卡才累计，断一天即停
+        let count = 0;
+        const d = new Date(parseDate(c.startDate));
+        const end = parseDate(upTo);
+        while (d.getTime() <= end.getTime()) {
+            if (c.checkins && c.checkins[dateStr(d)]) count++;
+            else break; // 断签
+            d.setDate(d.getDate() + 1);
+        }
+        return count;
+    };
+
+    // 挂载时把「进行中但已断签」的挑战固化为 failed（归档）
+    useEffect(() => {
+        const key = todayStr();
+        let dirty = false;
+        const next = challenges.map(c => {
+            if (c.status !== 'active') return c;
+            if (Object.keys(c.checkins || {}).length === 0) return c;
+            // 从 startDate 到今天连续没断 → 正常；断了（昨天没打）→ 失效
+            const todayDone = !!(c.checkins && c.checkins[key]);
+            const streak = streakTo(c, todayDone ? key : addDays(key, -1));
+            const expectedDays = Math.round((parseDate(key).getTime() - parseDate(c.startDate).getTime()) / 86400000) + 1;
+            // 若应连续的天数与实际连续天数不符，说明中间断签了
+            if (streak < expectedDays) { dirty = true; return { ...c, status: 'failed' as const, failDate: key }; }
+            return c;
+        });
+        if (dirty) onChange(next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // 打卡（连续逻辑：今天打上后，若从 startDate 到今天连续满 targetDays 即完成）
+    const check = (c: TechoChallenge) => {
+        const key = todayStr();
+        const checkins = { ...(c.checkins || {}) };
+        if (checkins[key]) { addToast('今天已打卡'); return; }
+        checkins[key] = 1;
+        const streak = streakTo({ ...c, checkins }, key);
+        if (streak >= c.targetDays) {
+            onChange(challenges.map(x => x.id === c.id ? { ...c, checkins, status: 'done', doneDate: key } : x));
+            addToast(`🎉 连续 ${streak} 天，完成挑战「${c.name}」！`, 'success');
+        } else {
+            onChange(challenges.map(x => x.id === c.id ? { ...c, checkins } : x));
+            addToast(`打卡成功，已连续 ${streak} 天`);
+        }
+    };
+    // 撤销今天打卡
+    const uncheck = (c: TechoChallenge) => {
+        const key = todayStr();
+        const checkins = { ...(c.checkins || {}) };
+        if (!checkins[key]) return;
+        delete checkins[key];
+        onChange(challenges.map(x => x.id === c.id ? { ...x, checkins } : x));
+    };
+    // 判定失效：进行中但打卡不连续（从 startDate 起断了）
+    const isFailed = (c: TechoChallenge): boolean => {
+        if (c.status !== 'active') return false;
+        if (Object.keys(c.checkins || {}).length === 0) return false;
+        const key = todayStr();
+        const todayDone = !!(c.checkins && c.checkins[key]);
+        const streak = streakTo(c, todayDone ? key : addDays(key, -1));
+        const expectedDays = Math.round((parseDate(key).getTime() - parseDate(c.startDate).getTime()) / 86400000) + 1;
+        return streak < expectedDays;
+    };
+
+    const active = challenges.filter(c => c.status === 'active' && !isFailed(c));
+    const failed = challenges.filter(c => c.status === 'failed' || (c.status === 'active' && isFailed(c)));
+    const done = challenges.filter(c => c.status === 'done');
+
+    const renderCard = (c: TechoChallenge) => {
+        const doneDays = Object.keys(c.checkins || {}).length;
+        const pct = Math.min(100, Math.round(doneDays / c.targetDays * 100));
+        const todayDone = !!(c.checkins && c.checkins[todayStr()]);
+        return (
+            <div key={c.id} className={`rounded-2xl ${t.card} p-4 mb-2`}>
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="flex-1">
+                        <p className="text-sm font-bold">{c.name}</p>
+                        <p className={`text-[10px] ${t.muted}`}>第 {doneDays}/{c.targetDays} 天 · 已坚持 {doneDays} 天</p>
+                    </div>
+                    {c.status === 'active' && (
+                        todayDone ? (
+                            <button onClick={() => uncheck(c)} className="h-8 px-3 rounded-full text-xs font-bold bg-black/5 cursor-pointer">撤销</button>
+                        ) : (
+                            <button onClick={() => check(c)} className="h-8 px-3 rounded-full text-xs font-bold text-white cursor-pointer" style={{ backgroundColor: c.color }}>今日打卡</button>
+                        )
+                    )}
+                    {c.status === 'done' && <span className="text-xs font-bold text-green-500">✅ 已完成</span>}
+                    {c.status === 'failed' && <span className="text-xs font-bold text-red-400">已失效</span>}
+                </div>
+                {/* 进度条 */}
+                <div className="h-2 rounded-full bg-black/10 overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: c.color }} />
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="py-3">
+            <div className="flex items-center justify-between mb-3">
+                <p className="font-bold">21 天挑战</p>
+                <button onClick={() => setShowAdd(true)} className="h-8 px-3 rounded-full text-xs font-bold bg-[#1F1F1F] text-white cursor-pointer">+ 新挑战</button>
+            </div>
+
+            {active.length === 0 && done.length === 0 && failed.length === 0 && (
+                <p className={`text-sm text-center ${t.muted} py-8`}>还没有挑战，点右上角新建</p>
+            )}
+
+            {active.length > 0 && (
+                <>
+                    <p className={`text-xs font-bold ${t.muted} mb-1.5`}>进行中</p>
+                    {active.map(renderCard)}
+                </>
+            )}
+
+            {failed.length > 0 && (
+                <>
+                    <p className={`text-xs font-bold ${t.muted} mb-1.5 mt-3`}>已失效</p>
+                    {failed.map(c => {
+                        const failedC = { ...c, status: 'failed' as const, failDate: todayStr() };
+                        return renderCard(failedC);
+                    })}
+                </>
+            )}
+
+            {done.length > 0 && (
+                <>
+                    <p className={`text-xs font-bold ${t.muted} mb-1.5 mt-3`}>已完成</p>
+                    {done.map(renderCard)}
+                </>
+            )}
+
+            {showAdd && (
+                <AddChallengeModal
+                    theme={t}
+                    onClose={() => setShowAdd(false)}
+                    onAdd={(name, color) => {
+                        const c: TechoChallenge = {
+                            id: uid(), name, icon: '', color, startDate: todayStr(),
+                            targetDays: 21, checkins: {}, status: 'active',
+                        };
+                        onChange([...challenges, c]);
+                        setShowAdd(false);
+                        addToast('挑战已创建，今天开始打卡！', 'success');
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+function AddChallengeModal(props: { theme: any; onClose: () => void; onAdd: (name: string, color: string) => void }) {
+    const { theme: t, onClose, onAdd } = props;
+    const [name, setName] = useState('');
+    const [color, setColor] = useState('#D9A0A0');
+    const COLORS = ['#D9A0A0', '#E8B98A', '#E8C992', '#A8C99E', '#9FC9BD', '#9BC2CD', '#9CB1D1', '#B0A2C9', '#C9A2C5', '#D1A0B5'];
+    return (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+            <div className={`w-full max-w-sm rounded-2xl p-5 ${t.card} shadow-xl`} onClick={e => e.stopPropagation()}>
+                <h3 className="text-sm font-bold mb-3">新建 21 天挑战</h3>
+                <label className="text-xs text-[#666]">颜色</label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                    {COLORS.map(cc => (
+                        <button key={cc} onClick={() => setColor(cc)}
+                            className="h-8 w-8 rounded-full cursor-pointer"
+                            style={{ backgroundColor: cc, outline: color === cc ? '2px solid #1F1F1F' : 'none', outlineOffset: 2 }} />
+                    ))}
+                </div>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="挑战名称（如：早睡 21 天）"
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm mb-4" />
+                <div className="flex gap-2">
+                    <button onClick={onClose} className="flex-1 py-2 rounded-xl text-sm bg-black/5 cursor-pointer">取消</button>
+                    <button onClick={() => name.trim() && onAdd(name.trim(), color)}
+                        className="flex-1 py-2 rounded-xl text-sm bg-[#1F1F1F] text-white cursor-pointer">创建</button>
                 </div>
             </div>
         </div>

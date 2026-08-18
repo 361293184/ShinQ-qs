@@ -1220,6 +1220,21 @@ export interface TechoHabit {
     startDate: string;
     phase: 'growing' | 'sustained';
     checkins: Record<string, number>; // { YYYY-MM-DD: 次数 }
+    color?: string;        // 习惯专属色（年视图色带 / 周视图标记用），旧数据兜底为随机中性色
+}
+
+/** 21 天挑战。进行中 = 每天打卡，连续 21 天完成；中断超 3 天判定失效。 */
+export interface TechoChallenge {
+    id: string;
+    name: string;
+    icon: string;
+    color: string;
+    startDate: string;          // 开始日 YYYY-MM-DD
+    targetDays: number;         // 目标天数（默认 21）
+    checkins: Record<string, number>; // { YYYY-MM-DD: 1 }
+    status: 'active' | 'done' | 'failed';
+    doneDate?: string;          // 完成日
+    failDate?: string;          // 失效日
 }
 
 /** 大事记。 */

@@ -7,7 +7,7 @@
  */
 import {
     TechoDayData, TechoHabit, TechoSettings, TechoMilestone, TechoGoal,
-    TechoMonthData, TechoPeriod, TechoTodoItem,
+    TechoMonthData, TechoPeriod, TechoTodoItem, TechoChallenge,
 } from '../types';
 
 const PREFIX = 'techo_';
@@ -134,12 +134,42 @@ export function saveDay(dateStrKey: string, data: TechoDayData): void {
 
 /* ---------- 习惯 ---------- */
 
+/** 习惯专属色的中性兜底盘（旧数据无 color 时按索引取一个）。 */
+export const HABIT_COLOR_PALETTE = [
+    '#D9A0A0', '#E8B98A', '#E8C992', '#A8C99E', '#9FC9BD',
+    '#9BC2CD', '#9CB1D1', '#B0A2C9', '#C9A2C5', '#D1A0B5',
+];
+
+export function habitColor(h: TechoHabit, index: number): string {
+    return h.color || HABIT_COLOR_PALETTE[index % HABIT_COLOR_PALETTE.length];
+}
+
 export function getHabits(): TechoHabit[] {
     return read<TechoHabit[]>('habits', []);
 }
 
 export function saveHabits(h: TechoHabit[]): void {
     write('habits', h);
+}
+
+/* ---------- 21 天挑战 ---------- */
+
+export function getChallenges(): TechoChallenge[] {
+    return read<TechoChallenge[]>('challenges', []);
+}
+
+export function saveChallenges(c: TechoChallenge[]): void {
+    write('challenges', c);
+}
+
+/* ---------- 年视图手动备注（如生日、纪念日等特殊日子）---------- */
+
+export function getYearNotes(): Record<string, string> {
+    return read<Record<string, string>>('yearNotes', {});
+}
+
+export function saveYearNotes(n: Record<string, string>): void {
+    write('yearNotes', n);
 }
 
 /* ---------- 设置 ---------- */
