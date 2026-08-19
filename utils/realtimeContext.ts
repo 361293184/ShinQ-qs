@@ -87,6 +87,11 @@ export interface RealtimeConfig {
         userXsecToken?: string; // 从 feed 列表自动获取，用于 getUserProfile 等
     };
 
+    // 定位配置（位置分享：真实定位走高德 JS API，虚拟定位免配置）
+    locationEnabled: boolean;
+    amapKey: string;            // 高德 JS API Key（真实定位选点用）
+    amapSecurityJsCode: string; // 高德安全密钥 securityJsCode
+
     // 缓存配置
     cacheMinutes: number;   // 缓存时长（分钟）
 }

@@ -4127,8 +4127,13 @@ const Chat: React.FC = () => {
                 <LocationPickerModal
                     realtimeConfig={realtimeConfig}
                     onClose={() => setShowLocationPicker(false)}
-                    onSend={(name, desc, source) => {
-                        handleSendText(name, 'location_card', { name, desc, source });
+                    onSend={(name, desc, source, lat, lng) => {
+                        const meta: any = { name, desc, source };
+                        if (source === 'real' && lat != null && lng != null) {
+                            meta.lat = lat;
+                            meta.lng = lng;
+                        }
+                        handleSendText(name, 'location_card', meta);
                     }}
                 />
             )}

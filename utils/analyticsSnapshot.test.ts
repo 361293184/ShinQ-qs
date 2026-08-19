@@ -59,6 +59,9 @@ function poisonedRealtimeConfig(overrides: Partial<RealtimeConfig> = {}): Realti
             cookie: POISON.token,
             loggedInNickname: POISON.myName,
         },
+        locationEnabled: true,
+        amapKey: POISON.key,
+        amapSecurityJsCode: POISON.key,
         cacheMinutes: 30,
         ...overrides,
     };

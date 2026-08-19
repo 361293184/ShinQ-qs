@@ -16,6 +16,7 @@ import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
+import LocationMapThumb from './LocationMapThumb';
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -3123,6 +3124,12 @@ const MessageItem = React.memo(({
                         )}
                     </span>
                 </div>
+                {/* 真实定位：迷你地图缩略图（微信发位置样式，失败自动回落纯文字） */}
+                {isReal && (
+                    <div className="px-3 pt-2">
+                        <LocationMapThumb lat={lat!} lng={lng!} name={name} />
+                    </div>
+                )}
                 {/* 地点名 */}
                 <div className="px-3 py-2">
                     <p className="text-[13px] font-bold text-slate-800 leading-snug">{name}</p>
