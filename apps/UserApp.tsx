@@ -120,6 +120,17 @@ const UserApp: React.FC = () => {
                         className="w-full h-52 bg-slate-50 focus:bg-white border border-slate-100 focus:border-primary/30 rounded-2xl px-4 py-3 text-sm text-slate-700 leading-relaxed resize-none outline-none transition-all placeholder:text-slate-300"
                         placeholder="描述你自己..."
                     />
+                    {/* 生日：填了之后角色会在你生日那天送上祝福（陪伴核心级节日演绎） */}
+                    <div className="mt-3">
+                        <label className="text-[11px] font-bold text-slate-400 tracking-widest block mb-1">生日</label>
+                        <input
+                            type="date"
+                            value={userProfile.birthday || ''}
+                            onChange={(e) => updateUserProfile({ birthday: e.target.value || undefined })}
+                            className="w-full bg-slate-50 focus:bg-white border border-slate-100 focus:border-primary/30 rounded-2xl px-4 py-2.5 text-sm text-slate-700 outline-none transition-all"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">选填。填了之后，角色会在你生日那天送上祝福，也会把它当作特别的日子对待。</p>
+                    </div>
                 </div>
                 </>}
             </div>

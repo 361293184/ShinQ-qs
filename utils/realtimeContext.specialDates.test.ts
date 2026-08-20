@@ -42,3 +42,34 @@ describe('checkSpecialDates 跟随角色时区', () => {
         expect(RealtimeContextManager.checkSpecialDates(undefined)).toContain('情人节');
     });
 });
+
+describe('checkSpecialDatesDetailed 生日/纪念日穿透', () => {
+    it('用户生日按月-日命中，core 级，标记 isUserBirthday', () => {
+        freeze('2026-08-20T04:00:00Z'); // 上海 8/20 中午
+
+        const hits = RealtimeContextManager.checkSpecialDatesDetailed('Asia/Shanghai', undefined, '1998-08-20');
+        const bday = hits.find((h) => h.isUserBirthday);
+        expect(bday?.name).toBe('用户生日');
+        expect(bday?.tier).toBe('core');
+    });
+
+    it('没传生日/纪念日时不报错，返回数组', () => {
+        freeze('2026-08-20T04:00:00Z');
+
+        expect(Array.isArray(RealtimeContextManager.checkSpecialDatesDetailed('Asia/Shanghai'))).toBe(true);
+    });
+
+    it('buildDayStatusLine 普通日返回空串、不抛错', () => {
+        freeze('2026-08-20T04:00:00Z'); // 2026-08-20 不是节假日也不是补班
+
+        expect(RealtimeContextManager.buildDayStatusLine('Asia/Shanghai')).toBe('');
+    });
+
+    it('buildDayStatusLine 法定节假日返回「今天放假」', () => {
+        freeze('2026-02-17T04:00:00Z'); // 上海 2/17 春节放假
+
+        const line = RealtimeContextManager.buildDayStatusLine('Asia/Shanghai');
+        expect(line).toContain('今天放假');
+        expect(line).toContain('春节');
+    });
+});

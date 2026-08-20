@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     checkSpecialDates,
+    checkSpecialDatesDetailed,
     getHotNewsSlot,
     pickRandomNews,
     renderRealtimeWorldBlock,
@@ -115,7 +116,8 @@ describe('checkSpecialDates 农历节日', () => {
     });
 
     it('不是节日的日子什么都不给', () => {
-        expect(on(2026, 2, 18)).toEqual([]);
+        // 2/18 在春节窗口（除夕→元宵）内，兼容层会带回「春节」氛围名
+        expect(on(2026, 2, 18)).toEqual(['春节']);
         expect(on(2026, 7, 7)).toEqual([]); // 七夕看农历，公历 7/7 不算
     });
 
@@ -181,5 +183,118 @@ describe('checkSpecialDates 用户纪念日', () => {
     it('没传纪念日时不报错、不影响普通节日', () => {
         expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 2, 14))).toContain('情人节');
         expect(checkSpecialDates('Asia/Shanghai', noonInShanghai(2026, 2, 14), [])).toEqual(['情人节']);
+    });
+});
+
+describe('checkSpecialDatesDetailed 分级增强', () => {
+    const noonInShanghai = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 4, 0, 0);
+    const mk = (date: string, title: string, charId = 'c1') => ({ id: 'a1', date, title, charId });
+
+    it('用户生日按月-日命中，core 级，标记 isUserBirthday', () => {
+        const hits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 8, 20), [], '1998-08-20');
+        const bday = hits.find((h) => h.isUserBirthday);
+        expect(bday).toBeTruthy();
+        expect(bday!.name).toBe('用户生日');
+        expect(bday!.tier).toBe('core');
+    });
+
+    it('生日不是那天就不给', () => {
+        const hits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 8, 21), [], '1998-08-20');
+        expect(hits.some((h) => h.isUserBirthday)).toBe(false);
+    });
+
+    it('自定义纪念日命中，core 级，标记 isAnniversary', () => {
+        const hits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 8, 16), [mk('2024-08-16', '在一起的日子')]);
+        const ann = hits.find((h) => h.isAnniversary);
+        expect(ann).toBeTruthy();
+        expect(ann!.name).toBe('在一起的日子');
+        expect(ann!.tier).toBe('core');
+    });
+
+    it('春节窗口氛围：除夕到元宵之间给「正月初X」', () => {
+        const hits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 2, 20));
+        const win = hits.find((h) => h.windowText);
+        expect(win).toBeTruthy();
+        expect(win!.windowText).toContain('正值春节 · 正月初4');
+        // 当天已是节日本体（除夕/春节/元宵）就不再重复给氛围
+        const bodyHits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 2, 17));
+        expect(bodyHits.some((h) => h.name === '春节' && h.windowText)).toBe(false);
+    });
+
+    it('1/1 补跨年余韵「昨夜刚跨年」', () => {
+        const hits = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2027, 1, 1));
+        const win = hits.find((h) => h.windowText);
+        expect(win).toBeTruthy();
+        expect(win!.windowText).toContain('跨年');
+    });
+
+    it('分级：七夕 core / 元旦 normal / 植树节 light', () => {
+        const qiXi = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 8, 19));
+        expect(qiXi.some((h) => h.name === '七夕' && h.tier === 'core')).toBe(true);
+
+        const newYear = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 1, 1));
+        const yuanDan = newYear.find((h) => h.name === '元旦');
+        expect(yuanDan?.tier).toBe('normal');
+
+        const tree = checkSpecialDatesDetailed('Asia/Shanghai', noonInShanghai(2026, 3, 12));
+        const zhiShu = tree.find((h) => h.name === '植树节');
+        expect(zhiShu?.tier).toBe('light');
+    });
+});
+
+describe('renderRealtimeWorldBlock 分级渲染', () => {
+    it('core 级节日输出完整演绎块（主动提起 + 仪式感 + 彩蛋 + 防幻觉）', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年8月19日',
+            specialDatesDetailed: [
+                { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+            ],
+        });
+        expect(out).toContain('🎉 【今日特别的日子 · 七夕（中国传统情人节）】');
+        expect(out).toContain('今天是很特别的日子，你应该主动提起');
+        expect(out).toContain('💝 今天你可以试试：写一段心里话 / 告白');
+        expect(out).toContain('不要编造"去年我们一起');
+    });
+
+    it('normal 级节日输出单行，点到为止', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年1月1日',
+            specialDatesDetailed: [{ name: '元旦', tier: 'normal' }],
+        });
+        expect(out).toContain('📅 今日节日: 元旦');
+        expect(out).not.toContain('🎉 【今日特别的日子');
+    });
+
+    it('light 级节日不注入', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年3月12日',
+            specialDatesDetailed: [{ name: '植树节', tier: 'light' }],
+        });
+        expect(out).not.toContain('植树节');
+    });
+
+    it('窗口氛围行带 ⏳ 前缀', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年2月20日',
+            specialDatesDetailed: [{ name: '春节', tier: 'core', windowText: '正值春节 · 正月初4（春节氛围仍在）' }],
+        });
+        expect(out).toContain('⏳ 正值春节 · 正月初4');
+    });
+
+    it('用户生日渲染成 core 演绎块', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年8月20日',
+            specialDatesDetailed: [{ name: '用户生日', tier: 'core', label: '今天是你家宝的生日', egg: '送上祝福 + 准备小惊喜（纯演绎）', isUserBirthday: true }],
+        });
+        expect(out).toContain('🎉 【今日特别的日子 · 用户生日（今天是你家宝的生日）】');
+        expect(out).toContain('送上祝福 + 准备小惊喜');
+    });
+
+    it('今日状态（放假/补班）紧跟时间行输出', () => {
+        const out = renderRealtimeWorldBlock({
+            timeLine: '2026年2月17日',
+            dayStatusLine: '今天放假（春节）',
+        });
+        expect(out).toContain('📅 今日状态: 今天放假（春节）');
     });
 });

@@ -9,6 +9,7 @@ import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
 import { MusicCfg, loadMusicCfgStandalone } from '../context/MusicContext';
 import { RealtimeContextManager, NotionManager, FeishuManager, defaultRealtimeConfig } from './realtimeContext';
+import { renderRealtimeWorldBlock } from './realtimeWorldCore';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { VOICE_ACTING_GUIDE } from './minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
@@ -333,14 +334,19 @@ export const ChatPrompts = {
                     const realtimeContext = await RealtimeContextManager.buildFullContext(config, charTz, {
                         includeTime: char.timeAwarenessEnabled !== false,
                         anniversaries,
+                        birthday: userProfile.birthday,
                     });
                     return `\n${realtimeContext}\n`;
                 }
                 // 基础当前时间 + 时差提示已由 ContextBuilder.buildCoreContext 统一注入（受 timeAwarenessEnabled
                 // 控制，按角色自定义时区折算）；这里只在关闭天气/新闻时补一条"今日特殊节日"，不再重复注入时间/时差，避免双份。
-                const specialDates = RealtimeContextManager.checkSpecialDates(charTz, anniversaries);
-                if (specialDates.length > 0 && char.timeAwarenessEnabled !== false) {
-                    return `\n### 【今日特殊】\n${specialDates.join('、')}\n`;
+                // 分级渲染（core 演绎 / normal 一行 / light 不注入）+ 调休行 + 用户生日。
+                if (char.timeAwarenessEnabled !== false) {
+                    const detailed = RealtimeContextManager.checkSpecialDatesDetailed(charTz, anniversaries, userProfile.birthday);
+                    const dayStatusLine = RealtimeContextManager.buildDayStatusLine(charTz);
+                    if (detailed.length > 0 || dayStatusLine) {
+                        return `\n${renderRealtimeWorldBlock({ specialDatesDetailed: detailed, dayStatusLine })}\n`;
+                    }
                 }
                 return '';
             } catch (e) {

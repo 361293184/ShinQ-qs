@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, FanwaiStory, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
+import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, FanwaiStory, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, Anniversary } from '../types';
 import { DB } from '../utils/db';
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { modelRejectsSamplingParams, stripSamplingParams, isSamplingParamError } from '../utils/samplingParamCompat';
@@ -54,6 +54,7 @@ import {
   type MemoryAutoArchiveSyncDetail,
 } from '../utils/memoryPalace/autoArchive';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
+import { startFestivalBlessingScheduler } from '../utils/festivalBlessing';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { ActiveMsgStore, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
 import { charMayHaveCloudState, purgeCharCloudState } from '../utils/amsg2CharCleanup';
@@ -1014,6 +1015,43 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           trackDataScaleOnce(await collectDataScale(characters));
       })();
   }, [isDataLoaded, characters]);
+
+  // --- 节日 0 点祝福（本地前端调度）---
+  // 陪伴核心节日当天 0:00（按角色时区）由角色主动发一张 HTML 祝福卡片；
+  // 错过补发 + 防重复都在调度器内部处理。云端通道依赖主动消息 2.0 的 worker 配置，
+  // 未配置前静默跳过（本 effect 只做本地）。
+  useEffect(() => {
+      if (!isDataLoaded || charactersRef.current.length === 0) return;
+      let disposed = false;
+      let cleanup: (() => void) | undefined;
+
+      void (async () => {
+          try {
+              // 纪念日按角色分组（含无 charId 的全局纪念日），让生日/纪念日也能触发祝福
+              const anniversariesByChar: Record<string, Anniversary[]> = {};
+              const all = await DB.getAllAnniversaries().catch(() => []);
+              for (const char of charactersRef.current) {
+                  anniversariesByChar[char.id] = all.filter(a => !a.charId || a.charId === char.id);
+              }
+              if (disposed) return;
+              cleanup = startFestivalBlessingScheduler({
+                  characters: charactersRef.current,
+                  userProfile: userProfileRef.current,
+                  apiConfig: apiConfigRef.current,
+                  anniversariesByChar,
+              });
+          } catch (e) {
+              console.warn('[FestivalBlessing] 启动失败（不影响主流程）', e);
+          }
+      })();
+
+      return () => {
+          disposed = true;
+          cleanup?.();
+      };
+      // 只在数据加载完成时启动一次；调度器内部按角色时区持续调度，不随 characters 频繁重启
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDataLoaded]);
 
   // --- 使用统计：当前在用哪套外观 / 角色级设置 ---
   // 报「现在用的是哪个」而不是「点过哪个」——后者只有折腾的人会出现，

@@ -23,6 +23,7 @@ import {
     fetchWeatherWithFallback,
     generateWeatherAdvice as generateWeatherAdviceCore,
     checkSpecialDates as checkSpecialDatesCore,
+    checkSpecialDatesDetailed as checkSpecialDatesDetailedCore,
     clearGeocodeCache,
     fetchHotNews as fetchHotNewsCore,
     getHotNewsSlot as getHotNewsSlotCore,
@@ -35,15 +36,17 @@ import {
     REALTIME_NEWS_PICK_COUNT,
     type WeatherData,
     type NewsItem,
+    type SpecialDateHit,
 } from './realtimeWorldCore';
 import { getLocalDateKey } from './localDate';
+import { getDayFestival } from './calendarFestivals';
 
 // 两份环境无关叶子，amsg worker 共用同一份，这里的 Manager 方法委托过去；
 // 类型与常量原样 re-export，既有 import 路径不用改：
 //   realtimeFetchCore  搜索 / Notion / 飞书的读取类纯 fetch（服务端工具循环用）
 //   realtimeWorldCore  天气 / 热搜 / 节日的取数与成段渲染（到点组 prompt 用）
 export type { SearchResult, DiaryPreview, FeishuDiaryPreview } from './realtimeFetchCore';
-export type { WeatherData, NewsItem } from './realtimeWorldCore';
+export type { WeatherData, NewsItem, SpecialDateHit } from './realtimeWorldCore';
 export {
     fetchOwmWeather,
     fetchOpenMeteoWeather,
@@ -402,12 +405,44 @@ export const RealtimeContextManager = {
     },
 
     /**
-     * 检查特殊日期。
+     * 检查特殊日期（旧签名：纯名字列表，兼容既有调用方）。
      * tz 非空时按角色所在时区判「今天几号」——否则角色会跟着用户的日历过节：
      * 用户这边 2/14 早上，角色在纽约还是 13 号晚上，却被告知今天是情人节。
      */
     checkSpecialDates: (tz?: string, anniversaries?: Anniversary[]): string[] =>
         checkSpecialDatesCore(tz, undefined, anniversaries),
+
+    /**
+     * 检查特殊日期（详细版）：返回分级命中（core/normal/light + 彩蛋 + 窗口期氛围）。
+     * birthday 传用户档案的生日（YYYY-MM-DD 或 MM-DD），命中时按陪伴核心级注入。
+     */
+    checkSpecialDatesDetailed: (
+        tz?: string,
+        anniversaries?: Anniversary[],
+        birthday?: string,
+    ): SpecialDateHit[] =>
+        checkSpecialDatesDetailedCore(tz, undefined, anniversaries, birthday),
+
+    /**
+     * 生成调休行（今日放假 / 补班）。数据来自中国节假日表（本地内置 + 联网刷新）。
+     * 返回空串表示今天是普通日（无需专门提示）。worker 侧没有 localStorage 数据层，
+     * 只有浏览器端（聊天上下文注入）会走这里。
+     */
+    buildDayStatusLine: (tz?: string): string => {
+        try {
+            const now = nowInTimeZone(tz);
+            const today = getLocalDateKey(now);
+            const info = getDayFestival(today);
+            if (!info || info.type === 'normal') return '';
+            if (info.type === 'holiday') {
+                const names = info.names.length > 0 ? info.names.join('、') : '法定节假日';
+                return `今天放假（${names}）`;
+            }
+            return `今天调休上班（补班日）`;
+        } catch {
+            return '';
+        }
+    },
 
     /**
      * 生成天气建议
@@ -425,17 +460,23 @@ export const RealtimeContextManager = {
         tz: string | undefined,
         // includeTime=false：角色关掉了「时间感知」。天气/新闻还要，但当前时间和今日节日
         // 属于时间感知的范畴，这个开关关着就不该从这一段里漏出去。
-        opts: { includeTime: boolean; anniversaries?: Anniversary[] },
+        opts: { includeTime: boolean; anniversaries?: Anniversary[]; birthday?: string },
     ): Promise<string> => {
         const includeTime = opts.includeTime;
         const anniversaries = opts.anniversaries;
+        const birthday = opts.birthday;
 
         // 1. 时间与节日。tz 非空时按角色所在时区折算，两者同一个时区，否则同一段里
         //    日期和节日会打架。时差提示（tzAwarenessNote）统一由 ContextBuilder.buildCoreContext
         //    注入，这里不再追加，避免双份。
         const time = includeTime ? RealtimeContextManager.getTimeContext(tz) : null;
         const timeLine = time ? `${time.dateStr} ${time.dayOfWeek} ${time.timeOfDay} ${time.timeStr}` : undefined;
-        const specialDates = includeTime ? RealtimeContextManager.checkSpecialDates(tz, anniversaries) : [];
+        // 分级节日（core 演绎 / normal 一行 / light 不注入）+ 用户生日 + 纪念日。
+        const specialDatesDetailed = includeTime
+            ? RealtimeContextManager.checkSpecialDatesDetailed(tz, anniversaries, birthday)
+            : [];
+        // 调休行（今天放假 / 补班）也属于「今日状态」，跟时间感知一起走。
+        const dayStatusLine = includeTime ? RealtimeContextManager.buildDayStatusLine(tz) : '';
 
         // 2. 天气（有没有 OWM key 都能取：无 key 走 Open-Meteo）
         const weather = config.weatherEnabled ? await RealtimeContextManager.fetchWeather(config) : null;
@@ -445,7 +486,7 @@ export const RealtimeContextManager = {
         const newsPool = config.newsEnabled ? await RealtimeContextManager.fetchNews(config) : [];
         const picks = pickRandomNews(newsPool, REALTIME_NEWS_PICK_COUNT);
 
-        const fullContext = renderRealtimeWorldBlock({ timeLine, specialDates, weather, news: picks });
+        const fullContext = renderRealtimeWorldBlock({ timeLine, specialDatesDetailed, dayStatusLine, weather, news: picks });
 
         // ── F12 探针：本轮真正注入 prompt 的热点 + 文本量（评估 token 用）──
         try {
