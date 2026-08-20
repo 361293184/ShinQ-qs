@@ -17,6 +17,7 @@ import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import LocationMapThumb from './LocationMapThumb';
+import GameReplayCard from '../games/GameReplayCard';
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -3140,6 +3141,12 @@ const MessageItem = React.memo(({
                 </div>
             </div>
         );
+        return commonLayout(card);
+    }
+
+    if (m.type === 'game_replay') {
+        const meta: any = m.metadata || {};
+        const card = <GameReplayCard meta={meta} />;
         return commonLayout(card);
     }
 

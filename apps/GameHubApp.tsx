@@ -1,0 +1,67 @@
+import React, { useState } from 'react';
+import { useOS } from '../context/OSContext';
+import { loadGameStats } from '../utils/games/gameStore';
+import CharadesApp from './games/CharadesApp';
+
+/**
+ * 游戏大厅（MyGame）—— 小游戏合集入口。
+ * 首个内置游戏「你说我猜」，后续游戏注册表式扩展。
+ */
+export default function GameHubApp() {
+    const { closeApp } = useOS();
+    const [active, setActive] = useState<'hub' | 'charades'>('hub');
+    const stats = loadGameStats();
+
+    return (
+        <div className="h-full w-full flex flex-col bg-slate-50 relative overflow-hidden">
+            {active === 'hub' ? (
+                <>
+                    {/* 顶栏 */}
+                    <div className="shrink-0 flex items-center px-4 py-3 bg-white border-b border-slate-100" style={{ paddingTop: 'calc(var(--safe-top, 0px) + 0.5rem)' }}>
+                        <button onClick={closeApp} className="p-1 -ml-1 text-slate-500 hover:text-slate-700 cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                        </button>
+                        <span className="ml-1 text-base font-black text-slate-800">游戏大厅</span>
+                    </div>
+
+                    {/* 游戏列表 */}
+                    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                        <button onClick={() => setActive('charades')}
+                            className="w-full p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 text-left cursor-pointer hover:border-amber-400 transition-colors active:scale-[0.99]">
+                            <div className="flex items-center gap-3">
+                                <span className="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-2xl shadow-sm">🎯</span>
+                                <div className="flex-1">
+                                    <p className="text-[15px] font-black text-slate-800">你说我猜</p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">多人猜词 · 综艺局 · 你和角色一起玩</p>
+                                </div>
+                                <span className="text-slate-400">›</span>
+                            </div>
+                            {stats.lastResult && (
+                                <p className="text-[11px] text-amber-600 font-bold mt-2 pt-2 border-t border-amber-200/50">
+                                    ⚡ 上次战绩：{stats.lastResult}
+                                </p>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 text-slate-500">总局 {stats.totalGames}</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 text-slate-500">胜 {stats.wins}</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 text-slate-500">MVP {stats.mvpCount}</span>
+                            </div>
+                        </button>
+
+                        <div className="w-full p-4 rounded-2xl bg-slate-100 border border-slate-200 opacity-60">
+                            <div className="flex items-center gap-3">
+                                <span className="w-11 h-11 rounded-xl bg-slate-300 flex items-center justify-center text-2xl">⚔️</span>
+                                <div>
+                                    <p className="text-[15px] font-black text-slate-400">更多游戏</p>
+                                    <p className="text-[11px] text-slate-400 mt-0.5">敬请期待</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <CharadesApp onBack={() => setActive('hub')} />
+            )}
+        </div>
+    );
+}

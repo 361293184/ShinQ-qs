@@ -1412,6 +1412,14 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     if (isReal) text += `（坐标 ${Number(lm.lat).toFixed(4)}, ${Number(lm.lng).toFixed(4)}）`;
                     content = text;
                 }
+                else if ((m.type as string) === 'game_replay') {
+                    // 「你说我猜」战绩：只注入简短摘要（绝不注入全文，防爆 token），角色可自然回应
+                    const rm: any = m.metadata || {};
+                    const summary = (rm.summary || '').trim();
+                    content = summary
+                        ? `${timeStr} [${m.role === 'user' ? '用户' : '你'}转发来一局你说我猜的战后战报] ${summary}`
+                        : `${timeStr} [${m.role === 'user' ? '用户' : '你'}转发来一局你说我猜的战报]`;
+                }
                 else content = `${timeStr} ${sourceTag} ${content}`;
 
                 return { role: m.role, content };

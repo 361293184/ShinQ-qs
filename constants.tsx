@@ -38,6 +38,7 @@ import {
   HouseLine,
   Feather,
   CalendarCheck,
+  DiceFive,
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -80,6 +81,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
   Fanwai: ({ className }) => <Feather className={className} weight="regular" />,
   Techo: ({ className }) => <CalendarCheck className={className} weight="regular" />,
+  GameHub: ({ className }) => <DiceFive className={className} weight="regular" />,
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -102,6 +104,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },
   { id: AppID.Study, name: '自习室', icon: 'Study', color: 'emerald' },
   { id: AppID.Game, name: 'TRPG', icon: 'Game', color: 'orange' },
+  { id: AppID.GameHub, name: '游戏大厅', icon: 'GameHub', color: 'orange' },
   { id: AppID.Novel, name: '笔友会', icon: 'Novel', color: 'amber' },
   { id: AppID.Fanwai, name: '拾光', icon: 'Fanwai', color: 'amber' },
   { id: AppID.Songwriting, name: '写歌', icon: 'Songwriting', color: 'fuchsia' },

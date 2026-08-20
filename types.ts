@@ -40,6 +40,7 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
   Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
+  GameHub = 'game_hub', // 游戏大厅 — 小游戏合集（首个内置「你说我猜」综艺局）
 }
 
 export interface SystemLog {
@@ -3802,7 +3803,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay';
 
 /** 位置消息的数据（存在 Message.metadata 里） */
 export interface LocationMeta {
@@ -3815,6 +3816,32 @@ export interface LocationMeta {
     lng?: number;
     /** 来源：real=真实定位 / manual=虚拟手动输入 */
     source: 'real' | 'manual';
+}
+
+/** 「你说我猜」回放卡片的数据（存在 Message.metadata 里） */
+export interface GameReplayMeta {
+    /** 游戏名，如「你说我猜」 */
+    game: string;
+    /** 局数（如 8 轮） */
+    rounds: number;
+    /** 参与人数 */
+    playerCount: number;
+    /** MVP 名字 */
+    mvp: string;
+    /** MVP 得分 */
+    mvpScore: number;
+    /** 用户自己得分（可选） */
+    myScore?: number;
+    /** 整局回放全文（聊天流式排版，展开时渲染） */
+    transcript: string;
+    /** 一句话战绩摘要（注入角色上下文用，不含全文） */
+    summary: string;
+    /** 参与的角色 id 列表（转发/记忆用） */
+    charIds?: string[];
+    /** 参与角色名列表 */
+    charNames?: string[];
+    /** 时间戳 */
+    ts: number;
 }
 
 export interface Message {
