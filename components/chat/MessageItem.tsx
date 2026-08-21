@@ -3782,7 +3782,7 @@ const MessageItem = React.memo(({
                             seg.type === 'narration' ? (
                                 <div
                                     key={i}
-                                    className="w-full text-center italic select-text px-1"
+                                    className="w-full max-w-[70%] mx-auto text-center italic select-text px-1"
                                     style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
                                 >
                                     {renderInline(seg.text)}
