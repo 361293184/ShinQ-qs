@@ -1395,9 +1395,58 @@ const Chat: React.FC = () => {
         triggerAI(messages, undefined, () => setInstantSendingActive(false));
     };
 
+    // 触发角色开场旁白：进入线下且「开场旁白」开关开着时，由角色自己写一段场景旁白。
+    // 不往用户侧发可见消息——存一条 hidden + proactiveHint 的 user 消息当 AI 上下文
+    // （displayMessages 过滤 proactiveHint，不会显示成用户气泡），再 triggerAI 触发；
+    // assistant 回复由 applyAssistantPostProcessing 自动落库并自动带 offline:true，走旁白渲染。
+    const fireOfflineOpeningNarration = useCallback(async () => {
+        if (!char) return;
+        if (isTyping) return;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'text',
+            content: buildOfflineOpeningRequest(char.name),
+            offline: true,
+            metadata: { proactiveHint: true, hidden: true },
+        });
+        await reloadMessages(visibleCountRef.current);
+        // 触发角色生成开场旁白（triggerAI 内部从 DB 拉完整历史，能看到刚写入的隐藏提示）
+        triggerAI(messages);
+    }, [char, messages, reloadMessages, triggerAI]);
+
+    // 线下模式开关动作（收敛到设置弹窗第一项里触发）：开/关即生效。
+    // 开启 → 插「进入分隔线」→ 刷新 → 若开场旁白开关开则角色来一段旁白；
+    // 关闭 → 插「退出分隔线」→ 输入模式重置为对话 → 刷新。
+    const handleOfflineToggle = useCallback(async (next: boolean) => {
+        if (!char) return;
+        if (next) {
+            await DB.saveMessage({
+                charId: char.id,
+                role: 'system',
+                type: 'text',
+                content: '─── 线下模式 · 进入 ───',
+                metadata: { offlineDivider: 'start' },
+            });
+            await reloadMessages(visibleCountRef.current);
+            if (normalizeOfflineConfig(char.offlineConfig).openingNarration) {
+                void fireOfflineOpeningNarration();
+            }
+        } else {
+            setOfflineInputMode('dialogue');
+            await DB.saveMessage({
+                charId: char.id,
+                role: 'system',
+                type: 'text',
+                content: '─── 线下模式 · 结束 ───',
+                metadata: { offlineDivider: 'end' },
+            });
+            await reloadMessages(visibleCountRef.current);
+        }
+    }, [char, reloadMessages, fireOfflineOpeningNarration]);
+
     const handleReroll = async () => {
         if (isTyping || messages.length === 0) return;
-
         const lastMsg = messages[messages.length - 1];
         if (lastMsg.role !== 'assistant') return;
 
@@ -1512,24 +1561,11 @@ const Chat: React.FC = () => {
                 setShowThinkingChainModal(true);
                 break;
             }
-            case 'offline-toggle': {
-                // 线下模式开关（按角色记忆）：开启时如果开了「开场旁白」就先让角色来一段场景旁白
-                if (!char) break;
-                const next = !isOfflineEnabled(char.offlineConfig);
-                updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), enabled: next } });
-                addToast(next ? '线下模式已开启' : '线下模式已关闭', next ? 'success' : 'info');
-                if (next && normalizeOfflineConfig(char.offlineConfig).openingNarration) {
-                    handleSendText(buildOfflineOpeningRequest(char.name), 'text', { offlineOpening: true });
-                }
-                setShowPanel('none');
-                break;
-            }
+            case 'offline-toggle':
             case 'offline-settings': {
-                // 长按 → 打开线下设置弹窗（顺便确保开关已开，跟 HTML 模式长按行为一致）
+                // 「线下模式」入口 → 一律只弹设置弹窗（开关动作收敛在弹窗第一项，
+                // 用户自己开/关才生效）。短按 / 长按行为一致，都不直接 toggle、不 toast。
                 if (!char) break;
-                if (!isOfflineEnabled(char.offlineConfig)) {
-                    updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), enabled: true } });
-                }
                 setOfflineSettingsOpen(true);
                 setShowPanel('none');
                 break;
@@ -4215,7 +4251,12 @@ const Chat: React.FC = () => {
                     onClose={() => setOfflineSettingsOpen(false)}
                     value={normalizeOfflineConfig(char.offlineConfig)}
                     onChange={(next) => {
+                        const wasOn = isOfflineEnabled(char.offlineConfig);
                         updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), ...next } });
+                        // 开关动作收敛在这里：开/关即插分隔线 + 触发开场旁白
+                        if (next.enabled !== undefined && next.enabled !== wasOn) {
+                            void handleOfflineToggle(next.enabled);
+                        }
                     }}
                     charName={char.name}
                     userName={userProfile.name || '用户'}

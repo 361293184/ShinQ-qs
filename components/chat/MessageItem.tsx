@@ -3730,6 +3730,23 @@ const MessageItem = React.memo(({
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
 
+    // ── 线下模式 · 进入/退出长分隔线（横跨整宽，不落胶囊条） ──
+    if (m.metadata?.offlineDivider) {
+        const entering = m.metadata.offlineDivider === 'start';
+        return commonLayout(
+            <div className="flex items-center gap-2 py-1 px-1 w-full select-none">
+                <div className="flex-1 h-px" style={{ background: entering ? 'rgba(56,189,248,0.45)' : 'rgba(148,163,184,0.4)' }} />
+                <span
+                    className="text-[10px] font-bold tracking-wider"
+                    style={{ color: entering ? 'rgba(56,189,248,0.85)' : 'rgba(100,116,139,0.8)' }}
+                >
+                    {entering ? '线下模式 · 进入' : '线下模式 · 结束'}
+                </span>
+                <div className="flex-1 h-px" style={{ background: entering ? 'rgba(56,189,248,0.45)' : 'rgba(148,163,184,0.4)' }} />
+            </div>,
+        );
+    }
+
     // ── 线下模式消息：行级解析 → 旁白(斜体居中·无头像) / 台词(气泡+头像) 交替 ──
     if (m.offline && m.type === 'text' && !hasVoiceContent) {
         const segs = parseOfflineMessage(displayContent);

@@ -373,23 +373,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         )}
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
             
-            {/* 线下模式：输入模式悬浮球（对话/旁白） */}
-            {offlineModeEnabled && (
-                <div className={`flex justify-center py-1.5 ${isDiscordStyle ? 'bg-slate-900/60' : isPixelStyle ? 'bg-[#f3e7d6]' : 'bg-white/50'} backdrop-blur-md`}>
-                    <button
-                        onClick={() => { onOfflineInputModeChange(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue'); trackEvent('切换线下输入模式'); }}
-                        className="flex items-center gap-1.5 text-[11px] font-bold rounded-full px-3 py-1 active:scale-95 transition-transform select-none"
-                        style={{
-                            background: offlineInputMode === 'narration' ? (isDiscordStyle ? 'rgba(56,189,248,0.18)' : 'rgba(125,211,252,0.35)') : (isDiscordStyle ? 'rgba(51,65,85,0.8)' : 'rgba(226,232,240,0.8)'),
-                            color: offlineInputMode === 'narration' ? (isDiscordStyle ? '#7dd3fc' : '#0369a1') : (isDiscordStyle ? '#cbd5e1' : '#475569'),
-                        }}
-                    >
-                        <FilmScript className="w-3.5 h-3.5" weight="fill" />
-                        {offlineInputMode === 'narration' ? '旁白输入' : '对话输入'}
-                    </button>
-                </div>
-            )}
-            
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
                     {onForwardSelected && (
@@ -428,13 +411,28 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             autoCorrect="on"
                             autoCapitalize="sentences"
                             className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
-                            placeholder="Message..." 
+                            placeholder={offlineModeEnabled ? (offlineInputMode === 'narration' ? '写一句旁白…' : '说点什么…') : 'Message...'} 
                             style={{ height: 'auto' }} 
                         />
                         <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
                             <Smiley className="w-6 h-6" weight="regular" />
                         </button>
                     </div>
+                    {/* 线下模式：输入模式悬浮小圆球（对话/旁白），紧贴发送按钮左侧 */}
+                    {offlineModeEnabled && (
+                        <button
+                            onClick={() => { onOfflineInputModeChange(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue'); trackEvent('切换线下输入模式'); }}
+                            title={offlineInputMode === 'narration' ? '旁白输入' : '对话输入'}
+                            className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center active:scale-90 transition-transform select-none"
+                            style={{
+                                background: offlineInputMode === 'narration' ? (isDiscordStyle ? 'rgba(56,189,248,0.2)' : 'rgba(125,211,252,0.4)') : (isDiscordStyle ? 'rgba(51,65,85,0.9)' : 'rgba(226,232,240,0.9)'),
+                                color: offlineInputMode === 'narration' ? (isDiscordStyle ? '#7dd3fc' : '#0369a1') : (isDiscordStyle ? '#cbd5e1' : '#475569'),
+                                boxShadow: offlineInputMode === 'narration' ? '0 0 0 1.5px rgba(56,189,248,0.4)' : 'none',
+                            }}
+                        >
+                            <FilmScript className="w-5 h-5" weight={offlineInputMode === 'narration' ? 'fill' : 'regular'} />
+                        </button>
+                    )}
                     <button 
                         onClick={onSend} 
                         disabled={!input.trim()} 
