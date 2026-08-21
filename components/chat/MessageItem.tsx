@@ -3748,6 +3748,9 @@ const MessageItem = React.memo(({
     }
 
     // ── 线下模式消息：行级解析 → 旁白(斜体居中·无头像) / 台词(气泡+头像) 交替 ──
+    // 注意：必须绕过 commonLayout——它硬编码了 char 的头像槽（ml-12 让位）和
+    // max-w-[72%] 内容壳，会让旁白「带头像 + 被挤窄不居中」。这里自写无头像布局：
+    // 旁白横跨整宽居中，台词才带头像气泡。
     if (m.offline && m.type === 'text' && !hasVoiceContent) {
         const segs = parseOfflineMessage(displayContent);
         if (segs.length > 0) {
@@ -3755,28 +3758,56 @@ const MessageItem = React.memo(({
             const nColor = isUser
                 ? (oCfg.userNarrationColor || oCfg.narrationColor)
                 : oCfg.narrationColor;
-            return commonLayout(
-                <div className={`relative flex flex-col gap-2 py-1 min-w-0 ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${isUser ? 'items-end' : 'items-start'}`}>
-                    {segs.map((seg, i) =>
-                        seg.type === 'narration' ? (
-                            <div
-                                key={i}
-                                className="w-full text-center italic select-text px-1"
-                                style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
-                            >
-                                {renderInline(seg.text)}
+            const lineCls = [
+                'sully-chat-message',
+                isUser ? 'sully-chat-message-user justify-end' : 'sully-chat-message-ai justify-start',
+                isFirstInGroup ? 'sully-chat-message-group-first' : '',
+                isLastInGroup ? 'sully-chat-message-group-last' : '',
+                `flex items-end ${marginBottom} px-3 group relative select-none transition-[padding] duration-300`,
+                selectionMode ? 'pl-12' : '',
+            ].filter(Boolean).join(' ');
+            return (
+                <div className={lineCls} style={{ '--sully-chat-message-avatar-size': `${avatarSizePx}px` } as React.CSSProperties}>
+                    {selectionMode && (
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 cursor-pointer z-20" onClick={() => onToggleSelect(m.id)}>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                                {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
                             </div>
-                        ) : (
-                            <div
-                                key={i}
-                                className={`relative z-10 max-w-[92%] px-4 py-2.5 text-[15px] leading-relaxed break-all select-text ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm'} ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
-                                style={containerStyle}
-                            >
-                                <span style={{ color: styleConfig.textColor }}>{renderInline(seg.text)}</span>
-                            </div>
-                        ),
+                        </div>
                     )}
-                </div>,
+                    <div
+                        className={`relative flex flex-col ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${isUser ? 'items-end' : 'items-start'} min-w-0 w-full`}
+                    >
+                        {segs.map((seg, i) =>
+                            seg.type === 'narration' ? (
+                                <div
+                                    key={i}
+                                    className="w-full text-center italic select-text px-1"
+                                    style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
+                                >
+                                    {renderInline(seg.text)}
+                                </div>
+                            ) : (
+                                // 台词：带头像气泡，头像在首条台词前
+                                <div
+                                    key={i}
+                                    className={`relative flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 mt-1 ${i === 0 ? 'mt-2' : 'mt-1.5'}`}
+                                >
+                                    {renderAvatar(isUser ? userAvatar : charAvatar, { visible: true, className: isUser ? 'sully-offline-avatar-user' : 'sully-offline-avatar-ai' })}
+                                    <div
+                                        className={`relative z-10 max-w-[72%] px-4 py-2.5 text-[15px] leading-relaxed break-all select-text ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm'} ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
+                                        style={containerStyle}
+                                    >
+                                        <span style={{ color: styleConfig.textColor }}>{renderInline(seg.text)}</span>
+                                    </div>
+                                </div>
+                            ),
+                        )}
+                        {isLastInGroup && showTimestamp !== 'never' && (
+                            <div className={`absolute top-full ${isUser ? 'right-0' : 'left-0'} mt-0.5 px-1 text-[9px] text-slate-400/80 font-medium whitespace-nowrap pointer-events-none ${showTimestamp === 'hover' ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}`}>{formatTime(m.timestamp)}</div>
+                        )}
+                    </div>
+                </div>
             );
         }
     }
