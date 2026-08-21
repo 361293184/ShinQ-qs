@@ -55,6 +55,7 @@ xiaohongshu-skills/
 # git worktrees
 .worktrees/
 .claude/
+.codebuddy/plans/
 .pnpm-store/
 
 # TIAO-Capacitor local Android toolchain and caches (D: only, never committed)
