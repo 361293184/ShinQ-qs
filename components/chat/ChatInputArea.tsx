@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin, FilmScript } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
@@ -53,6 +53,10 @@ interface ChatInputAreaProps {
     htmlModeEnabled?: boolean;
     // 思考过程展示（会话级）
     showThinkingChain?: boolean;
+    // 线下模式：激活态小点 + 输入模式（对话/旁白）
+    offlineModeEnabled?: boolean;
+    offlineInputMode?: 'dialogue' | 'narration';
+    onOfflineInputModeChange?: (mode: 'dialogue' | 'narration') => void;
     // Input style
     inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
     sendButtonStyle?: 'circle' | 'pill' | 'minimal';
@@ -78,6 +82,9 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     luckinActivated = false,
     htmlModeEnabled = false,
     showThinkingChain = false,
+    offlineModeEnabled = false,
+    offlineInputMode = 'dialogue',
+    onOfflineInputModeChange = () => {},
     inputStyle = 'default',
     sendButtonStyle = 'circle',
     chromeStyle = 'soft',
@@ -365,6 +372,23 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             <div className={`fixed inset-0 z-[-1] ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
         )}
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
+            
+            {/* 线下模式：输入模式悬浮球（对话/旁白） */}
+            {offlineModeEnabled && (
+                <div className={`flex justify-center py-1.5 ${isDiscordStyle ? 'bg-slate-900/60' : isPixelStyle ? 'bg-[#f3e7d6]' : 'bg-white/50'} backdrop-blur-md`}>
+                    <button
+                        onClick={() => { onOfflineInputModeChange(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue'); trackEvent('切换线下输入模式'); }}
+                        className="flex items-center gap-1.5 text-[11px] font-bold rounded-full px-3 py-1 active:scale-95 transition-transform select-none"
+                        style={{
+                            background: offlineInputMode === 'narration' ? (isDiscordStyle ? 'rgba(56,189,248,0.18)' : 'rgba(125,211,252,0.35)') : (isDiscordStyle ? 'rgba(51,65,85,0.8)' : 'rgba(226,232,240,0.8)'),
+                            color: offlineInputMode === 'narration' ? (isDiscordStyle ? '#7dd3fc' : '#0369a1') : (isDiscordStyle ? '#cbd5e1' : '#475569'),
+                        }}
+                    >
+                        <FilmScript className="w-3.5 h-3.5" weight="fill" />
+                        {offlineInputMode === 'narration' ? '旁白输入' : '对话输入'}
+                    </button>
+                </div>
+            )}
             
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
@@ -780,6 +804,19 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                   {htmlModeEnabled && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-fuchsia-400 border-slate-900' : 'bg-fuchsia-500 border-white'}`} />}
                               </div>)}
                               <span className="text-xs font-bold">{htmlModeEnabled ? 'HTML已开' : 'HTML模式'}</span>
+                            </button>
+
+                            {/* 线下模式：tap 切换，长按设置 */}
+                            <button
+                              onClick={() => onPanelAction('offline-toggle')}
+                              onContextMenu={(e) => { e.preventDefault(); onPanelAction('offline-settings'); }}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''} relative`}>
+                                  <FilmScript className="w-6 h-6" weight="bold" />
+                                  {offlineModeEnabled && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-sky-400 border-slate-900' : 'bg-sky-500 border-white'}`} />}
+                              </div>
+                              <span className="text-xs font-bold">{offlineModeEnabled ? '线下已开' : '线下模式'}</span>
                             </button>
 
                             {/* 展示思考 */}

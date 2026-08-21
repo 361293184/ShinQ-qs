@@ -12,8 +12,9 @@
  * 等价。新增 caller（runProactive）只是补齐了过去缺的字段。
  */
 
-import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
+import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig, OfflineConfig } from '../types';
 import { ChatPrompts } from './chatPrompts';
+import { buildOfflineMainBlock } from './offlineMode/offlinePrompts';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { buildHtmlPrompt } from './htmlPrompt';
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
@@ -79,6 +80,8 @@ export interface BuildChatPayloadInput {
     translationConfig?: TranslationConfig | { enabled: boolean; sourceLang: string; targetLang: string };
     htmlMode?: { enabled: boolean; customPrompt?: string };
     thinkingChain?: { enabled: boolean; customPrompt?: string };
+    /** 线下模式：开启时注入线下格式块（旁白/台词行级解析），并跳过 HTML 卡片格式避免冲突 */
+    offlineConfig?: OfflineConfig;
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
     mcdMiniSnap?: McdMiniAppSnapshot;
@@ -346,8 +349,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 </翻译>`;
     }
 
-    // ── 5. HTML 卡片模式 ─────────────────────────────────
-    const htmlActive = !!htmlMode?.enabled;
+    // ── 5. HTML 卡片模式（线下模式开启时跳过：二者都是输出格式，避免模型格式打架） ──
+    const offlineActive = !!input.offlineConfig?.enabled;
+    const htmlActive = !!htmlMode?.enabled && !offlineActive;
     if (htmlActive) {
         systemPrompt += `\n\n${buildHtmlPrompt(htmlMode?.customPrompt)}`;
     }
@@ -361,6 +365,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         if (extra) {
             systemPrompt += `\n\n## 用户对内心独白的额外要求\n${extra}`;
         }
+    }
+
+    // ── 6.5 线下模式：格式块（覆盖「聊天对话」类指令，放在思考链之后、历史之前） ──
+    if (offlineActive) {
+        const userName = (userProfile?.name && userProfile.name.trim()) || '用户';
+        systemPrompt += `\n\n${buildOfflineMainBlock({ char, userName, cfg: input.offlineConfig })}`;
     }
 
     // ── 7. 历史消息构造 ───────────────────────────────────

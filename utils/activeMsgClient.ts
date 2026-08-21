@@ -84,6 +84,8 @@ import {
 import type { AmsgEmotionEvalSpec } from '../worker/amsg/src/emotionEval';
 import { listRecallableMonths } from './agenticTools';
 import { ChatPrompts } from './chatPrompts';
+import { buildOfflineAmsgBlock } from './offlineMode/offlinePrompts';
+import { isOfflineEnabled } from './offlineMode/offlineSettings';
 import { nowInTimeZone, resolveCharTimeZone, tzAwarenessNote } from './timezone';
 import { DB } from './db';
 import { copyWorkerBundleToClipboard } from './instantPushClient';
@@ -667,18 +669,22 @@ export const buildFirePack = async (
     ? `- 你的记忆库里存着这些月份的经历：${recallableMonths.join('、')}。想聊起其中某段时，先输出 [[RECALL: 年-月]] 把细节取回来再写，别凭印象编。`
     : null;
 
+  // 线下模式：主动消息也按线下格式输出（旁白+台词交替，行首引号=台词）
+  const offlineActive = isOfflineEnabled(char.offlineConfig);
+
   const template = templateStub ? AMSG2_INSTANT_STUB_TEMPLATE : [
     '你将代表下面这个角色，生成一条“主动发给用户”的私聊消息。',
     '',
     '【重要规则】',
     '- 这不是回复用户刚刚发来的消息，而是角色主动来找用户聊天。',
-    '- 输出只能是最终要发送的消息正文，不要解释，不要写分析，不要加引号。',
+    '- 输出只能是最终要发送的消息正文，不要解释，不要写分析' + (offlineActive ? '。' : '，不要加引号。'),
     '- 像真实聊天一样简短自然，优先 1 到 2 句，最多 3 句。',
     '- 可以用换行拆成多个聊天气泡，但不要写时间戳、名字前缀、系统提示。',
     '- 不要出现“作为AI”“系统提示”等元话语。',
     '- 语气更像真人突然想起对方时发来的私聊，不要像在完成任务。',
     '- 角色设定里描述的查记忆、读日记、联网搜索、逛小红书等能力照常可用：需要时正常输出对应标签，系统会取回结果后让你继续写。',
     ...(recallHint ? [recallHint] : []),
+    ...(offlineActive ? ['', '【线下模式 · 主动消息格式】', buildOfflineAmsgBlock(char.offlineConfig)] : []),
     '',
     '【角色系统设定】',
     systemPrompt,

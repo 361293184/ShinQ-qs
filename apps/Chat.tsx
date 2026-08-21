@@ -47,7 +47,10 @@ import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
+import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
+import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
+import { buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
 import { useChatAI } from '../hooks/useChatAI';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
@@ -121,6 +124,9 @@ const Chat: React.FC = () => {
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
+    // 线下模式：用户输入模式（对话=自动包引号 / 旁白=不加引号），设置弹窗开关
+    const [offlineInputMode, setOfflineInputMode] = useState<'dialogue' | 'narration'>('dialogue');
+    const [offlineSettingsOpen, setOfflineSettingsOpen] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
     const [fanwaiOpen, setFanwaiOpen] = useState(false);
@@ -1166,7 +1172,15 @@ const Chat: React.FC = () => {
             addToast('图片已保存至相册', 'info');
         }
 
-        const msgPayload: any = { charId: char.id, role: 'user', type, content: text, metadata };
+        // 线下模式：用户消息统一带 offline 标记（渲染按行级解析）；
+        // 手打对话输入自动包引号 → 渲染成台词气泡；旁白输入不加引号 → 斜体旁白。
+        // 内部请求（开场旁白等 customContent）不包引号，但同样带 offline 标记。
+        const offlineOn = isOfflineEnabled(char.offlineConfig);
+        const finalText =
+            !customContent && offlineOn && offlineInputMode === 'dialogue' && type === 'text'
+                ? `"${text}"`
+                : text;
+        const msgPayload: any = { charId: char.id, role: 'user', type, content: finalText, offline: offlineOn, metadata };
         
         if (replyTarget) {
             msgPayload.replyTo = {
@@ -1427,6 +1441,7 @@ const Chat: React.FC = () => {
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
             'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
             'html-mode-toggle', 'html-mode-settings', 'thinking-settings',
+            'offline-toggle', 'offline-settings',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
             'poke', 'emoji-import', 'add-category', 'mcd-end', 'luckin-end',
@@ -1495,6 +1510,28 @@ const Chat: React.FC = () => {
                 // 「展示思考」按钮 → 打开思考链设置 modal（开关 / 卡片风格 / 配色 / 追加提示词）
                 if (!char) break;
                 setShowThinkingChainModal(true);
+                break;
+            }
+            case 'offline-toggle': {
+                // 线下模式开关（按角色记忆）：开启时如果开了「开场旁白」就先让角色来一段场景旁白
+                if (!char) break;
+                const next = !isOfflineEnabled(char.offlineConfig);
+                updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), enabled: next } });
+                addToast(next ? '线下模式已开启' : '线下模式已关闭', next ? 'success' : 'info');
+                if (next && normalizeOfflineConfig(char.offlineConfig).openingNarration) {
+                    handleSendText(buildOfflineOpeningRequest(char.name), 'text', { offlineOpening: true });
+                }
+                setShowPanel('none');
+                break;
+            }
+            case 'offline-settings': {
+                // 长按 → 打开线下设置弹窗（顺便确保开关已开，跟 HTML 模式长按行为一致）
+                if (!char) break;
+                if (!isOfflineEnabled(char.offlineConfig)) {
+                    updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), enabled: true } });
+                }
+                setOfflineSettingsOpen(true);
+                setShowPanel('none');
                 break;
             }
             case 'image-gen': {
@@ -3841,6 +3878,7 @@ const Chat: React.FC = () => {
                             onResolveLifeRecord={handleResolveLifeRecord}
                             onRetryImageGen={retryImageGen}
                             thinkingChainOptions={thinkingChainOptions}
+                            offlineConfig={char.offlineConfig}
                         />
                         {showToolTrace && (
                             <div className={`px-3 mb-4 ${breaksWithNext ? toolTracePullClass : ''}`}>
@@ -3939,6 +3977,7 @@ const Chat: React.FC = () => {
                                     messageSpacing={osTheme.chatMessageSpacing}
                                     showTimestamp={osTheme.chatShowTimestamp}
                                     thinkingChainOptions={thinkingChainOptions}
+                                    offlineConfig={char.offlineConfig}
                                 />
                             </div>
                         ))}
@@ -4060,6 +4099,9 @@ const Chat: React.FC = () => {
                     luckinActivated={luckinActivated}
                     htmlModeEnabled={!!(char as any).htmlModeEnabled}
                     showThinkingChain={!!(char as any).showThinkingChain}
+                    offlineModeEnabled={isOfflineEnabled(char.offlineConfig)}
+                    offlineInputMode={offlineInputMode}
+                    onOfflineInputModeChange={(m: 'dialogue' | 'narration') => setOfflineInputMode(m)}
                     inputStyle={osTheme.chatInputStyle}
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
@@ -4163,6 +4205,20 @@ const Chat: React.FC = () => {
                         if (next.customCss !== undefined) patch.thinkingChainCustomCss = next.customCss;
                         if (Object.keys(patch).length) updateCharacter(char.id, patch as any);
                     }}
+                />
+            )}
+
+            {/* 线下模式设置 Modal — 入口：加号面板「线下模式」长按 */}
+            {char && (
+                <OfflineSettingsModal
+                    isOpen={offlineSettingsOpen}
+                    onClose={() => setOfflineSettingsOpen(false)}
+                    value={normalizeOfflineConfig(char.offlineConfig)}
+                    onChange={(next) => {
+                        updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), ...next } });
+                    }}
+                    charName={char.name}
+                    userName={userProfile.name || '用户'}
                 />
             )}
 

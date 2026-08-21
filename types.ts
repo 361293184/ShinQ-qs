@@ -687,6 +687,33 @@ export interface DateStyleConfig {
   extra?: string;
 }
 
+/**
+ * 私聊「线下模式」配置。按角色记忆（仿 dateStyleConfig），由 Chat「线下」设置弹窗调整，
+ * offlinePrompts 构建提示词时读取，改动即时生效于后续生成。
+ * - 开关状态同样记在角色上：A 角色在线下，切去 B 聊几句再回来，A 仍在线下。
+ * - 缺省值见 offlineMode/offlineSettings.ts 的 DEFAULT_OFFLINE_CONFIG。
+ */
+export interface OfflineConfig {
+  /** 线下模式总开关 */
+  enabled?: boolean;
+  /** 叙事文风预设 id：cinematic/plain/lyrical/playful/intense，复用 datePrompts 风格预设；缺省 = cinematic */
+  style?: string;
+  /** 自定义文风描述，原样注入 prompt（优先级高于风格预设） */
+  customStyle?: string;
+  /** 回复总字数约束（旁白+台词），默认 150，范围 50-500 */
+  replyLength?: number;
+  /** 叙事人称：first-you=「我」 third-name=第三人称称呼角色名 third-you=第三人称称呼"你"；缺省 = first-you */
+  pov?: 'first-you' | 'third-name' | 'third-you';
+  /** 角色旁白颜色（hex），默认灰 */
+  narrationColor?: string;
+  /** 用户旁白颜色（hex），默认蓝 */
+  userNarrationColor?: string;
+  /** 旁白字号（px），角色与用户共用 */
+  narrationSize?: number;
+  /** 进入时开场旁白（默认开）：开启后进入时角色先来一段场景旁白建立氛围 */
+  openingNarration?: boolean;
+}
+
 export interface RoomItem {
     id: string;
     name: string;
@@ -2878,6 +2905,8 @@ export interface CharacterProfile {
   dateStyleConfig?: DateStyleConfig; // 见面模式文风（写作风格 / 叙事人称 / 自定义补充）
   /** 观测协议 OBSERVE：开启后每条回复注入「时间/地点/状态/细节」结构化观测，渲染成全息 HUD（样式/字段可自定义） */
   dateObserve?: DateObserveConfig;
+  /** 私聊线下模式配置（开关/文风/字数/人称/旁白样式），按角色记忆，见 offlineMode/offlineSettings.ts */
+  offlineConfig?: OfflineConfig;
 
   savedDateState?: DateState;
   specialMomentRecords?: Record<string, SpecialMomentRecord>;
@@ -3854,6 +3883,8 @@ export interface Message {
     type: MessageType;
     content: string;
     timestamp: number;
+    /** 线下模式消息：渲染时按行级解析器拆「旁白/台词」，退出线下后历史消息不误解析 */
+    offline?: boolean;
     metadata?: any; 
     replyTo?: {
         id: number;

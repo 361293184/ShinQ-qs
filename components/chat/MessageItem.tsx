@@ -3,9 +3,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Message, ChatTheme } from '../../types';
+import { Message, ChatTheme, OfflineConfig } from '../../types';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
+import { parseOfflineMessage } from '../../utils/offlineMode/offlineParser';
+import { normalizeOfflineConfig } from '../../utils/offlineMode/offlineSettings';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
@@ -1429,6 +1431,8 @@ interface MessageItemProps {
         customColors?: { bg?: string; accent?: string; text?: string };
         onOpenSettings?: () => void;
     };
+    /** 线下模式配置：offline 消息按行级解析渲染旁白/台词（缺省走默认样式） */
+    offlineConfig?: OfflineConfig;
 }
 
 const MessageItem = React.memo(({
@@ -1473,6 +1477,7 @@ const MessageItem = React.memo(({
     onResolveLifeRecord,
     onRetryImageGen,
     thinkingChainOptions,
+    offlineConfig,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
@@ -3724,6 +3729,40 @@ const MessageItem = React.memo(({
     const hasVoiceContent = voiceData?.url || voiceLoading || hasVoiceTag;
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
+
+    // ── 线下模式消息：行级解析 → 旁白(斜体居中·无头像) / 台词(气泡+头像) 交替 ──
+    if (m.offline && m.type === 'text' && !hasVoiceContent) {
+        const segs = parseOfflineMessage(displayContent);
+        if (segs.length > 0) {
+            const oCfg = normalizeOfflineConfig(offlineConfig);
+            const nColor = isUser
+                ? (oCfg.userNarrationColor || oCfg.narrationColor)
+                : oCfg.narrationColor;
+            return commonLayout(
+                <div className={`relative flex flex-col gap-2 py-1 min-w-0 ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${isUser ? 'items-end' : 'items-start'}`}>
+                    {segs.map((seg, i) =>
+                        seg.type === 'narration' ? (
+                            <div
+                                key={i}
+                                className="w-full text-center italic select-text px-1"
+                                style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
+                            >
+                                {renderInline(seg.text)}
+                            </div>
+                        ) : (
+                            <div
+                                key={i}
+                                className={`relative z-10 max-w-[92%] px-4 py-2.5 text-[15px] leading-relaxed break-all select-text ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm'} ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
+                                style={containerStyle}
+                            >
+                                <span style={{ color: styleConfig.textColor }}>{renderInline(seg.text)}</span>
+                            </div>
+                        ),
+                    )}
+                </div>,
+            );
+        }
+    }
 
     // Voice-only messages (no display text, only voice bar): skip bubble styling
     const isVoiceOnlyMsg = !displayContent && hasVoiceContent && !isUser && m.type === 'text';

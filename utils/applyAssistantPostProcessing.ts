@@ -51,6 +51,7 @@ import {
 } from './agenticTools';
 import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
+import { isOfflineEnabled } from './offlineMode/offlineSettings';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -459,8 +460,15 @@ export async function applyAssistantPostProcessing(
     // 统一落库入口：ctx.messageTimestamp（若有）盖到每条消息上，保证同一轮拆出的
     // 正文 / 表情 / 卡片 / 系统提示时间戳一致；没传则维持 DB.saveMessage 默认（写库当刻）。
     // 全函数落库一律走这里，别直接调 DB.saveMessage——漏一处就会出现气泡时间戳互相打架。
-    const persistMessage: typeof DB.saveMessage = (msg) =>
-        DB.saveMessage(messageTimestamp != null ? { ...msg, timestamp: messageTimestamp } : msg);
+    // 线下模式开启时，assistant 落库统一打 offline 标记（渲染层按行级解析旁白/台词）。
+    const offlineFlag = isOfflineEnabled(char.offlineConfig);
+    const persistMessage: typeof DB.saveMessage = (msg) => {
+        const offline = offlineFlag && msg.role === 'assistant';
+        if (messageTimestamp != null) {
+            return DB.saveMessage({ ...msg, timestamp: messageTimestamp, ...(offline ? { offline: true } : {}) });
+        }
+        return DB.saveMessage(offline ? { ...msg, offline: true } : msg);
+    };
     const {
         setMessages,
         addToast,

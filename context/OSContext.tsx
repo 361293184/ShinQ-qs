@@ -55,6 +55,8 @@ import {
 } from '../utils/memoryPalace/autoArchive';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
 import { startFestivalBlessingScheduler } from '../utils/festivalBlessing';
+import { isOfflineEnabled } from '../utils/offlineMode/offlineSettings';
+import { hasDialogue, parseOfflineMessage } from '../utils/offlineMode/offlineParser';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { ActiveMsgStore, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
 import { charMayHaveCloudState, purgeCharCloudState } from '../utils/amsg2CharCleanup';
@@ -1937,8 +1939,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
           setLastMsgTimestamp(Date.now());
 
+          // 线下模式静默策略：该角色开了线下，且这条主动消息解析后只有旁白（没有台词）
+          // → 静默送达：不弹 toast、不累计离开消息、不发原生通知（纯氛围/状态不打扰），
+          // 但未读角标照常累计，用户打开聊天时能看到完整内容。
+          const char = characters.find(c => c.id === charId);
+          const offlineSilent = !!char && isOfflineEnabled(char.offlineConfig) && !!body && !hasDialogue(parseOfflineMessage(body));
+
           const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId;
-          if (!isChattingWithThisChar) {
+          if (!isChattingWithThisChar && !offlineSilent) {
               const isVisible = document.visibilityState === 'visible';
               if (isVisible) {
                   addToast(`${charName} 给你发了消息`, 'success');
@@ -1950,6 +1958,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               void sendProactiveNativeNotification(charId, charName, preview);
               // SW push handler 已经 fire 过系统通知（不在前台时露出真实内容、在前台时
               // silent + close 静默），这里不再补一次，避免重复弹窗。
+          } else if (!isChattingWithThisChar && offlineSilent) {
+              setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
           }
       };
 
