@@ -1,15 +1,12 @@
 
 import React, { useRef, useState } from 'react';
 import Modal from '../os/Modal';
-import TokenImg from '../os/TokenImg';
 import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 import { trackEvent } from '../../utils/analytics';
-import { CANTONESE_VOICE_SUPPORT_NOTE, VOICE_LANGUAGE_OPTIONS } from '../../utils/voiceLanguage';
-import { chatMessageFuzzyMatchesKeyword } from '../../utils/chatMessageSearch';
 
 interface ChatModalsProps {
     modalType: string;
@@ -27,9 +24,6 @@ interface ChatModalsProps {
     setSettingsContextRangeMode: (v: ContextRangeMode) => void;
     settingsHideSysLogs: boolean;
     setSettingsHideSysLogs: (v: boolean) => void;
-    contextSuiteAnyEnabled: boolean;
-    contextSuiteAllEnabled: boolean;
-    onToggleContextSuite: () => void;
     preserveContext: boolean;
     setPreserveContext: (v: boolean) => void;
     editContent: string;
@@ -83,9 +77,8 @@ interface ChatModalsProps {
     onEditMessageStart: () => void;
     onConfirmEditMessage: () => void;
     onDeleteMessage: () => void;
+    onRecallMessage: () => void;
     onCopyMessage: () => void;
-    onToggleMessageFavorite?: () => void;
-    messageFavorited?: boolean;
     onDeleteEmoji: () => void;
     onDeleteCategory: () => void;
     // Category Visibility
@@ -94,8 +87,6 @@ interface ChatModalsProps {
     // Translation
     translationEnabled?: boolean;
     onToggleTranslation?: () => void;
-    translationExpanded?: boolean;
-    onToggleTranslationExpanded?: () => void;
     translateSourceLang?: string;
     translateTargetLang?: string;
     onSetTranslateSourceLang?: (lang: string) => void;
@@ -120,9 +111,11 @@ interface ChatModalsProps {
     voiceAvailable?: boolean; // true if char has voiceProfile configured
     onDownloadVoice?: () => void;
     voiceDownloadable?: boolean; // true if the selected message already has generated voice
-    voiceCollectable?: boolean; // true for a generated voice or an unsynthesized <语音> message
-    onToggleVoiceFavorite?: () => void;
-    voiceFavorited?: boolean;
+    // Recall（撤回）设置
+    recallCaughtChance?: number;
+    onSetRecallCaughtChance?: (v: number) => void;
+    recallOutputEnabled?: boolean;
+    onToggleRecallOutput?: () => void;
     // Schedule
     scheduleData?: DailySchedule | null;
     isScheduleGenerating?: boolean;
@@ -244,7 +237,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     settingsContextLimit, setSettingsContextLimit,
     settingsContextRangeMode, setSettingsContextRangeMode,
     settingsHideSysLogs, setSettingsHideSysLogs,
-    contextSuiteAnyEnabled, contextSuiteAllEnabled, onToggleContextSuite,
     preserveContext, setPreserveContext,
     editContent, setEditContent,
     newCategoryName, setNewCategoryName, onAddCategory,
@@ -257,13 +249,14 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onTransfer, onImportEmoji, onSaveSettings,
     onBgUpload, onRemoveBg, onClearHistory,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory,
+    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onRecallMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
     allCharacters = [], onSaveCategoryVisibility,
-    translationEnabled, onToggleTranslation, translationExpanded, onToggleTranslationExpanded, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
+    translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
     htmlModeEnabled, onToggleHtmlMode, htmlModeCustomPrompt, setHtmlModeCustomPrompt,
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
-    onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable, voiceCollectable, onToggleVoiceFavorite, voiceFavorited,
+    onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
+    recallCaughtChance, onSetRecallCaughtChance, recallOutputEnabled, onToggleRecallOutput,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
     onScheduleStyleChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
@@ -307,6 +300,22 @@ const ChatModals: React.FC<ChatModalsProps> = ({
         }
         // 范围内直接设置；范围外由上层直接提示先调整拉杆。
         onSetHistoryStart(msgId);
+    };
+
+    // 模糊匹配：query 的所有字符按顺序在 content 里出现即算命中（大小写不敏感）。
+    // 中文按字符级 subsequence 匹配，英文同理。
+    const fuzzyMatch = (content: string, query: string): boolean => {
+        if (!query) return true;
+        const c = content.toLowerCase();
+        const q = query.toLowerCase();
+        if (c.includes(q)) return true;
+        let idx = 0;
+        for (const ch of q) {
+            const found = c.indexOf(ch, idx);
+            if (found < 0) return false;
+            idx = found + 1;
+        }
+        return true;
     };
 
     // 高亮命中的连续子串（优先），否则不高亮（subsequence 命中时高亮意义不大）。
@@ -388,38 +397,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 footer={<button onClick={onSaveSettings} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存设置</button>}
             >
                 <div className="space-y-6">
-                     <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
-                         <div className="flex items-center gap-3">
-                             <div className="min-w-0 flex-1">
-                                 <div className="text-xs font-bold text-violet-700">智能语境</div>
-                                 <p className="mt-1 text-[10px] leading-relaxed text-violet-600/90">
-                                     更准确地承接上下文、跟随交流节奏，并持续关注正在展开的事情。对所有私聊生效，本地完成，不增加 API 调用。
-                                 </p>
-                                 <p className="mt-1.5 text-[10px] font-bold text-violet-600">
-                                     {contextSuiteAllEnabled
-                                         ? '已开启'
-                                         : contextSuiteAnyEnabled
-                                             ? '旧版的部分能力仍在运行；关闭后可统一重新开启'
-                                             : '已关闭，回复保持原有行为'}
-                                 </p>
-                             </div>
-                             <button
-                                 type="button"
-                                 onClick={onToggleContextSuite}
-                                 aria-pressed={contextSuiteAnyEnabled}
-                                 className={`shrink-0 rounded-full px-3.5 py-2 text-[11px] font-extrabold transition-colors ${contextSuiteAnyEnabled
-                                     ? 'bg-white text-violet-700 ring-1 ring-violet-200'
-                                     : 'bg-violet-600 text-white'}`}
-                             >
-                                 {contextSuiteAnyEnabled ? '关闭' : '开启'}
-                             </button>
-                         </div>
-                     </div>
-
                      <div>
                          <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">聊天背景</label>
                          <div onClick={() => bgInputRef.current?.click()} className="h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-primary/50 overflow-hidden relative">
-                             {activeCharacter.chatBackground ? <TokenImg value={activeCharacter.chatBackground} className="w-full h-full object-cover opacity-60" /> : <span className="text-xs text-slate-400">点击上传图片 (原画质)</span>}
+                             {activeCharacter.chatBackground ? <img src={activeCharacter.chatBackground} className="w-full h-full object-cover opacity-60" /> : <span className="text-xs text-slate-400">点击上传图片 (原画质)</span>}
                              {activeCharacter.chatBackground && <span className="absolute z-10 text-xs bg-white/80 px-2 py-1 rounded">更换</span>}
                          </div>
                          <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && onBgUpload(e.target.files[0])} />
@@ -537,19 +518,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                      inputPlaceholder="自定义，如 中文（繁體）"
                                      onSelect={onSetTranslateLang}
                                  />
-                                 <button
-                                     type="button"
-                                     onClick={onToggleTranslationExpanded}
-                                     className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left active:bg-slate-50"
-                                 >
-                                     <span>
-                                         <span className="block text-[11px] font-bold text-slate-600">原文与译文同时展开</span>
-                                         <span className="block mt-0.5 text-[9px] leading-relaxed text-slate-400">开启后不再逐条点击切换，双语气泡会直接上下显示两种语言。</span>
-                                     </span>
-                                     <span className={`shrink-0 w-10 h-6 rounded-full p-1 transition-colors flex items-center ${translationExpanded ? 'bg-primary' : 'bg-slate-200'}`}>
-                                         <span className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${translationExpanded ? 'translate-x-4' : ''}`} />
-                                     </span>
-                                 </button>
                                  {/* Preview */}
                                  <div className="text-[11px] text-center text-slate-500 bg-slate-50 rounded-lg py-2">
                                      选<span className="font-bold text-slate-700">{translateSourceLang || '?'}</span> 译<span className="font-bold text-primary">{translateTargetLang || '?'}</span>
@@ -624,25 +592,66 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                              <div className="mt-3">
                                  <label className="text-[10px] font-bold text-slate-400 mb-1.5 block">语音语种</label>
                                  <div className="flex flex-wrap gap-1.5">
-                                     {VOICE_LANGUAGE_OPTIONS.map(opt => (
-                                         <button key={opt.value} onClick={() => onSetChatVoiceLang?.(opt.value)}
-                                             className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${chatVoiceLang === opt.value ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                             {opt.label}
+                                     {[{v:'',l:'默认'},{v:'en',l:'English'},{v:'ja',l:'日本語'},{v:'ko',l:'한국어'},{v:'fr',l:'Français'},{v:'es',l:'Español'}].map(opt => (
+                                         <button key={opt.v} onClick={() => onSetChatVoiceLang?.(opt.v)}
+                                             className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${chatVoiceLang === opt.v ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                             {opt.l}
                                          </button>
                                      ))}
                                  </div>
-                                 {chatVoiceLang === 'yue' && <p className="text-[10px] text-amber-600/80 mt-1.5">{CANTONESE_VOICE_SUPPORT_NOTE}</p>}
                                  {chatVoiceLang && <p className="text-[10px] text-emerald-600/70 mt-1.5">选择非默认语种时，AI 台词会先翻译再生成语音。</p>}
                              </div>
                          )}
                      </div>
 
-                     {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
+                     {/* 撤回设置（角色他撤回 + 抓包玩法）已隐藏：只保留用户撤回，如需恢复把 false 改成 true */}
+                     {false && (
+                         <div className="pt-2 border-t border-slate-100">
+                             <div className="flex justify-between items-center cursor-pointer" onClick={onToggleRecallOutput}>
+                                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">角色可撤回（心声）</label>
+                                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${recallOutputEnabled ? 'bg-violet-400' : 'bg-slate-200'}`}>
+                                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${recallOutputEnabled ? 'translate-x-4' : ''}`}></div>
+                                             </div>
+                                         </div>
+                                         <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                             开启后角色可撤回自己的话，并留一段真实心声。你点开灰字「撕开胶带」能看到他撤回时真正的想法。
+                                         </p>
+                                         {recallOutputEnabled && (
+                                             <div className="mt-3 pt-3 border-t border-slate-100">
+                                                 {(() => {
+                                                     // 防御：chance 必须是 0..1 数字，对象参与 *100 可能触发 hostile valueOf 抛错
+                                                     // 用 Number() 显式转换避免 TS 在死代码块里收窄失效
+                                                     const rawChance = recallCaughtChance;
+                                                     const safeChance = Number.isFinite(rawChance) ? Math.min(1, Math.max(0, Number(rawChance))) : 0.4;
+                                                     const chancePct = Math.round(safeChance * 100);
+                                                     return (
+                                                         <>
+                                                             <label className="text-[10px] font-bold text-slate-400 mb-1.5 block">
+                                                                 抓包概率：<span className="text-violet-500">{chancePct}%</span>
+                                                             </label>
+                                                             <input
+                                                                 type="range" min="0" max="100" step="5"
+                                                                 value={chancePct}
+                                                                 onChange={e => onSetRecallCaughtChance?.(parseInt(e.target.value, 10) / 100)}
+                                                                 className="w-full h-2 bg-slate-200 rounded-full appearance-none accent-violet-500"
+                                                             />
+                                                         </>
+                                                     );
+                                                 })()}
+                                                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                                     你撤回消息时，角色「碰巧看到原文」的概率。40% = 偶尔被抓包，100% = 每次都被看穿。
+                                                 </p>
+                                             </div>
+                                         )}
+                                     </div>
+                                 )}
 
-                     <div className="pt-2 border-t border-slate-100">
-                         <button onClick={() => setModalType('history-manager')} className="w-full py-3 bg-slate-50 text-slate-600 font-bold rounded-2xl border border-slate-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
-                             查看原文范围 / 设置用户断点
-                         </button>
+                                 {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
+
+                         <div className="pt-2 border-t border-slate-100">
+                             <button onClick={() => setModalType('history-manager')} className="w-full py-3 bg-slate-50 text-slate-600 font-bold rounded-2xl border border-slate-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                                 查看原文范围 / 设置用户断点
+                             </button>
                          <p className="text-[10px] text-slate-400 mt-2 text-center">查看拉杆上限、记忆水位线，并可在最大范围内进一步缩小 AI 原文范围。</p>
                      </div>
                      
@@ -880,7 +889,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     {(() => {
                         const reversed = allHistoryMessages.slice().reverse();
                         const query = historySearch.trim();
-                        const filtered = query ? reversed.filter(message => chatMessageFuzzyMatchesKeyword(message, query)) : reversed;
+                        const filtered = query ? reversed.filter(m => fuzzyMatch(m.content || '', query)) : reversed;
                         const limited = query ? filtered.slice(0, HISTORY_SEARCH_MAX) : filtered;
                         const totalPages = Math.max(1, Math.ceil(limited.length / HISTORY_PAGE_SIZE));
                         const pageMessages = limited.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE);
@@ -979,14 +988,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             复制文字
                         </button>
                     )}
-                    {selectedMessage && onToggleMessageFavorite && (
-                        <button onClick={() => { onToggleMessageFavorite(); setModalType('none'); }} className={`w-full py-3 font-medium rounded-2xl transition-colors flex items-center justify-center gap-2 ${messageFavorited ? 'bg-violet-100 text-violet-700 active:bg-violet-200' : 'bg-violet-50 text-violet-600 active:bg-violet-100'}`}>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={messageFavorited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5} className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m11.48 3.499-2.13 4.316-4.763.692c-.963.14-1.348 1.323-.651 2.002l3.447 3.36-.814 4.744c-.165.96.842 1.691 1.703 1.238L12.532 17.6l4.26 2.24c.862.453 1.869-.278 1.704-1.238l-.814-4.744 3.447-3.36c.697-.679.312-1.862-.651-2.002l-4.763-.692-2.13-4.316c-.43-.873-1.675-.873-2.105.011Z" /></svg>
-                            {messageFavorited
-                                ? (selectedMessage.type === 'image' ? '取消收藏图片' : '取消收藏聊天消息')
-                                : (selectedMessage.type === 'image' ? '收藏图片' : '收藏聊天消息')}
-                        </button>
-                    )}
                     {voiceAvailable && selectedMessage?.role === 'assistant' && selectedMessage?.type === 'text' && onGenerateVoice && (
                         <button onClick={() => { onGenerateVoice(); setModalType('none'); }} className="w-full py-3 bg-emerald-50 text-emerald-600 font-medium rounded-2xl active:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>
@@ -999,10 +1000,13 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             下载语音
                         </button>
                     )}
-                    {voiceCollectable && selectedMessage?.role === 'assistant' && onToggleVoiceFavorite && (
-                        <button onClick={() => { onToggleVoiceFavorite(); setModalType('none'); }} className={`w-full py-3 font-medium rounded-2xl transition-colors flex items-center justify-center gap-2 ${voiceFavorited ? 'bg-amber-100 text-amber-700 active:bg-amber-200' : 'bg-amber-50 text-amber-600 active:bg-amber-100'}`}>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={voiceFavorited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5} className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m11.48 3.499-2.13 4.316-4.763.692c-.963.14-1.348 1.323-.651 2.002l3.447 3.36-.814 4.744c-.165.96.842 1.691 1.703 1.238L12.532 17.6l4.26 2.24c.862.453 1.869-.278 1.704-1.238l-.814-4.744 3.447-3.36c.697-.679.312-1.862-.651-2.002l-4.763-.692-2.13-4.316c-.43-.873-1.675-.873-2.105.011Z" /></svg>
-                            {voiceFavorited ? '取消收藏语音' : '收藏语音'}
+                    {selectedMessage?.role === 'user'
+                        && selectedMessage.type === 'text'
+                        && selectedMessage.timestamp > Date.now() - 2 * 60 * 1000
+                        && !selectedMessage.isRevoked && (
+                        <button onClick={onRecallMessage} className="w-full py-3 bg-amber-50 text-amber-600 font-medium rounded-2xl active:bg-amber-100 transition-colors flex items-center justify-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" /></svg>
+                            撤回消息
                         </button>
                     )}
                     <button onClick={onDeleteMessage} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl active:bg-red-100 transition-colors flex items-center justify-center gap-2">
@@ -1019,11 +1023,11 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     {Array.isArray(selectedEmoji) ? (
                         <div className="flex flex-wrap justify-center gap-2 max-h-48 overflow-y-auto no-scrollbar w-full px-2">
                             {selectedEmoji.map((e: any, idx: number) => (
-                                <TokenImg key={idx} value={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
+                                <img key={idx} src={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
                             ))}
                         </div>
                     ) : (
-                        selectedEmoji && <TokenImg value={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
+                        selectedEmoji && <img src={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
                     )}
                     <p className="text-center text-sm text-slate-500">
                         {Array.isArray(selectedEmoji) ? `确定要删除这 ${selectedEmoji.length} 个表情包吗？` : "确定要删除这个表情包吗？"}
@@ -1036,7 +1040,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 <div className="flex flex-col items-center gap-4 py-1">
                     {selectedEmoji && !Array.isArray(selectedEmoji) && (
                         <div className="flex flex-col items-center gap-2">
-                            <TokenImg value={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
+                            <img src={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
                             <span className="text-sm font-medium text-slate-600 max-w-[12rem] truncate">{selectedEmoji.name}</span>
                         </div>
                     )}
@@ -1128,7 +1132,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                 <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors shrink-0 ${visibilitySelection.has(c.id) ? 'bg-primary border-primary' : 'bg-slate-100 border-slate-300'}`}>
                                     {visibilitySelection.has(c.id) && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
                                 </div>
-                                <TokenImg value={c.avatar} className="w-9 h-9 rounded-xl object-cover" />
+                                <img src={c.avatar} className="w-9 h-9 rounded-xl object-cover" />
                                 <div className="flex-1 min-w-0">
                                     <div className="font-bold text-sm text-slate-700">{c.name}</div>
                                     <div className="text-[10px] text-slate-400 truncate">{c.description}</div>

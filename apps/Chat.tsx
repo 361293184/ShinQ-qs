@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
-import { processImage, processImageToBlob } from '../utils/file';
+import { processImage } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
-import TokenImg from '../components/os/TokenImg';
+import ChatList from '../components/chat/ChatList';
 import { FadersHorizontal } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
@@ -21,19 +21,18 @@ import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '.
 import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
-import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
-import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { isMcdConfigured } from '../utils/mcdMcpClient';
 import { isMcdActivatedInMessages, MCD_ACTIVATE_TRIGGER, MCD_DEACTIVATE_TRIGGER } from '../utils/mcdToolBridge';
 import { isLuckinConfigured } from '../utils/luckinMcpClient';
 import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE_TRIGGER } from '../utils/luckinToolBridge';
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
-import McdMiniApp from '../components/mcd/McdMiniApp';
-import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
 import ImageGenPanel from '../components/chat/ImageGenPanel';
 import NovelReaderPanel from '../components/chat/NovelReaderPanel';
 import FanwaiGeneratePage from '../components/fanwai/FanwaiGeneratePage';
+import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
+import McdMiniApp from '../components/mcd/McdMiniApp';
+import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
 import LuckinLocationModal from '../components/luckin/LuckinLocationModal';
 import LuckinHelpModal from '../components/luckin/LuckinHelpModal';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
@@ -44,28 +43,23 @@ import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
-import FavoritesPortal from '../components/chat/VoiceFavoritesPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
-import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
+import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
+import LocationPickerModal from '../components/chat/LocationPickerModal';
+import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
+import { buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
 import { useChatAI } from '../hooks/useChatAI';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
-import {
-    canSynthesizeSpeech,
-    characterHasVoice,
-    cleanTextForTtsProvider,
-    providerUsesRawVoiceMarkup,
-    stripTtsMarkupForDisplay,
-    synthesizeSpeechDetailed,
-} from '../utils/ttsRouter';
+import { synthesizeSpeechDetailed, characterHasVoice } from '../utils/ttsRouter';
 import { shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
-import { voiceLanguageAnalyticsValue, voiceLanguagePromptLabel } from '../utils/voiceLanguage';
 import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
-import { CollaborationStore } from '../features/collaboration/store';
+import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
+import { resolveFishAudioApiKey, stripFishMarkupForDisplay, cleanTextForTtsFish } from '../utils/fishAudioTts';
 import { resolveTtsProvider } from '../utils/ttsProvider';
 import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushClient';
 import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteboxSound, upsertWhiteboxSound, stripWhiteboxSoundDirective, WhiteboxSound } from '../utils/whiteboxSound';
@@ -76,22 +70,6 @@ import { trackEvent, noteMessageSent, presetOrCustom } from '../utils/analytics'
 import { markAmsgStateDirty, markAmsgStateDirtyForAll } from '../utils/amsgStateSync';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
-import { formatHours } from '../utils/format';
-import {
-    VOICE_FAVORITES_CHANGED_EVENT,
-    getVoiceFavorite,
-    listVoiceFavorites,
-    removeVoiceFavorite,
-    saveVoiceFavorite,
-} from '../utils/voiceFavorites';
-import {
-    CONTENT_FAVORITES_CHANGED_EVENT,
-    contentFavoriteIdForMessage,
-    listContentFavorites,
-    removeContentFavoriteById,
-    saveMessageContentFavorite,
-} from '../utils/contentFavorites';
-import { SCHEDULE_CHANGE_EVENT, type ScheduleChangeEventDetail } from '../utils/scheduleChange';
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     computeContextRangeSnapshot,
@@ -101,35 +79,8 @@ import {
     resolveContextRangeMode,
     type ContextRangeMode,
 } from '../utils/chatContextRange';
-import {
-    createChatHistoryWindow,
-    expandChatHistoryWindow,
-    type ChatHistoryWindowRange,
-} from '../utils/chatHistoryWindow';
-import type { CollaborationTransferMessage } from '../features/collaboration/types';
-import type { CollaborationInstallableArtifact } from '../features/collaboration/types';
-import {
-    installableToCharacterPatch,
-    installableToChatTheme,
-    installableToThemePatch,
-    installableToWorldbooks,
-    validateInstallableArtifact,
-} from '../features/collaboration/makers';
-import { upsertMountedWorldbooks } from '../utils/worldbook';
 
-const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
-
-const HISTORY_WINDOW_RADIUS = 25;
-const HISTORY_WINDOW_BATCH_SIZE = 30;
-
-const isVisibleChatMessage = (message: Message, hideSystemLogs = false) => (
-    message.metadata?.source !== 'date'
-    && message.metadata?.source !== 'call'
-    && message.metadata?.source !== 'story_theater_memory'
-    && !message.metadata?.proactiveHint
-    && !(hideSystemLogs && message.role === 'system' && message.type !== 'score_card')
-);
-
+const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 /** 即时对话那一轮回复「推送陆续到齐」的宽限时间，也就是自动合成的补扫窗口有多长（见下面的 auto-TTS effect）。 */
 const INSTANT_VOICE_SCAN_WINDOW_MS = 30_000;
 type InstantToolUiStatus = {
@@ -141,7 +92,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -153,6 +104,9 @@ const Chat: React.FC = () => {
         } catch { return 0; }
     }, []);
     const [messages, setMessages] = useState<Message[]>([]);
+    // 生图：已处理过的消息 id（去重，避免 messages 变化导致重复触发）；手动生图面板开关
+    const processedMsgIdsRef = useRef<Set<number>>(new Set());
+    const [showImageGenPanel, setShowImageGenPanel] = useState(false);
     // Instant Push 路径："准备中"三个点 = 消息正在拼接+发送; 消失 = SSE POST 已排进
     // 浏览器网络栈. 页面关闭时会主动 abort SSE, 让 worker 尽量走 Web Push fallback。
     const [instantSendingActive, setInstantSendingActive] = useState(false);
@@ -163,18 +117,43 @@ const Chat: React.FC = () => {
     const [totalMsgCount, setTotalMsgCount] = useState(0);
     const [visibleCount, setVisibleCount] = useState(30);
     const [windowedFocusMsgId, setWindowedFocusMsgId] = useState<number | null>(null);
-    const [historyWindowRange, setHistoryWindowRange] = useState<ChatHistoryWindowRange | null>(null);
     const [flashMsgId, setFlashMsgId] = useState<number | null>(null);
     // 角色切换/进入时的缓入开关：先 false（透明），下一帧转 true，靠 CSS transition 平滑淡入。
     // 初值 false 让首次打开也是淡入、且不会有"先显示再变透明"的闪烁。
     // 角色切换「登场」过场是否显示。切换/进入角色时由 useLayoutEffect 在绘制前置真，覆盖住加载、避免闪到新聊天。
     const [showEntry, setShowEntry] = useState(false);
+    // 两级导航：'list'=会话列表（从桌面打开先看到），'chat'=当前联系人对话框。
+    // 外部唤起（通知点击/主动消息）时 OSContext 会置 chatDeepLinkCharId，初始即直达对话框。
+    const [view, setView] = useState<'list' | 'chat'>(() => (chatDeepLinkCharId ? 'chat' : 'list'));
+
+    // 消费 deep link 标志并直达：既覆盖 mount 时已有标志（防止下次普通打开仍直达），
+    // 也覆盖「Chat 已停在列表页、又收到一次通知点击」的运行时直达。
+    useEffect(() => {
+        if (!chatDeepLinkCharId) return;
+        setActiveCharacterId(chatDeepLinkCharId);
+        setView('chat');
+        consumeChatDeepLink();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- setActiveCharacterId/consumeChatDeepLink 为稳定 useCallback
+    }, [chatDeepLinkCharId, setActiveCharacterId, consumeChatDeepLink]);
+
+    // 会话列表页回调：useCallback 稳定引用，避免 ChatList 的 memo 因箭头函数每次重渲染而失效。
+    const handleListSelect = useCallback((charId: string) => {
+        setActiveCharacterId(charId);
+        setView('chat');
+    }, [setActiveCharacterId]);
+    const handleListClose = useCallback(() => closeApp(), [closeApp]);
+
+    const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
-    const [collaborationOpen, setCollaborationOpen] = useState(false);
-    const [collaborationPreviewAssetId, setCollaborationPreviewAssetId] = useState<string | null>(null);
+    // 线下模式：用户输入模式（对话=自动包引号 / 旁白=不加引号），设置弹窗开关
+    const [offlineInputMode, setOfflineInputMode] = useState<'dialogue' | 'narration'>('dialogue');
+    const [offlineSettingsOpen, setOfflineSettingsOpen] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
-    const [favoritesOpen, setFavoritesOpen] = useState(false);
+    const [novelReaderOpen, setNovelReaderOpen] = useState(false);
+    const [fanwaiOpen, setFanwaiOpen] = useState(false);
+    // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
+    const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -190,13 +169,6 @@ const Chat: React.FC = () => {
     const pendingMediaAutoScrollIdRef = useRef<number | null>(null);
     const scrollThrottleRef = useRef(0);
     const visibleCountRef = useRef(30);
-    const pendingFavoriteJumpRef = useRef<{ charId: string; messageId: number } | null>(null);
-    const historyWindowRangeRef = useRef<ChatHistoryWindowRange | null>(null);
-    const historyWindowTotalRef = useRef(0);
-    const historyWindowLoadingRef = useRef(false);
-    const historyPrependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-    const historyJumpUnlockTimerRef = useRef<number | null>(null);
-    const historyWindowScrollEnabledRef = useRef(false);
     const activeCharIdRef = useRef(activeCharacterId);
     // 流式预览接棒过的正式消息在当前会话内始终跳过入场动画，避免后续 DB 刷新时动画类又被加回来。
     const streamPreviewHandoverIdsRef = useRef<Set<number>>(new Set());
@@ -222,8 +194,6 @@ const Chat: React.FC = () => {
     // 切换角色时收掉装扮气泡：定制是 per-character 的，避免误改到下一个角色
     useEffect(() => { setFineTuneOpen(false); setFineTunePanelOpen(false); }, [activeCharacterId]);
     const [scheduleData, setScheduleData] = useState<DailySchedule | null>(null);
-    const [scheduleChangeNotice, setScheduleChangeNotice] = useState<ScheduleChangeEventDetail | null>(null);
-    const dismissScheduleChangeNotice = useCallback(() => setScheduleChangeNotice(null), []);
     // 小剧场（窥视演出）：正在播放的时段索引（null = 未打开），以及生成中标志
     const [theaterSlotIdx, setTheaterSlotIdx] = useState<number | null>(null);
     const [isTheaterGenerating, setIsTheaterGenerating] = useState(false);
@@ -236,12 +206,6 @@ const Chat: React.FC = () => {
     const [settingsContextRangeMode, setSettingsContextRangeMode] = useState<ContextRangeMode>('manual');
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
     const [settingsHtmlModeCustomPrompt, setSettingsHtmlModeCustomPrompt] = useState('');
-    const contextSuiteAnyEnabled = memoryPalaceConfig.featureFlags?.recallRouter === true
-        || memoryPalaceConfig.featureFlags?.interactionAdaptation === true
-        || memoryPalaceConfig.featureFlags?.deepEngagement === true;
-    const contextSuiteAllEnabled = memoryPalaceConfig.featureFlags?.recallRouter === true
-        && memoryPalaceConfig.featureFlags?.interactionAdaptation === true
-        && memoryPalaceConfig.featureFlags?.deepEngagement === true;
     const [preserveContext, setPreserveContext] = useState(true);
     const [isVectorizing, setIsVectorizing] = useState(false);
     // 记忆宫殿「一键存入」：打开设置弹窗时算出待处理条数（排除热区的真实口径），处理中显示逐轮进度
@@ -261,6 +225,7 @@ const Chat: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
+    const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
@@ -290,9 +255,6 @@ const Chat: React.FC = () => {
         return normalizeTranslationLangLabel(localStorage.getItem(`chat_translate_lang_${activeCharacterId}`)
             || localStorage.getItem('chat_translate_lang')
             || '中文') || '中文';
-    });
-    const [translationExpanded, setTranslationExpanded] = useState(() => {
-        try { return JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'); } catch { return false; }
     });
     // Which messages are currently showing "译" version (toggle state only, no API calls)
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
@@ -433,27 +395,17 @@ const Chat: React.FC = () => {
         mcdMiniAppRef,
         luckinMiniAppRef,
         luckinChatRef,
+        novelReaderRef: novelCtxRef,
         updateCharacter,
     });
 
     // --- Voice TTS for chat messages ---
-    interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; favorite?: boolean; }
+    interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; }
     // Persisted shape (IndexedDB assets store). `blob` is the raw audio;
     // `remoteUrl` is the fallback when fetching the MiniMax CDN blob was blocked by CORS.
-    interface StoredVoice {
-        blob?: Blob;
-        remoteUrl?: string;
-        favorite?: boolean;
-        originalText: string;
-        spokenText?: string;
-        lang?: string;
-    }
-    type GeneratedVoiceData = VoiceData & { blob: Blob | null };
+    interface StoredVoice { blob?: Blob; remoteUrl?: string; originalText: string; spokenText?: string; lang?: string; }
     const voiceAssetKey = (msgId: number) => `voice_msg_${msgId}`;
-    const chatFavoriteSourceKey = (msg: Pick<Message, 'charId' | 'id'>) => `${msg.charId}:${msg.id}`;
     const [voiceDataMap, setVoiceDataMap] = useState<Record<number, VoiceData>>({});
-    const [chatFavoriteKeys, setChatFavoriteKeys] = useState<Set<string>>(new Set());
-    const [contentFavoriteIds, setContentFavoriteIds] = useState<Set<string>>(new Set());
     const [voiceLoading, setVoiceLoading] = useState<Set<number>>(new Set());
     const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
     const chatAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -469,18 +421,22 @@ const Chat: React.FC = () => {
     const voiceFailedRef = useRef<Set<number>>(new Set());
     // Track blob: URLs we created so we can revoke them on character switch / unmount.
     const voiceBlobUrlsRef = useRef<Set<string>>(new Set());
-    // We warn the user at most once (per character) that the active TTS provider isn't configured —
+    // We warn the user at most once (per character) that MiniMax voice isn't configured —
     // a character can produce many <语音> messages and we don't want to spam toasts.
-    const ttsWarnedRef = useRef(false);
+    const minimaxWarnedRef = useRef(false);
 
     /** Whether this character can synthesize real voice under the active TTS provider (key + a voice profile). */
-    const isTtsReady = useCallback(() => canSynthesizeSpeech(char, apiConfig), [char, apiConfig]);
+    const isMinimaxReady = useCallback(() => {
+        if (!characterHasVoice(char, apiConfig)) return false;
+        if (resolveTtsProvider(apiConfig) === 'fishaudio') return !!resolveFishAudioApiKey(apiConfig);
+        return !!resolveMiniMaxApiKey(apiConfig);
+    }, [char, apiConfig]);
 
     const persistVoice = async (msgId: number, url: string, blob: Blob | null, originalText: string, spokenText: string | undefined, lang: string | undefined) => {
         try {
             const stored: StoredVoice = blob
-                ? { blob, originalText, spokenText, lang, favorite: false }
-                : { remoteUrl: url, originalText, spokenText, lang, favorite: false };
+                ? { blob, originalText, spokenText, lang }
+                : { remoteUrl: url, originalText, spokenText, lang };
             await DB.saveAssetRaw(voiceAssetKey(msgId), stored);
         } catch (e) {
             console.warn('[Chat] persist voice failed', e);
@@ -560,10 +516,10 @@ const Chat: React.FC = () => {
         catch { try { return await attempt(); } catch { return ''; } }
     };
 
-    const handleManualTts = async (msg: Message, autoTriggered = false): Promise<GeneratedVoiceData | null> => {
-        if (voiceLoading.has(msg.id)) return null;
+    const handleManualTts = async (msg: Message, autoTriggered = false) => {
+        if (voiceLoading.has(msg.id)) return;
         if (voiceDataMap[msg.id]) {
-            if (autoTriggered) return null;
+            if (autoTriggered) return;
             // 手动点「转换语音」= 用户要求重新生成（典型场景：编辑了消息内容后）。
             // 丢掉这条旧语音再走正常合成；文本没变时会命中共享 TTS 缓存，不会重复请求 API。
             discardVoiceForMessages([msg.id]);
@@ -571,34 +527,32 @@ const Chat: React.FC = () => {
 
         // Parse the structured voice output: spoken text (sanitized) + per-message emotion.
         const parsedVoice = parseVoiceOutput(msg.content);
-        // Fish / ElevenLabs 的适配器需要看到原始 inline cue；MiniMax 使用已消毒的 speech。
-        const ttsProvider = resolveTtsProvider(apiConfig);
-        const preserveRawMarkup = providerUsesRawVoiceMarkup(apiConfig);
-        const voiceTagContent = parsedVoice.hasVoiceTag ? (preserveRawMarkup ? parsedVoice.rawSpeech : parsedVoice.speech) : '';
+        // 鱼声用原生 inline cue（[happy]/[whispering]…），要拿未剥离的 rawSpeech 送 API；
+        // MiniMax 用清洗过的 speech。
+        const isFishTts = resolveTtsProvider(apiConfig) === 'fishaudio';
+        const voiceTagContent = parsedVoice.hasVoiceTag ? (isFishTts ? parsedVoice.rawSpeech : parsedVoice.speech) : '';
         const voiceEmotion = parsedVoice.emotion;
 
         // Auto-TTS: only generate voice when AI explicitly used <语音> tag
-        if (autoTriggered && !parsedVoice.hasVoiceTag) return null;
+        if (autoTriggered && !parsedVoice.hasVoiceTag) return;
         // F12 调试：打印 LLM 这条消息的带标签原文，方便核对语音标签写法是否正确。
         // 放在上面那道门之后：即时对话的扫描窗里每来一条消息都要重扫一遍，
         // 搁在门前的话没有语音标签的普通消息会被反复打印，控制台直接刷屏。
-        console.log('[voice] LLM 原文(带标签):', { provider: ttsProvider, content: msg.content, voiceTagContent, emotion: voiceEmotion });
+        console.log('[voice] LLM 原文(带标签):', { provider: isFishTts ? 'fishaudio' : 'minimax', content: msg.content, voiceTagContent, emotion: voiceEmotion });
 
-        // 当前 TTS 引擎未配齐时不尝试合成（否则每条语音、每次点击都会抛错刷屏）。
-        // 只提醒一次；<语音> 气泡仍保留「转文字」入口，所以台词不会丢。
-        // The <语音> bubble still shows its 转文字 button so the
+        // MiniMax not configured for this character: don't attempt synthesis (it would
+        // throw and surface an error toast on every message / every tap). Instead remind
+        // the user just once — the <语音> bubble still shows its 转文字 button so the
         // text stays readable, matching real voice messages.
-        if (!isTtsReady()) {
-            if (!autoTriggered && !ttsWarnedRef.current) {
-                ttsWarnedRef.current = true;
-                const tip = ttsProvider === 'fishaudio'
+        if (!isMinimaxReady()) {
+            if (!autoTriggered && !minimaxWarnedRef.current) {
+                minimaxWarnedRef.current = true;
+                const tip = resolveTtsProvider(apiConfig) === 'fishaudio'
                     ? '该角色未配置鱼声音色或缺少 Fish API Key，无法播放真实语音，可点「转文字」查看内容'
-                    : ttsProvider === 'elevenlabs'
-                        ? '该角色未配置 ElevenLabs Voice ID 或缺少 ElevenLabs Key，无法播放真实语音，可点「转文字」查看内容'
-                        : '该角色未配置 MiniMax 语音，无法播放真实语音，可点「转文字」查看内容';
+                    : '该角色未配置 MiniMax 语音，无法播放真实语音，可点「转文字」查看内容';
                 addToast(tip, 'info');
             }
-            return null;
+            return;
         }
 
         setVoiceLoading(prev => new Set(prev).add(msg.id));
@@ -636,24 +590,31 @@ const Chat: React.FC = () => {
                 const bilingualIdx = msg.content.toLowerCase().indexOf('%%bilingual%%');
                 const hasBilingual = bilingualIdx !== -1;
                 if (hasBilingual && voiceLang) {
-                    const langAText = cleanTextForTtsProvider(msg.content.substring(0, bilingualIdx), apiConfig);
-                    const langBText = stripTtsMarkupForDisplay(msg.content.substring(bilingualIdx + '%%BILINGUAL%%'.length), apiConfig);
-                    if (!langAText || langAText.length < 2) return null;
+                    const langAText = cleanTextForTts(msg.content.substring(0, bilingualIdx));
+                    const langBText = cleanTextForTts(msg.content.substring(bilingualIdx + '%%BILINGUAL%%'.length));
+                    if (!langAText || langAText.length < 2) return;
                     spokenText = langAText;
                     originalText = langBText || '';
                 } else {
-                    spokenText = cleanTextForTtsProvider(msg.content, apiConfig);
-                    if (!spokenText || spokenText.length < 2) return null;
-                    originalText = stripTtsMarkupForDisplay(spokenText, apiConfig) || spokenText;
+                    // 鱼声：保留 inline cue 送 API，显示侧剥掉；MiniMax：照旧。
+                    if (isFishTts) {
+                        spokenText = cleanTextForTtsFish(msg.content);
+                        if (!spokenText || spokenText.length < 2) return;
+                        originalText = stripFishMarkupForDisplay(spokenText) || spokenText;
+                    } else {
+                        originalText = cleanTextForTts(msg.content);
+                        if (!originalText || originalText.length < 2) return;
+                        spokenText = originalText;
+                    }
                     if (voiceLang) {
-                        const langLabel = voiceLanguagePromptLabel(voiceLang);
+                        const langLabel = VOICE_LANG_LABELS[voiceLang] || voiceLang;
                         const translated = await llmTranslate(`Translate the following text to ${langLabel}. Output ONLY the translation, nothing else.`, originalText);
                         if (translated) spokenText = translated;
                     }
                 }
             }
 
-            if (!spokenText || spokenText.length < 2) return null;
+            if (!spokenText || spokenText.length < 2) return;
 
             const { url: blobUrl, blob } = await synthesizeSpeechDetailed(spokenText, char, apiConfig, {
                 languageBoost: voiceLang || undefined,
@@ -661,8 +622,8 @@ const Chat: React.FC = () => {
                 emotion: voiceEmotion,
             });
             if (blobUrl.startsWith('blob:')) voiceBlobUrlsRef.current.add(blobUrl);
-            // 转文字面板只展示实际台词，不展示当前引擎的停顿 / 表演标记。
-            const displaySpoken = stripTtsMarkupForDisplay(spokenText, apiConfig);
+            // 鱼声的 spokenText 里有 inline cue（[whispering] 等），转文字面板要剥掉再存，别让用户看到标记。
+            const displaySpoken = isFishTts ? stripFishMarkupForDisplay(spokenText) : spokenText;
             const storedSpokenText = voiceTagContent ? displaySpoken : (voiceLang ? displaySpoken : undefined);
             const storedLang = voiceLang || undefined;
             setVoiceDataMap(prev => ({ ...prev, [msg.id]: { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang } }));
@@ -677,12 +638,10 @@ const Chat: React.FC = () => {
                 chatAudioRef.current.play().catch(() => {});
                 setPlayingMsgId(msg.id);
             }
-            return { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang, blob };
         } catch (err: any) {
             // 记一笔失败：自动那条路下次扫到就跳过（见 voiceFailedRef 的说明）。
             voiceFailedRef.current.add(msg.id);
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
-            return null;
         } finally {
             setVoiceLoading(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
         }
@@ -708,53 +667,6 @@ const Chat: React.FC = () => {
             trackEvent('下载语音条');
         } catch {
             addToast('语音下载失败', 'error');
-        }
-    };
-
-    const handleToggleVoiceFavorite = async (msg: Message) => {
-        if (!msg?.id) return;
-        try {
-            const sourceKey = chatFavoriteSourceKey(msg);
-            if (await getVoiceFavorite('chat', sourceKey)) {
-                await removeVoiceFavorite('chat', sourceKey);
-                setChatFavoriteKeys(prev => { const next = new Set(prev); next.delete(sourceKey); return next; });
-                setVoiceDataMap(prev => prev[msg.id] ? ({ ...prev, [msg.id]: { ...prev[msg.id], favorite: false } }) : prev);
-                addToast('已取消收藏语音', 'info');
-                return;
-            }
-            let current: GeneratedVoiceData | VoiceData | undefined = voiceDataMap[msg.id];
-            if (!current) current = await handleManualTts(msg, false) || undefined;
-            if (!current) return;
-            const stored = await DB.getAssetRaw(voiceAssetKey(msg.id)) as StoredVoice | null;
-
-            let blob: Blob | null = 'blob' in current && current.blob instanceof Blob
-                ? current.blob
-                : stored?.blob instanceof Blob ? stored.blob : null;
-            if (!blob) {
-                try { blob = await fetchBlobForShare(current.url, 'audio/mpeg'); } catch { /* handled below */ }
-            }
-            if (!blob) {
-                addToast('暂时拿不到这条语音的音频文件，无法收藏', 'error');
-                return;
-            }
-            await saveVoiceFavorite({
-                source: 'chat',
-                sourceKey,
-                charId: msg.charId,
-                charName: char?.name || '未知角色',
-                sourceTimestamp: msg.timestamp,
-                originalText: current.originalText,
-                spokenText: current.spokenText,
-                language: current.lang,
-                blob,
-            });
-            setChatFavoriteKeys(prev => new Set(prev).add(sourceKey));
-            setVoiceDataMap(prev => ({ ...prev, [msg.id]: { ...prev[msg.id], favorite: true } }));
-            addToast('已收藏语音，可在“收藏”里查看', 'success');
-            trackEvent('收藏语音条');
-        } catch (e) {
-            console.warn('[Chat] favorite voice failed', e);
-            addToast('收藏失败，请检查浏览器存储空间', 'error');
         }
     };
 
@@ -795,6 +707,7 @@ const Chat: React.FC = () => {
         const typingJustEnded = wasTyping && !isTyping;
         const inInstantWindow = Date.now() < instantVoiceScanUntilRef.current;
         if (!typingJustEnded && !inInstantWindow) return;
+
         if (!char.chatVoiceEnabled) return;
         // 关着「收到就自动播放」就别提前合成（理由见 shouldAutoGenerateVoice）：
         // 空语音条照常出现，用户点了才合成、合成完直接播。
@@ -849,12 +762,6 @@ const Chat: React.FC = () => {
         let cancelled = false;
         (async () => {
             const updates: Record<number, VoiceData> = {};
-            const favoriteKeys = new Set(
-                (await listVoiceFavorites().catch(() => []))
-                    .filter(item => item.source === 'chat')
-                    .map(item => item.sourceKey),
-            );
-            if (!cancelled) setChatFavoriteKeys(favoriteKeys);
             for (const m of toFetch) {
                 try {
                     const stored = await DB.getAssetRaw(voiceAssetKey(m.id)) as StoredVoice | null;
@@ -875,27 +782,7 @@ const Chat: React.FC = () => {
                         DB.saveAssetRaw(voiceAssetKey(m.id), { ...stored, originalText: '' })
                             .catch(() => { /* 回写失败下次进聊天再试 */ });
                     }
-                    let favorited = favoriteKeys.has(chatFavoriteSourceKey(m));
-                    // One-time migration for the short-lived per-message favorite shape.
-                    // The dedicated archive survives message deletion and is shared by all three apps.
-                    if (!favorited && stored.favorite === true && stored.blob instanceof Blob) {
-                        try {
-                            await saveVoiceFavorite({
-                                source: 'chat',
-                                sourceKey: chatFavoriteSourceKey(m),
-                                charId: m.charId,
-                                charName: char?.name || '未知角色',
-                                sourceTimestamp: m.timestamp,
-                                originalText,
-                                spokenText: stored.spokenText,
-                                language: stored.lang,
-                                blob: stored.blob,
-                            });
-                            favorited = true;
-                            DB.saveAssetRaw(voiceAssetKey(m.id), { ...stored, favorite: undefined }).catch(() => undefined);
-                        } catch { /* keep the legacy marker and retry next entry */ }
-                    }
-                    updates[m.id] = { url, originalText, spokenText: stored.spokenText, lang: stored.lang, favorite: favorited };
+                    updates[m.id] = { url, originalText, spokenText: stored.spokenText, lang: stored.lang };
                 } catch { /* ignore single-message hydration errors */ }
             }
             if (cancelled || !Object.keys(updates).length) return;
@@ -904,39 +791,10 @@ const Chat: React.FC = () => {
         return () => { cancelled = true; };
     }, [messages]);
 
-    // The archive can remove an item while this chat stays mounted. Keep the
-    // long-press menu's 收藏/取消收藏 label in sync without touching audio data.
-    useEffect(() => {
-        const syncFavoriteFlags = async () => {
-            const keys = new Set(
-                (await listVoiceFavorites().catch(() => []))
-                    .filter(item => item.source === 'chat')
-                    .map(item => item.sourceKey),
-            );
-            setChatFavoriteKeys(keys);
-            setVoiceDataMap(prev => {
-                let changed = false;
-                const next = { ...prev };
-                for (const message of messages) {
-                    const voice = next[message.id];
-                    if (!voice) continue;
-                    const favorite = keys.has(chatFavoriteSourceKey(message));
-                    if (!!voice.favorite !== favorite) {
-                        next[message.id] = { ...voice, favorite };
-                        changed = true;
-                    }
-                }
-                return changed ? next : prev;
-            });
-        };
-        window.addEventListener(VOICE_FAVORITES_CHANGED_EVENT, syncFavoriteFlags);
-        return () => window.removeEventListener(VOICE_FAVORITES_CHANGED_EVENT, syncFavoriteFlags);
-    }, [messages]);
-
     // Revoke blob URLs when switching characters / unmounting to avoid leaks.
     useEffect(() => {
-        // Reset the "active TTS not configured" warning so each character gets one reminder.
-        ttsWarnedRef.current = false;
+        // Reset the "MiniMax not configured" warning so each character gets one reminder.
+        minimaxWarnedRef.current = false;
         // 自动合成的失败记录也跟着换角色清空：这一位的失败不该拦着下一位。
         voiceFailedRef.current.clear();
         const urls = voiceBlobUrlsRef.current;
@@ -993,6 +851,8 @@ const Chat: React.FC = () => {
     }, [activeCharacterId]);
 
     useEffect(() => {
+        // 列表页不加载消息、也不清未读（未读角标要留在列表上）。只有 view==='chat' 才进聊天加载流程。
+        if (view !== 'chat') return;
         if (activeCharacterId) {
             // Update ref BEFORE any async work so stale reloadMessages calls
             // from a previous character can detect the switch and bail out.
@@ -1033,9 +893,6 @@ const Chat: React.FC = () => {
                 || localStorage.getItem('chat_translate_lang')
                 || '中文') || '中文'
             );
-            try {
-                setTranslationExpanded(JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'));
-            } catch { setTranslationExpanded(false); }
             setVisibleCount(30);
             visibleCountRef.current = 30;
             lastMsgIdRef.current = null;
@@ -1048,16 +905,6 @@ const Chat: React.FC = () => {
             setVectorizeResult(null);
             setShowingTargetIds(new Set());
             setWindowedFocusMsgId(null);
-            setHistoryWindowRange(null);
-            historyWindowRangeRef.current = null;
-            historyWindowTotalRef.current = 0;
-            historyWindowLoadingRef.current = false;
-            historyPrependAnchorRef.current = null;
-            historyWindowScrollEnabledRef.current = false;
-            if (historyJumpUnlockTimerRef.current) {
-                window.clearTimeout(historyJumpUnlockTimerRef.current);
-                historyJumpUnlockTimerRef.current = null;
-            }
             setFlashMsgId(null);
             try {
                 const rawToolStatus = localStorage.getItem(`instant_tool_status_${activeCharacterId}`);
@@ -1068,17 +915,14 @@ const Chat: React.FC = () => {
                 setInstantToolStatus(null);
             }
         }
-    }, [activeCharacterId, reloadMessages]);
+    }, [activeCharacterId, view, reloadMessages]);
 
     // 进入/切换角色时触发「登场」过场。useLayoutEffect 在浏览器绘制前置真，
     // 让过场层先盖住，避免一帧闪到新角色的空聊天界面。
+    // 仅在 view==='chat' 时触发：列表页不应播放登场动画，点选联系人进对话框（view 变化）时才播。
     useLayoutEffect(() => {
-        if (!activeCharacterId || osTheme.chatCharacterSwitchAnimationEnabled === false) {
-            setShowEntry(false);
-            return;
-        }
-        setShowEntry(true);
-    }, [activeCharacterId, osTheme.chatCharacterSwitchAnimationEnabled]);
+        if (activeCharacterId && view === 'chat') setShowEntry(true);
+    }, [activeCharacterId, view]);
 
     useEffect(() => {
         let clearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1117,19 +961,6 @@ const Chat: React.FC = () => {
             if (clearTimer) clearTimeout(clearTimer);
         };
     }, []);
-
-    useEffect(() => {
-        const onScheduleChange = (event: Event) => {
-            const detail = (event as CustomEvent<ScheduleChangeEventDetail>).detail;
-            if (!detail || detail.charId !== activeCharIdRef.current) return;
-            setScheduleData(detail.schedule);
-            setScheduleChangeNotice(detail);
-        };
-        window.addEventListener(SCHEDULE_CHANGE_EVENT, onScheduleChange);
-        return () => window.removeEventListener(SCHEDULE_CHANGE_EVENT, onScheduleChange);
-    }, []);
-
-    useEffect(() => setScheduleChangeNotice(null), [activeCharacterId]);
 
     // Auto-generate daily schedule (fire-and-forget on chat load)
     // 总开关关闭时完全跳过：不查询 DB、不调用副 API、不跑兜底
@@ -1184,12 +1015,22 @@ const Chat: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (activeCharacterId && lastMsgTimestamp > 0) {
+        // 列表页不清未读（角标要留在列表上），只有进入对话框才跟随新消息重载并清角标。
+        if (activeCharacterId && lastMsgTimestamp > 0 && view === 'chat') {
             reloadMessages(visibleCountRef.current);
             clearUnread(activeCharacterId);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- clearUnread is stable (useCallback with []), omit to prevent stale-dep lint noise
-    }, [lastMsgTimestamp, activeCharacterId, reloadMessages, clearUnread]);
+    }, [lastMsgTimestamp, activeCharacterId, view, reloadMessages, clearUnread]);
+
+    // 独立的清未读 effect：覆盖「点选的就是当前 activeCharacterId 那个角色」的场景。
+    // 此时 activeCharacterId 未变、上面的挂载 effect 不会重跑，但 view 从 list 变成 chat，
+    // 靠这个 effect 把该角色的未读角标清掉。
+    useEffect(() => {
+        if (view === 'chat' && activeCharacterId) {
+            clearUnread(activeCharacterId);
+        }
+    }, [view, activeCharacterId, clearUnread]);
 
     // 即时对话待收记录的跨标签页补听。同一聊天开两个标签页时，回复推送到达后 SW 把
     // 广播发给所有 client，后台标签页的 flush 可能先抢到并落库——销账的 CustomEvent
@@ -1243,54 +1084,12 @@ const Chat: React.FC = () => {
         }
     }, [messages, activeCharacterId, selectionMode, windowedFocusMsgId]);
 
-    const extendHistoryWindow = useCallback((direction: 'older' | 'newer') => {
-        const scroller = scrollRef.current;
-        const range = historyWindowRangeRef.current;
-        if (!scroller || !range || historyWindowLoadingRef.current) return;
-
-        const nextRange = expandChatHistoryWindow(
-            range,
-            historyWindowTotalRef.current,
-            direction,
-            HISTORY_WINDOW_BATCH_SIZE,
-        );
-        if (nextRange.start === range.start && nextRange.end === range.end) return;
-
-        historyWindowLoadingRef.current = true;
-        if (direction === 'older') {
-            // 前插消息会把当前内容整体向下顶；记录原高度，提交 DOM 后补偿差值，
-            // 用户看到的位置就不会突然跳走。
-            historyPrependAnchorRef.current = {
-                scrollHeight: scroller.scrollHeight,
-                scrollTop: scroller.scrollTop,
-            };
-        }
-        historyWindowRangeRef.current = nextRange;
-        setHistoryWindowRange(nextRange);
-    }, []);
-
-    useLayoutEffect(() => {
-        if (!historyWindowRange) return;
-        const anchor = historyPrependAnchorRef.current;
-        const scroller = scrollRef.current;
-        if (anchor && scroller) {
-            scroller.scrollTop = anchor.scrollTop + (scroller.scrollHeight - anchor.scrollHeight);
-        }
-        historyPrependAnchorRef.current = null;
-        historyWindowLoadingRef.current = false;
-    }, [historyWindowRange]);
-
     const handleChatScroll = useCallback(() => {
         const scroller = scrollRef.current;
         if (!scroller) return;
         const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
         if (distanceFromBottom > 96) pendingMediaAutoScrollIdRef.current = null;
-
-        if (historyWindowScrollEnabledRef.current && historyWindowRangeRef.current) {
-            if (scroller.scrollTop <= 96) extendHistoryWindow('older');
-            else if (distanceFromBottom <= 96) extendHistoryWindow('newer');
-        }
-    }, [extendHistoryWindow]);
+    }, []);
 
     const handleMessageMediaLoad = useCallback((messageId: number) => {
         if (windowedFocusMsgId !== null || pendingMediaAutoScrollIdRef.current !== messageId) return;
@@ -1349,41 +1148,6 @@ const Chat: React.FC = () => {
 
     // --- Actions ---
 
-    const handleSendCharImage = async (url: string, caption: string) => {
-        if (!char) return;
-        const recentChat = messages.slice(-10).map(m => {
-            const sender = m.role === 'user' ? userProfile.name : char.name;
-            return `${sender}: ${m.content.substring(0, 100)}`;
-        });
-        try {
-            await DB.saveGalleryImage({
-                id: `img-${Date.now()}-${Math.random()}`,
-                charId: char.id,
-                url,
-                timestamp: Date.now(),
-                savedDate: localDateKey,
-                chatContext: recentChat,
-            });
-        } catch { /* 相册保存失败不阻断消息 */ }
-        const newMsgId = await DB.saveMessage({
-            charId: char.id,
-            role: 'assistant',
-            type: 'image',
-            content: url,
-            metadata: { source: 'manual_image_gen', caption },
-        } as any);
-        setMessages(prev => [...prev, {
-            id: newMsgId,
-            charId: char.id,
-            role: 'assistant',
-            type: 'image',
-            content: url,
-            timestamp: Date.now(),
-            metadata: { source: 'manual_image_gen', caption },
-        }]);
-        addToast(caption || '图片已发送', 'info');
-    };
-
     const handleSendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
         if (!char || (!input.trim() && !customContent)) return;
         // 只累加内存里的计数，这里不发任何请求；页面切走时才按区间报一次。见 utils/analytics.ts
@@ -1396,12 +1160,6 @@ const Chat: React.FC = () => {
         // 发消息隐含"回到当前聊天"——退出 windowed 旧消息浏览模式
         if (windowedFocusMsgId !== null) {
             setWindowedFocusMsgId(null);
-            setHistoryWindowRange(null);
-            historyWindowRangeRef.current = null;
-            historyWindowTotalRef.current = 0;
-            historyWindowScrollEnabledRef.current = false;
-            visibleCountRef.current = LOAD_BATCH_SIZE;
-            setVisibleCount(LOAD_BATCH_SIZE);
             setFlashMsgId(null);
         }
 
@@ -1433,61 +1191,42 @@ const Chat: React.FC = () => {
 
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
         
-        // 图片 / 表情消息存的是短令牌，图片二进制单独躺在 blob_assets 里，省掉 base64 那 ~33%
-        // 的膨胀。同一张图之前存过就直接复用它的令牌；转不动时原样还回这条 data URL，图不会丢。
-        // http 外链（网络表情）和已经是令牌的值都原样通过。
-        // 注意：这条消息和下面存进相册的那条共用同一个令牌（按内容哈希认人，只存一份 Blob），
-        // 所以删消息时绝不能顺手删 Blob——那会把相册里的同一张图一起删破。失去引用的 Blob
-        // 交给孤儿 GC 收（见 utils/blobGc.ts）。
-        const storedContent = (type === 'image' || type === 'emoji') && text.startsWith('data:')
-            ? await migrateDataUrlToRef(text)
-            : text;
-
-        const imageChatContext = type === 'image'
-            ? messages.slice(-10).map(m => {
+        if (type === 'image') {
+            const recentChat = messages.slice(-10).map(m => {
                 const sender = m.role === 'user' ? userProfile.name : char.name;
-                const isMedia = m.type === 'image' || m.type === 'emoji' || isImageValue(m.content);
-                const preview = isMedia
-                    ? buildReplySnapshotContent(m)
-                    : m.content.substring(0, 100);
-                return `${sender}: ${preview}`;
-            })
-            : null;
+                return `${sender}: ${m.content.substring(0, 100)}`;
+            });
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url: text,
+                timestamp: Date.now(),
+                savedDate: localDateKey,
+                chatContext: recentChat
+            });
+            addToast('图片已保存至相册', 'info');
+        }
 
-        const msgPayload: any = { charId: char.id, role: 'user', type, content: storedContent, metadata };
+        // 线下模式：用户消息统一带 offline 标记（渲染按行级解析）；
+        // 手打对话输入自动包引号 → 渲染成台词气泡；旁白输入不加引号 → 斜体旁白。
+        // 内部请求（开场旁白等 customContent）不包引号，但同样带 offline 标记。
+        const offlineOn = isOfflineEnabled(char.offlineConfig);
+        const finalText =
+            !customContent && offlineOn && offlineInputMode === 'dialogue' && type === 'text'
+                ? `"${text}"`
+                : text;
+        const msgPayload: any = { charId: char.id, role: 'user', type, content: finalText, offline: offlineOn, metadata };
         
         if (replyTarget) {
             msgPayload.replyTo = {
-                // 引用图片 / 表情时快照存 '[图片]' 之类的占位符，不把令牌原样带进这条消息
-                // （跟角色侧的引用快照同一个函数，口径一致）
                 id: replyTarget.id,
-                content: buildReplySnapshotContent(replyTarget),
+                content: replyTarget.content,
                 name: replyTarget.role === 'user' ? '我' : char.name
             };
             setReplyTarget(null);
         }
 
         const savedUserMsgId = await DB.saveMessage(msgPayload);
-
-        if (type === 'image') {
-            // 相册是消息的附带记录：保留来源消息引用供收藏/去重使用，但相册写入失败
-            // 不能阻断已经落库的聊天消息。
-            try {
-                await DB.saveGalleryImage({
-                    id: `img-${Date.now()}-${Math.random()}`,
-                    charId: char.id,
-                    url: storedContent,
-                    timestamp: Date.now(),
-                    sourceMessageId: savedUserMsgId,
-                    savedDate: localDateKey,
-                    chatContext: imageChatContext || undefined,
-                });
-                addToast('图片已保存至相册', 'info');
-            } catch (err) {
-                console.warn('[Chat] 图片存相册失败，消息照常发送', err);
-                addToast('图片没能存进相册，消息照常发送', 'error');
-            }
-        }
 
         // 小红书链接 → xhs_card。主路径不依赖任何后端：小红书分享文案自带标题（【标题】）
         // 和笔记 id/token，直接解析就能建卡，让「没部署小红书 MCP」的用户也能让角色看到分享了哪篇笔记。
@@ -1622,6 +1361,7 @@ const Chat: React.FC = () => {
         }
 
         await reloadMessages(visibleCountRef.current);
+
         setShowPanel('none');
 
         // Instant Push 模式：发完文本自动触发 AI（响应在 worker 端跑、后台 push 回写聊天页）。
@@ -1691,9 +1431,58 @@ const Chat: React.FC = () => {
         triggerAI(messages, undefined, () => setInstantSendingActive(false));
     };
 
+    // 触发角色开场旁白：进入线下且「开场旁白」开关开着时，由角色自己写一段场景旁白。
+    // 不往用户侧发可见消息——存一条 hidden + proactiveHint 的 user 消息当 AI 上下文
+    // （displayMessages 过滤 proactiveHint，不会显示成用户气泡），再 triggerAI 触发；
+    // assistant 回复由 applyAssistantPostProcessing 自动落库并自动带 offline:true，走旁白渲染。
+    const fireOfflineOpeningNarration = useCallback(async () => {
+        if (!char) return;
+        if (isTyping) return;
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'text',
+            content: buildOfflineOpeningRequest(char.name),
+            offline: true,
+            metadata: { proactiveHint: true, hidden: true },
+        });
+        await reloadMessages(visibleCountRef.current);
+        // 触发角色生成开场旁白（triggerAI 内部从 DB 拉完整历史，能看到刚写入的隐藏提示）
+        triggerAI(messages);
+    }, [char, messages, reloadMessages, triggerAI]);
+
+    // 线下模式开关动作（收敛到设置弹窗第一项里触发）：开/关即生效。
+    // 开启 → 插「进入分隔线」→ 刷新 → 若开场旁白开关开则角色来一段旁白；
+    // 关闭 → 插「退出分隔线」→ 输入模式重置为对话 → 刷新。
+    const handleOfflineToggle = useCallback(async (next: boolean) => {
+        if (!char) return;
+        if (next) {
+            await DB.saveMessage({
+                charId: char.id,
+                role: 'system',
+                type: 'text',
+                content: '─── 线下模式 · 进入 ───',
+                metadata: { offlineDivider: 'start' },
+            });
+            await reloadMessages(visibleCountRef.current);
+            if (normalizeOfflineConfig(char.offlineConfig).openingNarration) {
+                void fireOfflineOpeningNarration();
+            }
+        } else {
+            setOfflineInputMode('dialogue');
+            await DB.saveMessage({
+                charId: char.id,
+                role: 'system',
+                type: 'text',
+                content: '─── 线下模式 · 结束 ───',
+                metadata: { offlineDivider: 'end' },
+            });
+            await reloadMessages(visibleCountRef.current);
+        }
+    }, [char, reloadMessages, fireOfflineOpeningNarration]);
+
     const handleReroll = async () => {
         if (isTyping || messages.length === 0) return;
-
         const lastMsg = messages[messages.length - 1];
         if (lastMsg.role !== 'assistant') return;
 
@@ -1736,18 +1525,16 @@ const Chat: React.FC = () => {
         if ([
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
             'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
-            'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'favorites', 'collaboration',
+            'html-mode-toggle', 'html-mode-settings', 'thinking-settings',
+            'offline-toggle', 'offline-settings',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
             'poke', 'emoji-import', 'add-category', 'mcd-end', 'luckin-end',
-            'imagegen', 'novel', 'fanwai',
         ].includes(type)) {
             trackEvent('打开聊天功能面板项', { action: type });
         }
         switch (type) {
-            case 'collaboration': setShowPanel('none'); setCollaborationOpen(true); break;
             case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
-            case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
@@ -1755,6 +1542,7 @@ const Chat: React.FC = () => {
             case 'chrome-css': setModalType('chrome-css'); break;
             case 'chrome-sound': setModalType('chrome-sound'); break;
             case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
+            case 'location': setShowPanel('none'); setShowLocationPicker(true); break;
             case 'emoji-import': setModalType('emoji-import'); break;
             case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji'); break;
             case 'delete-emoji-req': setSelectedEmoji(payload); setModalType('delete-emoji'); break;
@@ -1809,25 +1597,383 @@ const Chat: React.FC = () => {
                 setShowThinkingChainModal(true);
                 break;
             }
-            case 'imagegen': setShowPanel('none'); setShowImageGenPanel(true); break;
-            case 'novel': setShowPanel('none'); setNovelReaderOpen(true); break;
-            case 'fanwai': setShowPanel('none'); setFanwaiOpen(true); break;
+            case 'offline-toggle':
+            case 'offline-settings': {
+                // 「线下模式」入口 → 一律只弹设置弹窗（开关动作收敛在弹窗第一项，
+                // 用户自己开/关才生效）。短按 / 长按行为一致，都不直接 toggle、不 toast。
+                if (!char) break;
+                setOfflineSettingsOpen(true);
+                setShowPanel('none');
+                break;
+            }
+            case 'image-gen': {
+                setShowImageGenPanel(true);
+                break;
+            }
+            case 'novel-reader': {
+                setShowPanel('none');
+                setNovelReaderOpen(v => !v);
+                break;
+            }
+            case 'fanwai': {
+                setShowPanel('none');
+                setFanwaiOpen(true);
+                break;
+            }
         }
     };
+
+    // 自动生图：AI 回复里包含 "图片- xxx" 格式时触发生图
+    // 支持三种模式（由 trigger effect 根据三个开关 + 消息内容决定）：
+    //   - 'char'  ：角色生图（角色锁脸 + 角色外貌描述）
+    //   - 'user'  ：用户生图（用户锁脸 + 用户外貌描述）
+    //   - 'joint' ：合照（角色锁脸 + 双人描述融合）
+    // 生成的图片作为角色的回复（role: 'assistant'）出现在气泡流中
+    // 新流程：先插入半透明占位卡片 → API 成功后替换为真图 → 失败则卡片显示失败状态
+    const autoGenerateImage = async (msgId: number, sceneDesc: string, mode: 'char' | 'user' | 'joint' = 'char') => {
+        if (!apiConfig.imageGenBaseUrl || !apiConfig.imageGenApiKey || !apiConfig.imageGenModel) {
+            return;
+        }
+        if (!char) return;
+
+        // 立即登记"已尝试"——避免在网络请求期间因 messages 变化再次触发
+        processedMsgIdsRef.current.add(msgId);
+
+        // 加载角色/用户锁脸 + 外观数据（按需）
+        const { description: charDesc, lockImage: charLockImage } = loadCharImageSettings(char.name || '');
+        const { description: userDesc, lockImage: userLockImage } = loadUserImageSettings();
+
+        // 三种模式的 prompt / lockImage 不同
+        let prompt: string;
+        let lockImage: string | null = null;
+        let statusText: string;
+        let successToast: string;
+        let metadataExtra: Record<string, any> = {};
+
+        const charShort = charDesc || (char as any).persona?.replace(/\s+/g, ' ').slice(0, 300) || char.name || 'a character';
+        const userShort = userDesc || 'a person';
+        // 锁脸强化指令：有锁脸图时强制 AI 以参考图为准，避免自由发挥改变性别/外貌
+        const lockFaceHint = 'MUST keep the face, hairstyle, gender, age, ethnicity, body shape and overall look of the reference photo (do not change appearance, do not invent a new person)';
+
+        if (mode === 'user') {
+            const parts = [userShort];
+            if (userLockImage) parts.push(lockFaceHint);
+            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
+            parts.push('masterpiece, best quality, highly detailed');
+            prompt = parts.filter(Boolean).join(', ');
+            lockImage = userLockImage || null;
+            statusText = 'AI 正在画你的照片，可能要 30~60 秒...';
+            successToast = userLockImage ? '已按你的锁脸生成照片' : '已按你的外貌生成照片';
+            metadataExtra = { imageGenMode: 'user', usedLockFace: !!userLockImage };
+        } else if (mode === 'joint') {
+            // 健壮版：空描述时用"参考图中的人物"代替，有锁脸优先
+            const _userPart = (userDesc && userDesc.trim()) || (userLockImage ? 'the exact person shown in the reference photo' : 'a person');
+            const _charPart = (charDesc && charDesc.trim()) || (charLockImage ? 'the exact character shown in the reference photo' : 'a character');
+            const _jointParts = ['two people together in the photo', _userPart, 'and', _charPart];
+            if (userLockImage) _jointParts.push(lockFaceHint);
+            if (charLockImage) _jointParts.push(lockFaceHint);
+            if (sceneDesc && sceneDesc.trim()) _jointParts.push(sceneDesc.trim());
+            _jointParts.push('couple photo, intimate and natural pose');
+            _jointParts.push('masterpiece, best quality, highly detailed');
+            prompt = _jointParts.filter(Boolean).join(', ');
+            lockImage = charLockImage || userLockImage || null; // API 只支持一张参考图，优先角色锁脸
+            statusText = 'AI 正在画合照，可能要 30~60 秒...';
+            successToast = '已生成合照';
+            metadataExtra = { imageGenMode: 'joint', usedLockFace: !!(charLockImage || userLockImage) };
+        } else {
+            // 默认 char 模式
+            const parts = [charShort];
+            if (charLockImage) parts.push(lockFaceHint);
+            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
+            parts.push('masterpiece, best quality, highly detailed');
+            prompt = parts.filter(Boolean).join(', ');
+            lockImage = charLockImage || null;
+            statusText = 'AI 正在画，可能要 30~60 秒...';
+            successToast = charLockImage ? '已按锁脸生成图片' : '已按角色外貌生成图片';
+            metadataExtra = { imageGenMode: 'char', usedLockFace: !!charLockImage };
+        }
+
+        // ---- 第 1 步：先插入占位图片卡片（让用户看到"正在画"） ----
+        const placeholderId = Date.now() + Math.floor(Math.random() * 10000);
+        setMessages(prev => {
+            const placeholder: Message = {
+                id: placeholderId,
+                charId: char.id,
+                role: 'assistant',
+                type: 'image',
+                content: '', // 空内容 → 渲染层看到 imageGenPlaceholder 后会显示加载卡
+                timestamp: Date.now(),
+                metadata: {
+                    imageGenPlaceholder: true,
+                    imageGenPending: true,
+                    imageGenSceneDesc: sceneDesc,
+                    imageGenStatusText: statusText,
+                    imageGenMode: mode, // 重试时需要知道模式
+                },
+            };
+            return [...prev.map(m => m.id === msgId ? {
+                ...m,
+                metadata: {
+                    ...(m as any).metadata,
+                    imageGenPending: true,
+                    imageGenFailed: false,
+                    imageGenError: '',
+                    imageGenStatusText: '',
+                }
+            } : m), placeholder];
+        });
+
+        try {
+            const result = await generateImageApi({
+                baseUrl: apiConfig.imageGenBaseUrl,
+                apiKey: apiConfig.imageGenApiKey,
+                model: apiConfig.imageGenModel,
+                prompt,
+                lockImageDataUrl: lockImage || null,
+                size: '1024x1792', // 固定 9:16 竖版
+                timeoutMs: 300000,
+            });
+
+            // ---- 第 2 步：保存到 DB + 把占位卡片替换为真图 ----
+            const recentChat = messages.slice(-10).map(m => {
+                const sender = m.role === 'user' ? userProfile.name : char.name;
+                return `${sender}: ${m.content.substring(0, 100)}`;
+            });
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url: result.url,
+                timestamp: Date.now(),
+                savedDate: localDateKey,
+                chatContext: recentChat,
+            });
+
+            const newMsgId = await DB.saveMessage({
+                charId: char.id,
+                role: 'assistant',
+                type: 'image',
+                content: result.url,
+                metadata: {
+                    source: 'auto_image_gen',
+                    sceneDesc,
+                    prompt,
+                    ...metadataExtra,
+                },
+            } as any);
+
+            // 把本地占位卡片替换为真实图片消息
+            setMessages(prev => {
+                const realMsg: Message = {
+                    id: newMsgId,
+                    charId: char.id,
+                    role: 'assistant',
+                    type: 'image',
+                    content: result.url,
+                    timestamp: Date.now(),
+                    metadata: {
+                        source: 'auto_image_gen',
+                        sceneDesc,
+                        ...metadataExtra,
+                    },
+                };
+                // 删掉占位卡片，换上真图
+                return prev
+                    .filter(m => m.id !== placeholderId)
+                    .map(m => m.id === msgId ? {
+                        ...m,
+                        metadata: { ...(m as any).metadata, imageGenPending: false }
+                    } : m)
+                    .concat(realMsg);
+            });
+
+            addToast(successToast, 'info');
+        } catch (e: any) {
+            console.error('[ImageGen Auto] failed:', e);
+            const errMsg = e?.name === 'AbortError' ? '请求超时（5 分钟）' : (e?.message || '未知错误');
+
+            // ---- 失败：把占位卡片标记为失败状态 ----
+            setMessages(prev => prev.map(m => {
+                if (m.id === placeholderId) {
+                    return {
+                        ...m,
+                        metadata: {
+                            ...(m as any).metadata,
+                            imageGenPending: false,
+                            imageGenFailed: true,
+                            imageGenError: errMsg,
+                            imageGenSceneDesc: sceneDesc,
+                        },
+                    };
+                }
+                if (m.id === msgId) {
+                    return {
+                        ...m,
+                        metadata: { ...(m as any).metadata, imageGenPending: false }
+                    };
+                }
+                return m;
+            }));
+            addToast(`生图失败: ${errMsg}`, 'error');
+        }
+    };
+
+    // 手动生图面板生成成功后，以「角色身份」插入图片消息（role: assistant）。
+    // 不能用 handleSendText——它固定 role: 'user'，会让角色生成的图显示成"我发的"。
+    const handleSendCharImage = async (url: string, caption: string) => {
+        if (!char) return;
+        const recentChat = messages.slice(-10).map(m => {
+            const sender = m.role === 'user' ? userProfile.name : char.name;
+            return `${sender}: ${m.content.substring(0, 100)}`;
+        });
+        try {
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url,
+                timestamp: Date.now(),
+                savedDate: localDateKey,
+                chatContext: recentChat,
+            });
+        } catch { /* 相册保存失败不阻断消息 */ }
+        const newMsgId = await DB.saveMessage({
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            metadata: { source: 'manual_image_gen', caption },
+        } as any);
+        setMessages(prev => [...prev, {
+            id: newMsgId,
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            timestamp: Date.now(),
+            metadata: { source: 'manual_image_gen', caption },
+        }]);
+        addToast(caption || '图片已发送', 'info');
+    };
+
+    // 失败时点击「重试」——从已尝试集合里移除，允许再次触发
+    const retryImageGen = useCallback((msgId: number, sceneDesc: string) => {
+        const msg = messages.find(m => m.id === msgId);
+        const mode: 'char' | 'user' | 'joint' = ((msg as any)?.metadata?.imageGenMode) || 'char';
+        processedMsgIdsRef.current.delete(msgId);
+        autoGenerateImage(msgId, sceneDesc, mode);
+    }, [char, apiConfig, messages]);
+
+    // 自动生图：只在 AI 打字刚结束（isTyping 从 true→false）的瞬间检查最新 AI 消息
+    // 这么设计是为了：
+    //   1. 刷新页面/历史回看时不会自动触发（用户没有新的 AI 回复到达）→ 避免「没下指令就生图」
+    //   2. 跟自动 TTS 共用"AI 刚停止打字"这道门，但用独立的 ref 避免与 TTS 的 ref 时序耦合
+    // processedMsgIdsRef 仍保留作为防御性去重（极端情况下如批量推送/API 重发也不会连环触发）
+    // 只有用户手动点「重试」按钮才能再次尝试（retryImageGen 会从 Set 移除对应 ID）
+    const prevIsTypingForImageGenRef = useRef(false);
+    useEffect(() => {
+        // 门: isTyping 由 true 转为 false 那一瞬间才检查
+        // 页面挂载时 isTyping = false, ref = false → 不会触发（不会自动消耗余额）
+        const typingJustEnded = prevIsTypingForImageGenRef.current && !isTyping;
+        prevIsTypingForImageGenRef.current = isTyping;
+        if (!typingJustEnded) return;
+        if (!apiConfig.imageGenApiKey || !apiConfig.imageGenBaseUrl || !apiConfig.imageGenModel) return;
+
+        // 拼接"当前这一轮"AI 回复的全部未处理 text bubble
+        // （AI 可能把"图片：描述…"拆成多个 bubble，必须连起来看）
+        let batchStart = messages.length;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (m.role !== 'assistant') break;
+            if (m.type !== 'text') continue;
+            batchStart = i;
+        }
+        if (batchStart >= messages.length) return;
+        const batch = messages.slice(batchStart).filter(m => m.role === 'assistant' && m.type === 'text');
+        if (batch.length === 0) return;
+
+        const lastBubble = batch[batch.length - 1];
+        // 整个 batch 的任何一个气泡已经被尝试过，就不再尝试（去重）
+        if (batch.some(b => processedMsgIdsRef.current.has(b.id))) return;
+
+        // 工具：从整个 batch 找到"图片: 描述"出现的 bubble 和对应描述
+        const findDescInBubbles = (): { bubbleId: number; desc: string } | null => {
+            // 优先找 "图片" / "发送照片" / "照片：xxx" 格式
+            const reList = [
+                /图片[-－—:：]\s*([\s\S]+?)(?=[）)]?(?:[\n。；;]|$))/,
+                /(?:重新\s*)?(?:发送|拍|传)(?:了?一张?)?(?:照片|图片)[：:]\s*([\s\S]+?)(?=[）)]?(?:[\n。；;]|$))/,
+                /(?:照片|图片)[：:]\s*([\s\S]+?)(?=[）)]?(?:[\n。；;]|$))/,
+            ];
+            for (const re of reList) {
+                for (const b of batch) {
+                    const content = typeof b.content === 'string' ? b.content : '';
+                    const m = content.match(re);
+                    if (m && m[1] && m[1].trim().length >= 2) {
+                        return { bubbleId: b.id, desc: m[1].trim().replace(/\s*[）)]\s*$/, '') };
+                    }
+                }
+            }
+            return null;
+        };
+
+        const found = findDescInBubbles();
+        if (!found) return;
+
+        // 兜底：上一轮逻辑里的《（）》格式
+        let sceneDesc = found.desc;
+        let targetBubbleId = found.bubbleId;
+        if (!sceneDesc) {
+            for (const b of batch) {
+                const content = typeof b.content === 'string' ? b.content : '';
+                const m = content.match(/[《（]([^》）]*?)[》）》]/);
+                if (m) {
+                    const inner = m[1];
+                    const m3 = inner.match(/(?:重新\s*)?(?:发送|拍|传)(?:了?一张?)?(?:照片|图片)[：:]\s*([\s\S]+)/);
+                    if (m3 && m3[1] && m3[1].trim().length >= 2) {
+                        sceneDesc = m3[1].trim().replace(/\s*[）)]\s*$/, '');
+                        targetBubbleId = b.id;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!sceneDesc) return;
+        sceneDesc = sceneDesc.slice(0, 500); // 防超长
+
+        // 决定生图模式：根据三个开关 + 消息内容关键词
+        // 整个 batch 的文本拼接起来判断（用户/合照触发词）
+        const fullBatchText = batch.map(b => typeof b.content === 'string' ? b.content : '').join(' ');
+        const charEnabled = apiConfig.imageGenCharEnabled !== false; // 默认开（兼容旧配置）
+        const userEnabled = !!apiConfig.imageGenUserEnabled;
+        const jointEnabled = !!apiConfig.imageGenJointEnabled;
+
+        let mode: 'char' | 'user' | 'joint' = 'char';
+
+        // 「合照」直接触发词
+        const jointDirect = /合照|合影|一起拍|一起照|一起合影|拍一张合影|拍一张合照|拍合照|拍合影|和你合影|和我合影|一起拍张|一起合影|一起合照|合影留念|合照留念|合影一张|合影一张|拍张合影|拍张合照/;
+        // 「用户和角色见面」上下文 → 触发合照
+        const meetingCtx = /我来了|我到了|来到你|见到你|见面了|我们见面|来找你|去看你|我来看你|我到了你|在你身边|到你家|去你家|找你家|站在你|走进|进门|我和你|和你在一起|咱俩|我们俩|两人一起|双人一起|一起出门|一起走在|一起走/;
+        // 「用户生图」触发词
+        const userKeywords = /图片[-－—:：]\s*[我咱][^合]|自拍|给我拍[张照]|我的照片|（图片[-－—:：]\s*[我咱][^合]/;
+
+        if (jointEnabled && (jointDirect.test(fullBatchText) || meetingCtx.test(fullBatchText))) {
+            mode = 'joint';
+        } else if (userEnabled && userKeywords.test(fullBatchText)) {
+            mode = 'user';
+        } else if (!charEnabled) {
+            return; // 角色生图没开,且不触发用户/合照 → 啥也不干
+        }
+
+        console.log(`[ImageGen Auto] mode=${mode} scene:`, sceneDesc.slice(0, 80));
+        // 调度前就登记：避免在网络请求期间触发重复（更可靠的去重在 autoGenerateImage 内部）
+        processedMsgIdsRef.current.add(targetBubbleId);
+        setTimeout(() => autoGenerateImage(targetBubbleId, sceneDesc!, mode), 800);
+    }, [messages, apiConfig.imageGenApiKey, apiConfig.imageGenBaseUrl, apiConfig.imageGenModel, isTyping]);
 
     // 当前会话麦请求是否激活 (从消息历史推导, 无新存储)
     const mcdActivated = useMemo(() => isMcdActivatedInMessages(messages), [messages]);
     const [mcdAppOpen, setMcdAppOpen] = useState(false);
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
-
-    // 角色生图面板（加号面板「生图」进入）
-    const [showImageGenPanel, setShowImageGenPanel] = useState(false);
-    // 小说共读悬浮面板（加号面板「小说共读」进入）
-    const [novelReaderOpen, setNovelReaderOpen] = useState(false);
-    const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | undefined>(undefined);
-    // 番外生成页（加号面板「番外」进入，全屏独立页面）
-    const [fanwaiOpen, setFanwaiOpen] = useState(false);
 
     // 瑞幸聊天点单模式: 激活态用 React state (临时会话态, 不落库)
     const [luckinMode, setLuckinMode] = useState(false);
@@ -2258,10 +2404,7 @@ const Chat: React.FC = () => {
                 const name = parts[0].trim();
                 const url = parts.slice(1).join('--').trim();
                 if (name && url) {
-                    // 粘进来的可能是 data: 图（复制粘贴的图片），也可能是图床外链。
-                    // 前者转成令牌只留二进制，后者是别人服务器上的地址，原样存。
-                    const stored = url.startsWith('data:') ? await migrateDataUrlToRef(url) : url;
-                    await DB.saveEmoji(name, stored, targetCatId);
+                    await DB.saveEmoji(name, url, targetCatId);
                 }
             }
         }
@@ -2347,11 +2490,8 @@ const Chat: React.FC = () => {
 
     const handleBgUpload = async (file: File) => {
         try {
-            // 改存 Blob：原画质不重绘，二进制进 blob_assets，字段只存 blobref 令牌
-            // （省掉 base64 的 ~33% 膨胀，也不再把整张图常驻在角色行里）。
-            const blob = await processImageToBlob(file, { skipCompression: true });
-            const ref = await putImageBlob(blob);
-            updateCharacter(char.id, { chatBackground: ref });
+            const dataUrl = await processImage(file, { skipCompression: true });
+            updateCharacter(char.id, { chatBackground: dataUrl });
             addToast('聊天背景已更新', 'success');
         } catch(err: any) {
             addToast(err.message, 'error');
@@ -2392,28 +2532,8 @@ const Chat: React.FC = () => {
         addToast('设置已保存', 'success');
     };
 
-    const handleToggleContextSuite = () => {
-        const enabled = !contextSuiteAnyEnabled;
-        trackEvent('切换智能语境', {
-            状态: enabled ? '开' : '关',
-            此前: contextSuiteAllEnabled ? '全开' : contextSuiteAnyEnabled ? '部分开' : '全关',
-        });
-        updateMemoryPalaceConfig({
-            featureFlags: {
-                ...memoryPalaceConfig.featureFlags,
-                recallRouter: enabled,
-                interactionAdaptation: enabled,
-                deepEngagement: enabled,
-            },
-        });
-        addToast(enabled ? '已开启智能语境' : '已关闭智能语境，回复恢复旧流程', 'success');
-    };
-
     const restoreAdaptiveContext = () => {
         if (!char.autoArchiveEnabled && !char.contextFollowsMemoryPalaceHwm) return;
-        trackEvent('恢复自适应上下文', {
-            来源: char.autoArchiveEnabled ? '全自动记忆' : '记忆水位线',
-        });
         setSettingsContextRangeMode('adaptive');
         setSettingsContextLimit(500);
         updateCharacter(char.id, {
@@ -2688,125 +2808,31 @@ const Chat: React.FC = () => {
         addToast('已设置 AI 原文读取断点', 'success');
     };
 
-    // 跳转到旧消息：先定位到目标周围的小窗口，再在用户滑到窗口边缘时按批次
-    // 向前/向后扩展。这样既不会首次挂载整段超长 DOM，也不会把用户锁死在 51 条里。
+    // 跳转到旧消息：加载全量到 messages，再用 windowedFocusMsgId 把 displayMessages
+    // 收窄到目标周围 51 条。"回到当前聊天"会把 visibleCount 重置回 30。
     const handleJumpToMessageInChat = async (messageId: number) => {
         if (!activeCharacterId) return;
         setModalType('none');
-        const requestCharId = activeCharacterId;
         const LARGE = 999999;
         visibleCountRef.current = LARGE;
         setVisibleCount(LARGE);
-        const allMsgs = await DB.getMessagesByCharId(requestCharId, true);
-        if (activeCharIdRef.current !== requestCharId) return;
-        const browseableMessages = allMsgs.filter(message => isVisibleChatMessage(message, !!char?.hideSystemLogs));
-        const targetIndex = browseableMessages.findIndex(message => message.id === messageId);
-        if (targetIndex < 0) {
-            visibleCountRef.current = LOAD_BATCH_SIZE;
-            setVisibleCount(LOAD_BATCH_SIZE);
-            addToast('这条记录当前未显示在聊天界面中', 'info');
-            await reloadMessages(LOAD_BATCH_SIZE);
-            return;
-        }
-
-        const nextRange = createChatHistoryWindow(
-            browseableMessages.length,
-            targetIndex,
-            HISTORY_WINDOW_RADIUS,
-        );
-        setMessages(allMsgs);
-        setTotalMsgCount(browseableMessages.length);
-        historyWindowTotalRef.current = browseableMessages.length;
-        historyWindowRangeRef.current = nextRange;
-        historyWindowScrollEnabledRef.current = false;
-        setHistoryWindowRange(nextRange);
+        await reloadMessages(LARGE);
         setWindowedFocusMsgId(messageId);
         setFlashMsgId(messageId);
-        // 等窗口节点挂上 DOM 再定位；定位动画结束后才开放边缘续载，避免滚动动画
-        // 自己触发 onScroll，提前改动窗口。
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        // 等下一帧让目标节点挂上 DOM 再滚
+        requestAnimationFrame(() => {
             const el = document.getElementById(`chat-msg-${messageId}`);
             el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            if (historyJumpUnlockTimerRef.current) window.clearTimeout(historyJumpUnlockTimerRef.current);
-            historyJumpUnlockTimerRef.current = window.setTimeout(() => {
-                historyWindowScrollEnabledRef.current = true;
-                historyJumpUnlockTimerRef.current = null;
-            }, 450);
-        }));
+        });
         window.setTimeout(() => setFlashMsgId(null), 2200);
     };
 
-    const refreshContentFavoriteIds = useCallback(async () => {
-        const items = await listContentFavorites().catch(() => []);
-        setContentFavoriteIds(new Set(items.map(item => item.id)));
-    }, []);
-
-    useEffect(() => {
-        void refreshContentFavoriteIds();
-        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-    }, [refreshContentFavoriteIds]);
-
-    const handleToggleContentFavorite = async (msg: Message) => {
-        if (!msg?.id) return;
-        const favoriteId = contentFavoriteIdForMessage(msg);
-        try {
-            if (contentFavoriteIds.has(favoriteId)) {
-                await removeContentFavoriteById(favoriteId);
-                setContentFavoriteIds(previous => {
-                    const next = new Set(previous);
-                    next.delete(favoriteId);
-                    return next;
-                });
-                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
-                return;
-            }
-            await saveMessageContentFavorite(msg, char?.name || '未知角色');
-            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
-            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
-            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
-        } catch (error) {
-            console.warn('[Chat] favorite content failed', error);
-            addToast('收藏失败，请稍后重试', 'error');
-        }
-    };
-
-    const handleOpenFavoriteMessage = (charId: string, messageId: number) => {
-        setFavoritesOpen(false);
-        if (activeCharIdRef.current === charId) {
-            void handleJumpToMessageInChat(messageId);
-            return;
-        }
-        pendingFavoriteJumpRef.current = { charId, messageId };
-        setActiveCharacterId(charId);
-    };
-
-    useEffect(() => {
-        const pending = pendingFavoriteJumpRef.current;
-        if (!pending || pending.charId !== activeCharacterId) return;
-        pendingFavoriteJumpRef.current = null;
-        const timer = window.setTimeout(() => void handleJumpToMessageInChat(pending.messageId), 0);
-        return () => window.clearTimeout(timer);
-    // handleJumpToMessageInChat intentionally uses the freshly rendered character state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeCharacterId]);
-
     const handleBackToCurrent = async () => {
         setWindowedFocusMsgId(null);
-        setHistoryWindowRange(null);
-        historyWindowRangeRef.current = null;
-        historyWindowTotalRef.current = 0;
-        historyWindowLoadingRef.current = false;
-        historyPrependAnchorRef.current = null;
-        historyWindowScrollEnabledRef.current = false;
-        if (historyJumpUnlockTimerRef.current) {
-            window.clearTimeout(historyJumpUnlockTimerRef.current);
-            historyJumpUnlockTimerRef.current = null;
-        }
         setFlashMsgId(null);
-        visibleCountRef.current = LOAD_BATCH_SIZE;
-        setVisibleCount(LOAD_BATCH_SIZE);
-        await reloadMessages(LOAD_BATCH_SIZE);
+        visibleCountRef.current = 30;
+        setVisibleCount(30);
+        await reloadMessages(30);
         requestAnimationFrame(() => {
             scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
         });
@@ -2972,6 +2998,24 @@ const Chat: React.FC = () => {
         setSelectedMessage(null);
         addToast('消息已修改', 'success');
         trackEvent('编辑一条消息');
+    };
+
+    // 撤回消息（仅用户自己发的，2 分钟内）：非物理删除，替换 content + 打 isRevoked。
+    // 「抓包玩法」已隐藏：撤回就是简单撤回（AI 上下文过滤 isRevoked，角色当没说过）。
+    const handleRecallMessage = async () => {
+        if (!selectedMessage) return;
+        if (selectedMessage.role !== 'user') return;
+        if (selectedMessage.timestamp <= Date.now() - 2 * 60 * 1000) return; // 超 2 分钟不可撤
+        const recallContent = '你撤回了一条消息';
+        await DB.recallMessage(selectedMessage.id, recallContent);
+        discardVoiceForMessages([selectedMessage.id]);
+        // 正文变了要让云端 fire_pack 跟上
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        setMessages(prev => prev.map(m => m.id === selectedMessage.id ? { ...m, content: recallContent, isRevoked: true } : m));
+        setModalType('none');
+        setSelectedMessage(null);
+        addToast('消息已撤回', 'success');
+        trackEvent('撤回一条消息');
     };
 
     const handleQuickReply = useCallback((message: Message) => {
@@ -3206,249 +3250,26 @@ const Chat: React.FC = () => {
         setSelectedMsgIds(new Set());
     };
 
-    const handleOpenCollaborationFile = useCallback(async (msg: Message) => {
-        const assetId = String(msg.metadata?.collaborationAssetId || '');
-        const fileName = String(msg.metadata?.fileName || '协同文件');
-        if (!assetId) {
-            addToast('这条文件消息缺少原始文件引用', 'error');
-            return;
-        }
-        const isInstallable = msg.metadata?.collaborationAttachmentKind === 'installable'
-            || String(msg.metadata?.mimeType || '').includes('vnd.sullyos.installable');
-        if (isInstallable) {
-            setCollaborationPreviewAssetId(assetId);
-            setCollaborationOpen(true);
-            return;
-        }
-        try {
-            const blob = await CollaborationStore.getAsset(assetId);
-            if (!blob) {
-                addToast('原始文件已不存在，无法打开', 'error');
-                return;
-            }
-            const result = await shareOrDownloadBlob({
-                blob,
-                fileName,
-                shareTitle: `${char?.name || '角色'}发来的文件`,
-                preferDownloadOnWeb: true,
-            });
-            if (result === 'cancelled') return;
-            addToast(result === 'shared' ? '已打开系统保存/分享' : '文件已开始下载', 'success');
-        } catch (error: any) {
-            addToast(error?.message || '文件打开失败', 'error');
-        }
-    }, [addToast, char?.name]);
-
-    const handleCollaborationPreviewHandled = useCallback(() => {
-        setCollaborationPreviewAssetId(null);
-    }, []);
-
-    // 协同工作是独立 sidecar：只有用户点「发送给 ChatApp」时才通过这个窄桥写入主消息表。
-    // 其它协同会话、提示词、API 与文件都留在独立数据库，不进入主聊天 pipeline。
-    const handleCollaborationTransfer = useCallback(async (
-        sessionTitle: string,
-        transferredMessages: CollaborationTransferMessage[],
-    ) => {
-        if (!char || transferredMessages.length === 0) return;
-        const preview = transferredMessages.slice(0, 4).map(message => {
-            const sender = message.role === 'user' ? userProfile.name : char.name;
-            return `${sender}: ${message.content.replace(/\s+/g, ' ').slice(0, 36)}`;
-        });
-        if (transferredMessages.length > 4) preview.push(`… 共 ${transferredMessages.length} 条消息`);
-        const forwardData = {
-            fromUserName: userProfile.name,
-            fromCharName: `${char.name} · 协同工作`,
-            count: transferredMessages.length,
-            preview,
-            messages: transferredMessages,
-            collaborationTitle: sessionTitle,
-        };
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'chat_forward' as MessageType,
-            content: JSON.stringify(forwardData),
-            metadata: {
-                source: 'collaboration_transfer',
-                collaborationTitle: sessionTitle,
-            },
-        });
-        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
-        await reloadMessages(visibleCountRef.current);
-    }, [char, userProfile, groups, realtimeConfig, reloadMessages]);
-
-    const handleCollaborationNotify = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-        addToast(message, type);
-    }, [addToast]);
-
-    const handleCollaborationArchiveToMemory = useCallback(async (
-        summary: string,
-        occurredAt: number,
-        sourceId: string,
-    ): Promise<string> => {
-        if (!char) throw new Error('当前角色不存在');
-        const occurred = new Date(occurredAt);
-        const date = `${occurred.getFullYear()}-${String(occurred.getMonth() + 1).padStart(2, '0')}-${String(occurred.getDate()).padStart(2, '0')}`;
-        const fragmentId = `collab_archive_${sourceId}`;
-
-        if (char.memoryPalaceEnabled) {
-            const embedding = memoryPalaceConfig.embedding;
-            const lightLLM = memoryPalaceConfig.lightLLM;
-            if (!embedding?.baseUrl || !embedding?.apiKey || !embedding?.model || !lightLLM?.baseUrl || !lightLLM?.model) {
-                throw new Error('角色已开启记忆宫殿，但宫殿的向量 API 或副 LLM 还没有配置完整');
-            }
-            const { importExternalMemoryText, mergePalaceFragmentsIntoMemories } = await import('../utils/memoryPalace/pipeline');
-            const imported = await importExternalMemoryText(
-                summary,
-                char.id,
-                char.name,
-                embedding,
-                lightLLM,
-                userProfile.name,
-            );
-            if (imported.error && imported.error !== 'no_memories') {
-                throw new Error(`记忆宫殿没有存好：${imported.error}`);
-            }
-            if (imported.stored === 0 && imported.skipped === 0) {
-                throw new Error('记忆宫殿没有提取出可保存的经历');
-            }
-            const palaceFragment: { id: string; date: string; summary: string; mood: string } = {
-                id: fragmentId,
-                date,
-                summary: `- ${summary}`,
-                mood: 'palace',
-            };
-            await updateCharacter(char.id, current => ({
-                memories: (current.memories || []).some(memory => memory.id === fragmentId)
-                    ? current.memories
-                    : mergePalaceFragmentsIntoMemories(current.memories || [], [palaceFragment]),
-            }));
-            return `已把这次协作的一条总结同时存入 ${char.name} 的记忆宫殿和神经链接`;
-        }
-
-        const archiveFragment: MemoryFragment = {
-            id: fragmentId,
-            date,
-            summary,
-            mood: 'collaboration',
-        };
-        await updateCharacter(char.id, current => ({
-            memories: (current.memories || []).some(memory => memory.id === fragmentId)
-                ? current.memories
-                : [...(current.memories || []), archiveFragment],
-        }));
-        return `已把这次协作的一条总结存入 ${char.name} 的神经链接`;
-    }, [char, memoryPalaceConfig.embedding, memoryPalaceConfig.lightLLM, updateCharacter, userProfile.name]);
-
-    const handleCollaborationInstall = useCallback(async (
-        artifact: CollaborationInstallableArtifact,
-        targetCharacterId?: string,
-    ): Promise<string> => {
-        const errors = validateInstallableArtifact(artifact);
-        if (errors.length > 0) throw new Error(errors[0]);
-
-        if (artifact.kind === 'bubble-theme') {
-            const nextTheme = installableToChatTheme(artifact);
-            await addCustomTheme(nextTheme);
-            if (targetCharacterId) await updateCharacter(targetCharacterId, { bubbleStyle: nextTheme.id });
-            const target = characters.find(item => item.id === targetCharacterId);
-            return target ? `气泡主题已保存，并给 ${target.name} 穿上` : '气泡主题已保存到气泡工坊';
-        }
-
-        if (artifact.kind === 'whitebox-css') {
-            const css = String(artifact.payload.css || '');
-            const stored = await DB.getAssetRaw('chrome_css_presets').catch(() => null);
-            const presets = Array.isArray(stored) ? stored.filter(item => item && typeof item === 'object') : [];
-            const nextPreset = { name: artifact.title.slice(0, 50), code: css, swatch: '#e2e8f0' };
-            await DB.saveAssetRaw('chrome_css_presets', [nextPreset, ...presets.filter((item: any) => item.name !== nextPreset.name)].slice(0, 60));
-            if (targetCharacterId) await updateCharacter(targetCharacterId, { chromeCustomCss: css });
-            const target = characters.find(item => item.id === targetCharacterId);
-            return target ? `白框已存入预设，并应用给 ${target.name}` : '白框已保存到预设';
-        }
-
-        if (artifact.kind === 'journal-css') {
-            await updateTheme({ journalAppearance: { preset: 'original', customCss: String(artifact.payload.css || '') } });
-            return '交换日记美化已保存并启用';
-        }
-
-        if (artifact.kind === 'schedule-css') {
-            await updateTheme({
-                scheduleCardAppearance: {
-                    ...(osTheme.scheduleCardAppearance || {}),
-                    customCss: String(artifact.payload.css || ''),
-                },
-            });
-            return '日程卡美化已保存并启用';
-        }
-
-        if (artifact.kind === 'psyche-css') {
-            if (!targetCharacterId) throw new Error('请选择使用心象卡美化的角色');
-            await updateCharacter(targetCharacterId, { thinkingChainCustomCss: String(artifact.payload.css || '') });
-            const target = characters.find(item => item.id === targetCharacterId);
-            return `心象卡美化已应用给 ${target?.name || '所选角色'}`;
-        }
-
-        if (artifact.kind === 'appearance-preset') {
-            const patch = installableToThemePatch(artifact);
-            const presetTheme = { ...osTheme, ...patch };
-            await saveAppearancePreset(artifact.title.slice(0, 50), presetTheme);
-            await updateTheme(patch);
-            return '整套界面已存入外观预设并启用';
-        }
-
-        if (artifact.kind === 'character-card') {
-            const created = await addCharacter();
-            await updateCharacter(created.id, installableToCharacterPatch(artifact));
-            return `角色「${String(artifact.payload.name || artifact.title)}」已创建`;
-        }
-
-        const books = installableToWorldbooks(artifact);
-        for (const book of books) await addWorldbook(book);
-        if (targetCharacterId) {
-            await updateCharacter(targetCharacterId, current => ({
-                mountedWorldbooks: upsertMountedWorldbooks(current.mountedWorldbooks || [], books),
-            }));
-        }
-        const target = characters.find(item => item.id === targetCharacterId);
-        return target
-            ? `世界书「${String(artifact.payload.category || artifact.title)}」的 ${books.length} 条内容已保存并挂载给 ${target.name}`
-            : `世界书已保存到世界书库，共 ${books.length} 条`;
-    }, [addCharacter, addCustomTheme, addWorldbook, characters, osTheme, saveAppearancePreset, updateCharacter, updateTheme]);
-
     // hideBeforeMessageId 不在视觉层过滤：用户依旧能往上翻到旧消息，只是 LLM 拉不到。
     // 真正想从聊天记录里抹掉，应该走"删除"。
-    // 旧消息定位模式仍然维护一个有限 DOM 窗口，但窗口会随着上下滚动持续扩展。
-    const chatDisplayMessages = useMemo(
-        () => messages.filter(message => isVisibleChatMessage(message, !!char?.hideSystemLogs)),
-        [messages, char?.id, char?.hideSystemLogs],
-    );
-
-    useEffect(() => {
-        if (windowedFocusMsgId !== null) historyWindowTotalRef.current = chatDisplayMessages.length;
-    }, [chatDisplayMessages.length, windowedFocusMsgId]);
-
+    // windowed 模式：定位到旧消息时只渲染目标周围 51 条，避免 DOM 卡爆。
     const displayMessages = useMemo(() => {
+        const base = messages
+            .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call' && m.metadata?.source !== 'story_theater_memory')
+            .filter(m => !m.metadata?.proactiveHint)
+            .filter(m => { if (char?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card') return false; return true; });
         if (windowedFocusMsgId !== null) {
-            if (historyWindowRange) {
-                return chatDisplayMessages.slice(
-                    Math.max(0, historyWindowRange.start),
-                    Math.min(chatDisplayMessages.length, historyWindowRange.end),
-                );
-            }
-            const idx = chatDisplayMessages.findIndex(m => m.id === windowedFocusMsgId);
+            const idx = base.findIndex(m => m.id === windowedFocusMsgId);
             if (idx >= 0) {
-                return chatDisplayMessages.slice(
-                    Math.max(0, idx - HISTORY_WINDOW_RADIUS),
-                    Math.min(chatDisplayMessages.length, idx + HISTORY_WINDOW_RADIUS + 1),
-                );
+                const start = Math.max(0, idx - WINDOW_RADIUS);
+                const end = Math.min(base.length, idx + WINDOW_RADIUS + 1);
+                return base.slice(start, end);
             }
         }
-        return chatDisplayMessages.slice(-visibleCount);
-    }, [chatDisplayMessages, visibleCount, windowedFocusMsgId, historyWindowRange]);
+        return base.slice(-visibleCount);
+    }, [messages, char?.id, char?.hideSystemLogs, visibleCount, windowedFocusMsgId]);
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
-    const hasOlderHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.start > 0;
-    const hasNewerHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.end < chatDisplayMessages.length;
 
     // ── 新消息进入动画 ──────────────────────────────────────────────
     // 只让「刚追加的最新消息」（自己发的 / AI 回的）整条淡入一次。
@@ -3513,13 +3334,9 @@ const Chat: React.FC = () => {
     // Memoize ChatInputArea callbacks
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget]);
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
-    // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
-    // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
-    // hook 必须在下面的空态早退之前调用，所以用可选链读 char。
-    const resolvedChatBackground = useBlobRefUrl(char?.chatBackground);
     // 兜底：正常情况下 OSContext 启动时一定会保底一个角色，char 不该为空。
     // 但若 init 期间某个 store 读取失败（数据其实还在 IndexedDB 里），characters 可能暂时为空，
-    // 此时下面读 char 上的字段会直接抛 "undefined is not an object" 把整个 App 崩到错误页。
+    // 此时下面 char.chatBackground 会直接抛 "undefined is not an object" 把整个 App 崩到错误页。
     // 这里给个温和空态，避免硬崩，也好让用户能退回桌面/重启恢复。
     if (!char) {
         return (
@@ -3544,11 +3361,9 @@ const Chat: React.FC = () => {
               : chatChromeStyle === 'floating'
                 ? 'flex flex-col h-full bg-[#eef2ff] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
                 : 'flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
-    // 令牌还在读盘、或者图已经丢了时 resolvedChatBackground 是 undefined，这一帧按「没设背景」
-    // 的样式走，免得渲染出一个 url("undefined")。
-    const chatRootStyle: React.CSSProperties = resolvedChatBackground
+    const chatRootStyle: React.CSSProperties = char.chatBackground
         ? {
-            backgroundImage: `url("${resolvedChatBackground}")`,
+            backgroundImage: `url(${char.chatBackground})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
         }
@@ -3592,6 +3407,20 @@ const Chat: React.FC = () => {
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
 
+    // 会话列表页：从桌面打开 Message 先看到联系人列表，点选后再进对话框。
+    // ⚠️ 该分支必须放在所有 hooks 之后、主 return 之前，保证 hooks 调用顺序稳定。
+    if (view === 'list') {
+        return (
+            <ChatList
+                characters={characters}
+                unreadMessages={unreadMessages}
+                refreshKey={lastMsgTimestamp}
+                onSelect={handleListSelect}
+                onClose={handleListClose}
+            />
+        );
+    }
+
     return (
         <div
             className={`sully-chat-root ${finalRootClass}`}
@@ -3604,13 +3433,6 @@ const Chat: React.FC = () => {
                  守护样式统一放在气泡主题 customCss 之后（见下），保证对所有用户 CSS 都能兜底。 */}
              {osTheme.chatChromeCustomCss && <style>{osTheme.chatChromeCustomCss}</style>}
              {char.chromeCustomCss && <style>{char.chromeCustomCss}</style>}
-             {scheduleChangeNotice && (
-               <ScheduleChangeNotice
-                 key={scheduleChangeNotice.eventId}
-                 detail={scheduleChangeNotice}
-                 onDone={dismissScheduleChangeNotice}
-               />
-             )}
              {/* 角色「登场」过场：切换/进入时以 ta 的头像氛围铺底登场，再推进穿过进入聊天。key 切换即重放。 */}
              {showEntry && char && (
                <CharacterEntryTransition
@@ -3622,12 +3444,6 @@ const Chat: React.FC = () => {
              )}
 
              {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
-             {/* 气泡工坊的尾巴频率依赖直接挂在气泡上的稳定类。用户 CSS 即使给
-                 ::before/::after 写了 !important，中间气泡仍会按“仅组末/隐藏”设置收起尾巴。 */}
-             <style>{`
-               .sully-bubble-tail-hidden::before,
-               .sully-bubble-tail-hidden::after { content: none !important; display: none !important; }
-             `}</style>
 
              {/* 心象卡片自定义 CSS（per-character）：作用于 .sully-psyche-* 各零件，编辑入口在心象设置弹窗 */}
              {(char as any).thinkingChainCustomCss && <style>{(char as any).thinkingChainCustomCss}</style>}
@@ -3819,9 +3635,6 @@ const Chat: React.FC = () => {
                 settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
                 settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
-                contextSuiteAnyEnabled={contextSuiteAnyEnabled}
-                contextSuiteAllEnabled={contextSuiteAllEnabled}
-                onToggleContextSuite={handleToggleContextSuite}
                 preserveContext={preserveContext} setPreserveContext={setPreserveContext}
                 editContent={editContent} setEditContent={setEditContent}
                 archivePrompts={archivePrompts} selectedPromptId={selectedPromptId} setSelectedPromptId={(id: string) => {
@@ -3845,23 +3658,12 @@ const Chat: React.FC = () => {
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
-                messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
-                onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
-                onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onRecallMessage={handleRecallMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}
                 translateSourceLang={translateSourceLang}
                 translateTargetLang={translateTargetLang}
-                translationExpanded={translationExpanded}
-                onToggleTranslationExpanded={() => {
-                    const next = !translationExpanded;
-                    setTranslationExpanded(next);
-                    localStorage.setItem(`chat_translate_expanded_${activeCharacterId}`, JSON.stringify(next));
-                    setShowingTargetIds(new Set());
-                    trackEvent('切换翻译展开模式', { enabled: next ? 'on' : 'off' });
-                }}
                 onSetTranslateSourceLang={(lang: string) => { const next = normalizeTranslationLangLabel(lang); if (!next) return; setTranslateSourceLang(next); localStorage.setItem(`chat_translate_source_lang_${activeCharacterId}`, next); setShowingTargetIds(new Set()); }}
                 onSetTranslateLang={(lang: string) => { const next = normalizeTranslationLangLabel(lang); if (!next) return; setTranslateTargetLang(next); localStorage.setItem(`chat_translate_lang_${activeCharacterId}`, next); setShowingTargetIds(new Set()); }}
                 xhsEnabled={!!char.xhsEnabled}
@@ -3875,17 +3677,15 @@ const Chat: React.FC = () => {
                 chatVoiceAutoPlay={!!char.chatVoiceAutoPlay}
                 onToggleChatVoiceAutoPlay={() => updateCharacter(char.id, { chatVoiceAutoPlay: !char.chatVoiceAutoPlay })}
                 chatVoiceLang={char.chatVoiceLang || ''}
-                onSetChatVoiceLang={(lang: string) => {
-                    updateCharacter(char.id, { chatVoiceLang: lang });
-                    trackEvent('设置聊天语音语种', { 语种: voiceLanguageAnalyticsValue(lang) });
-                }}
+                onSetChatVoiceLang={(lang: string) => updateCharacter(char.id, { chatVoiceLang: lang })}
                 voiceAvailable={characterHasVoice(char, apiConfig)}
                 onGenerateVoice={selectedMessage ? () => handleManualTts(selectedMessage) : undefined}
                 voiceDownloadable={!!(selectedMessage?.id && voiceDataMap[selectedMessage.id])}
-                voiceCollectable={!!(selectedMessage?.id && (voiceDataMap[selectedMessage.id] || parseVoiceOutput(selectedMessage.content || '').hasVoiceTag))}
                 onDownloadVoice={selectedMessage ? () => handleDownloadVoice(selectedMessage) : undefined}
-                voiceFavorited={!!(selectedMessage?.id && chatFavoriteKeys.has(chatFavoriteSourceKey(selectedMessage)))}
-                onToggleVoiceFavorite={selectedMessage ? () => handleToggleVoiceFavorite(selectedMessage) : undefined}
+                recallCaughtChance={char.recallCaughtChance}
+                onSetRecallCaughtChance={(v) => updateCharacter(char.id, { recallCaughtChance: v })}
+                recallOutputEnabled={!!char.recallOutputEnabled}
+                onToggleRecallOutput={() => updateCharacter(char.id, { recallOutputEnabled: !char.recallOutputEnabled })}
                 scheduleData={scheduleData}
                 isScheduleGenerating={isScheduleGenerating}
                 onScheduleEdit={handleScheduleEdit}
@@ -3949,7 +3749,7 @@ const Chat: React.FC = () => {
                 memoryPalaceStatusText={memoryPalaceStatus}
                 lastTokenUsage={lastTokenUsage}
                 tokenBreakdown={tokenBreakdown}
-                onClose={closeApp}
+                onClose={() => setView('list')}
                 onTriggerAI={handleManualTrigger}
                 onShowCharsPanel={() => setShowPanel('chars')}
                 onDeleteBuff={(buffId) => {
@@ -4108,20 +3908,6 @@ const Chat: React.FC = () => {
                         }} className="px-4 py-2 bg-white/50 backdrop-blur-sm rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">加载历史消息 ({collapsedCount})</button>
                     </div>
                 )}
-                {windowedFocusMsgId !== null && (
-                    <div className="flex justify-center mb-4 px-4">
-                        {hasOlderHistoryWindow ? (
-                            <button
-                                onClick={() => extendHistoryWindow('older')}
-                                className="px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
-                            >
-                                向上滑继续看更早消息
-                            </button>
-                        ) : (
-                            <span className="text-[11px] text-slate-400">已到最早一条消息</span>
-                        )}
-                    </div>
-                )}
 
                 {displayMessages.map((m, i) => {
                     const prevMessage = i > 0 ? displayMessages[i - 1] : null;
@@ -4179,7 +3965,6 @@ const Chat: React.FC = () => {
                             isThinkingSelected={selectedThinkingMsgIds.has(m.id)}
                             onToggleThinkingSelect={toggleThinkingSelection}
                             translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
-                            translationExpanded={translationExpanded}
                             isShowingTarget={showingTargetIds.has(m.id)}
                             onTranslateToggle={handleTranslateToggle}
                             voiceData={voiceDataMap[m.id]}
@@ -4199,8 +3984,9 @@ const Chat: React.FC = () => {
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
                             onResolveLifeRecord={handleResolveLifeRecord}
-                            onOpenCollaborationFile={handleOpenCollaborationFile}
+                            onRetryImageGen={retryImageGen}
                             thinkingChainOptions={thinkingChainOptions}
+                            offlineConfig={char.offlineConfig}
                         />
                         {showToolTrace && (
                             <div className={`px-3 mb-4 ${breaksWithNext ? toolTracePullClass : ''}`}>
@@ -4212,21 +3998,7 @@ const Chat: React.FC = () => {
                         </div>
                     );
                 })}
-                {windowedFocusMsgId !== null && (
-                    <div className="flex justify-center mt-2 mb-4 px-4">
-                        {hasNewerHistoryWindow ? (
-                            <button
-                                onClick={() => extendHistoryWindow('newer')}
-                                className="px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
-                            >
-                                向下滑继续看较新消息
-                            </button>
-                        ) : (
-                            <span className="text-[11px] text-slate-400">已到当前最新消息</span>
-                        )}
-                    </div>
-                )}
-
+                
                 {/* 纯前端「发送准备中」三个点: 不走 MessageItem (那条逐条路径实测渲染不出来), 直接挂在
                     消息列表末尾、靠右(用户侧). 跟 header「发送中」同源 instantSendingActive 一起亮灭.
                     原版精致观感 = 小号 (w-1) + 轻脉冲. 但原版用的 Tailwind 自定义类 animate-dot-pulse
@@ -4245,7 +4017,7 @@ const Chat: React.FC = () => {
 
                 {instantToolStatus && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-4 animate-fade-in">
-                        <TokenImg value={char.avatar} className={chatPendingAvatarClass} />
+                        <img src={char.avatar} className={chatPendingAvatarClass} />
                         <div className={`max-w-[78%] px-4 py-3 rounded-2xl shadow-sm border ${
                             instantToolStatus.phase === 'failed'
                                 ? 'bg-rose-50 border-rose-100 text-rose-700'
@@ -4313,6 +4085,7 @@ const Chat: React.FC = () => {
                                     messageSpacing={osTheme.chatMessageSpacing}
                                     showTimestamp={osTheme.chatShowTimestamp}
                                     thinkingChainOptions={thinkingChainOptions}
+                                    offlineConfig={char.offlineConfig}
                                 />
                             </div>
                         ))}
@@ -4321,7 +4094,7 @@ const Chat: React.FC = () => {
                 {/* instantChatPending：这一轮在云端跑，本机可以关页面，指示灯靠落盘记录活着。 */}
                 {(isTyping || instantChatPending || recallStatus || searchStatus || diaryStatus || isProactiveComposing) && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-6 animate-fade-in">
-                        <TokenImg value={char.avatar} className={chatPendingAvatarClass} />
+                        <img src={char.avatar} className={chatPendingAvatarClass} />
                         <div className="bg-white px-4 py-3 rounded-2xl shadow-sm">
                             {isProactiveComposing && !isTyping && !recallStatus && !searchStatus && !diaryStatus ? (
                                 <div className="flex items-center gap-2 text-xs text-teal-600 font-medium">
@@ -4398,8 +4171,7 @@ const Chat: React.FC = () => {
                 )}
                 {replyTarget && (
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                        {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
-                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
+                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{replyTarget.content.length > 10 ? replyTarget.content.slice(0, 10) + '...' : replyTarget.content}</span></div>
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
                     </div>
                 )}
@@ -4435,6 +4207,9 @@ const Chat: React.FC = () => {
                     luckinActivated={luckinActivated}
                     htmlModeEnabled={!!(char as any).htmlModeEnabled}
                     showThinkingChain={!!(char as any).showThinkingChain}
+                    offlineModeEnabled={isOfflineEnabled(char.offlineConfig)}
+                    offlineInputMode={offlineInputMode}
+                    onOfflineInputModeChange={(m: 'dialogue' | 'narration') => setOfflineInputMode(m)}
                     inputStyle={osTheme.chatInputStyle}
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
@@ -4463,7 +4238,7 @@ const Chat: React.FC = () => {
                                     '没设',
                                 ),
                             });
-                            addToast(`已启动主动消息，每 ${config.intervalMinutes >= 60 ? formatHours(config.intervalMinutes) + ' 小时' : config.intervalMinutes + ' 分钟'}发送一次`, 'success');
+                            addToast(`已启动主动消息，每 ${config.intervalMinutes >= 60 ? (config.intervalMinutes / 60) + ' 小时' : config.intervalMinutes + ' 分钟'}发送一次`, 'success');
                         } else {
                             stopProactiveChat();
                             addToast('已关闭主动消息', 'info');
@@ -4497,6 +4272,22 @@ const Chat: React.FC = () => {
                 />
             )}
 
+            {/* 位置分享 Modal — 入口：聊天加号面板「定位」按钮 */}
+            {showLocationPicker && char && (
+                <LocationPickerModal
+                    realtimeConfig={realtimeConfig}
+                    onClose={() => setShowLocationPicker(false)}
+                    onSend={(name, desc, source, lat, lng) => {
+                        const meta: any = { name, desc, source };
+                        if (source === 'real' && lat != null && lng != null) {
+                            meta.lat = lat;
+                            meta.lng = lng;
+                        }
+                        handleSendText(name, 'location_card', meta);
+                    }}
+                />
+            )}
+
             {/* 思考链设置 Modal — 入口：聊天加号面板「展示思考」按钮长按 / 思考链卡片右上齿轮 */}
             {char && (
                 <ThinkingChainSettingsModal
@@ -4525,9 +4316,82 @@ const Chat: React.FC = () => {
                 />
             )}
 
+            {/* 线下模式设置 Modal — 入口：加号面板「线下模式」长按 */}
+            {char && (
+                <OfflineSettingsModal
+                    isOpen={offlineSettingsOpen}
+                    onClose={() => setOfflineSettingsOpen(false)}
+                    value={normalizeOfflineConfig(char.offlineConfig)}
+                    onChange={(next) => {
+                        const wasOn = isOfflineEnabled(char.offlineConfig);
+                        updateCharacter(char.id, { offlineConfig: { ...(char.offlineConfig || {}), ...next } });
+                        // 开关动作收敛在这里：开/关即插分隔线 + 触发开场旁白
+                        if (next.enabled !== undefined && next.enabled !== wasOn) {
+                            void handleOfflineToggle(next.enabled);
+                        }
+                    }}
+                    charName={char.name}
+                    userName={userProfile.name || '用户'}
+                />
+            )}
+
+            {/* 角色生图面板 */}
+            {char && showImageGenPanel && (
+                <>
+                    <div className="fixed inset-0 z-[89] bg-black/40" onClick={() => setShowImageGenPanel(false)} />
+                    <div className="fixed inset-x-4 top-12 bottom-12 z-[90] max-w-md mx-auto bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-slide-up flex flex-col">
+                        <ImageGenPanel
+                            onClose={() => setShowImageGenPanel(false)}
+                            charName={char.name || ''}
+                            charAvatar={char.avatar || ''}
+                            charPersona={(char as any).persona || (char as any).description || ''}
+                            chatContext={messages.slice(-6).map(m => `${m.role === 'user' ? '用户' : char?.name}: ${(m.content || '').slice(0, 100)}`).join('\n')}
+                            onGenerate={(url, caption) => {
+                                handleSendCharImage(url, caption);
+                                setShowImageGenPanel(false);
+                            }}
+                            imageGenApiKey={apiConfig.imageGenApiKey || ''}
+                            imageGenBaseUrl={apiConfig.imageGenBaseUrl || ''}
+                            imageGenModel={apiConfig.imageGenModel || ''}
+                            subBaseUrl={apiConfig.subBaseUrl}
+                            subApiKey={apiConfig.subApiKey}
+                            subModel={apiConfig.subModel}
+                            availableModes={[
+                                'char',
+                                apiConfig.imageGenUserEnabled ? 'user' : null,
+                                apiConfig.imageGenJointEnabled ? 'joint' : null,
+                            ].filter(Boolean) as ('char' | 'user' | 'joint')[]}
+                        />
+                    </div>
+                </>
+            )}
+
+            {/* 小说共读悬浮面板（read） */}
+            {char && novelReaderOpen && (
+                <div className="fixed inset-0 z-[60] pointer-events-none">
+                    <NovelReaderPanel
+                        charName={char.name}
+                        onClose={() => setNovelReaderOpen(false)}
+                        onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
+                    />
+                </div>
+            )}
+
+            {/* 番外生成页（全屏独立页面） */}
+            {char && fanwaiOpen && (
+                <FanwaiGeneratePage
+                    char={char}
+                    userProfile={userProfile}
+                    apiConfig={apiConfig}
+                    addToast={addToast}
+                    onClose={() => setFanwaiOpen(false)}
+                    onCollect={async (story) => { await addFanwaiStory(story); }}
+                />
+            )}
+
             {/* 角色专属「聊天装扮」悬浮气泡 + 小面板 —— 从加号面板「聊天装扮」进入。
                 不是全屏 modal：没有遮罩，聊天内容一直可见、就是实时预览。点圆气泡收起/展开面板
-                （收起后能看清整个聊天再继续调），点「完成」气泡消失、调试结束。
+               （收起后能看清整个聊天再继续调），点「完成」气泡消失、调试结束。
                 全局打底，开了「为 TA 单独定制」后已改动的字段逐个覆盖全局（写到 char.chatFineTune）。 */}
             {char && fineTuneOpen && (() => {
                 const override = char.chatFineTune;
@@ -4709,43 +4573,6 @@ const Chat: React.FC = () => {
                 />
             )}
 
-            {favoritesOpen && (
-                <FavoritesPortal
-                    onClose={() => setFavoritesOpen(false)}
-                    onJumpToMessage={handleOpenFavoriteMessage}
-                />
-            )}
-
-            {char && (
-                <React.Suspense fallback={collaborationOpen ? <div className="absolute inset-0 z-[120] grid place-items-center bg-slate-50 text-xs text-slate-400">正在打开协同工作…</div> : null}>
-                    <CollaborationWindow
-                        open={collaborationOpen}
-                        character={char}
-                        user={userProfile}
-                        theme={activeTheme}
-                        backgroundUrl={resolvedChatBackground}
-                        chatApi={apiConfig}
-                        apiPresets={apiPresets}
-                        availableModels={availableModels}
-                        characters={characters}
-                        groups={groups}
-                        emojis={emojis}
-                        emojiCategories={categories}
-                        recentChatMessages={messages}
-                        realtimeConfig={realtimeConfig}
-                        chatCollaborationEnabled={!!char.chatCollaborationEnabled}
-                        requestedPreviewAssetId={collaborationPreviewAssetId}
-                        onRequestedPreviewHandled={handleCollaborationPreviewHandled}
-                        onClose={() => { setCollaborationOpen(false); setCollaborationPreviewAssetId(null); }}
-                        onSendToChat={handleCollaborationTransfer}
-                        onInstallArtifact={handleCollaborationInstall}
-                        onArchiveToMemory={handleCollaborationArchiveToMemory}
-                        onToggleChatCollaboration={enabled => updateCharacter(char.id, { chatCollaborationEnabled: enabled })}
-                        notify={handleCollaborationNotify}
-                    />
-                </React.Suspense>
-            )}
-
             <McdMiniApp
                 open={mcdAppOpen}
                 onClose={() => setMcdAppOpen(false)}
@@ -4784,59 +4611,6 @@ const Chat: React.FC = () => {
                 onClose={() => setShowLuckinHelp(false)}
             />
 
-            {/* 角色生图面板（加号面板「生图」进入） */}
-            {char && showImageGenPanel && (
-                <>
-                    <div className="fixed inset-0 z-[89] bg-black/40" onClick={() => setShowImageGenPanel(false)} />
-                    <div className="fixed inset-x-4 top-12 bottom-12 z-[90] max-w-md mx-auto bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-slide-up flex flex-col">
-                        <ImageGenPanel
-                            onClose={() => setShowImageGenPanel(false)}
-                            charName={char.name || ''}
-                            charAvatar={char.avatar || ''}
-                            charPersona={(char as any).persona || (char as any).description || ''}
-                            chatContext={messages.slice(-6).map(m => `${m.role === 'user' ? '用户' : char?.name}: ${(m.content || '').slice(0, 100)}`).join('\n')}
-                            onGenerate={(url, caption) => {
-                                handleSendCharImage(url, caption);
-                                setShowImageGenPanel(false);
-                            }}
-                            imageGenApiKey={apiConfig.imageGenApiKey || ''}
-                            imageGenBaseUrl={apiConfig.imageGenBaseUrl || ''}
-                            imageGenModel={apiConfig.imageGenModel || ''}
-                            subBaseUrl={apiConfig.subBaseUrl}
-                            subApiKey={apiConfig.subApiKey}
-                            subModel={apiConfig.subModel}
-                            availableModes={[
-                                'char',
-                                apiConfig.imageGenUserEnabled ? 'user' : null,
-                                apiConfig.imageGenJointEnabled ? 'joint' : null,
-                            ].filter(Boolean) as ('char' | 'user' | 'joint')[]}
-                        />
-                    </div>
-                </>
-            )}
-
-            {/* 小说共读悬浮面板（加号面板「小说共读」进入） */}
-            {char && novelReaderOpen && (
-                <div className="fixed inset-0 z-[60] pointer-events-none">
-                    <NovelReaderPanel
-                        charName={char.name}
-                        onClose={() => setNovelReaderOpen(false)}
-                        onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
-                    />
-                </div>
-            )}
-
-            {/* 番外生成页（加号面板「番外」进入，全屏独立页面） */}
-            {char && fanwaiOpen && (
-                <FanwaiGeneratePage
-                    char={char}
-                    userProfile={userProfile}
-                    apiConfig={apiConfig}
-                    addToast={addToast}
-                    onClose={() => setFanwaiOpen(false)}
-                    onCollect={async (story) => { await addFanwaiStory(story); }}
-                />
-            )}
 
             {/* Forward Modal */}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>
@@ -4853,7 +4627,7 @@ const Chat: React.FC = () => {
                                     onClick={() => handleForwardToCharacter(c.id)}
                                     className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all border border-slate-100"
                                 >
-                                    <TokenImg value={c.avatar} className="w-10 h-10 rounded-xl object-cover" />
+                                    <img src={c.avatar} className="w-10 h-10 rounded-xl object-cover" />
                                     <div className="flex-1 text-left">
                                         <div className="font-bold text-sm text-slate-700">{c.name}</div>
                                         <div className="text-[10px] text-slate-400 truncate">{c.description}</div>

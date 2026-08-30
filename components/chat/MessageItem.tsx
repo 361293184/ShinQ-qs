@@ -2,425 +2,27 @@
 
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Message, ChatTheme } from '../../types';
+import { createPortal } from 'react-dom';
+import { Message, ChatTheme, OfflineConfig } from '../../types';
+import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
+import { parseOfflineMessage } from '../../utils/offlineMode/offlineParser';
+import { normalizeOfflineConfig, isChineseText } from '../../utils/offlineMode/offlineSettings';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { trackEvent } from '../../utils/analytics';
-import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
-import { isImageValue, useBlobRefUrl } from '../../utils/blobRef';
-import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
-import TokenImg from '../os/TokenImg';
+import { dataUrlToBlob } from '../../utils/blobRef';
+import { fetchBlobForShare, shareOrDownloadBlob } from '../../utils/shareExport';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
-import QixiEventCardView from './QixiEventCard';
-import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
+import LocationMapThumb from './LocationMapThumb';
 import GameReplayCard from '../games/GameReplayCard';
+import { ThinkingChainStyleId, resolveThinkingChainStyle, PsycheDecor } from './thinkingChainStyle';
 
-// 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
-export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
-export interface ThinkingChainStyleSpec {
-    bg: string;            // 卡片背景（可以是 CSS gradient）
-    border: string;        // 边框色
-    accent: string;        // 标题/装饰点缀
-    text: string;          // 正文颜色
-    subtext: string;       // 副标题/状态文字
-    glow?: string;         // 右上角微光 radial 颜色（可选）
-    fadeColor?: string;    // 展开滚动区上下软渐变颜色（可选）
-    fontFamily: string;    // 正文字体
-    showCorners: boolean;  // 四角装饰括号
-    showDivider: boolean;  // 标题下分隔线
-    titleZh: string;       // 中文标题
-    titleEn: string;       // 英文副标题
-    listenLabel: string;   // 折叠态右侧文字
-    silenceLabel: string;  // 展开态右侧文字
-    quoteLeft: string;     // 折叠态首句左引号
-    quoteRight: string;    // 折叠态首句右引号
-    italic: boolean;       // 是否斜体
-    radius: string;        // 圆角
-    /** 边框宽度（默认 1px）——像素框/电子鸡壳等拟态风格用粗框 */
-    borderWidth?: string;
-    /** 卡片投影完全覆盖（不设则走 glow 默认逻辑）——硬像素影/ins 软影/机壳圈 */
-    cardShadow?: string;
-    /** 卡片内部整面覆盖层：扫描线（CRT）/ 点阵（液晶屏） */
-    overlay?: 'scanlines' | 'dotMatrix';
-    /** 破格装饰：溢出卡片边框的风格化元素（印章/霓虹括角/终端红绿灯/星子/机壳按钮…），由 PsycheDecor 渲染 */
-    decoKind?: 'inkSeal' | 'neonGlitch' | 'termHud' | 'starScatter' | 'tamaShell' | 'pixelArrow' | 'insHeart';
-}
-
-const SERIF = '"Noto Serif SC", "Source Han Serif SC", "Songti SC", "STKaiti", "KaiTi", serif';
-const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
-const MONO = '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, "Courier New", monospace';
-const PIXEL = '"Zpix", "Fusion Pixel 12px", "DotGothic16", "Silver", "Courier New", monospace';
-
-export const THINKING_CHAIN_PRESETS: Record<Exclude<ThinkingChainStyleId, 'custom'>, ThinkingChainStyleSpec> = {
-    echo: {
-        bg: 'linear-gradient(135deg, #2a1f3d 0%, #1d1530 45%, #2a1834 100%)',
-        border: 'rgba(201, 169, 106, 0.35)',
-        accent: '#c9a96a',
-        text: '#e9d9b8',
-        subtext: 'rgba(233, 217, 184, 0.62)',
-        glow: 'rgba(201, 169, 106, 0.28)',
-        fadeColor: '#1d1530',
-        fontFamily: SERIF,
-        showCorners: true,
-        showDivider: true,
-        titleZh: '心象',
-        titleEn: 'PSYCHE',
-        listenLabel: '凝望',
-        silenceLabel: '移开视线',
-        quoteLeft: '「',
-        quoteRight: '」',
-        italic: true,
-        radius: '4px',
-    },
-    whisper: {
-        bg: 'linear-gradient(135deg, rgba(251, 247, 242, 0.96) 0%, rgba(245, 238, 247, 0.86) 50%, rgba(248, 240, 240, 0.92) 100%)',
-        border: 'rgba(216, 196, 200, 0.55)',
-        accent: '#9a7d83',
-        text: '#5b4b50',
-        subtext: 'rgba(154, 125, 131, 0.7)',
-        glow: 'rgba(212, 184, 192, 0.35)',
-        fadeColor: '#fbf7f2',
-        fontFamily: SERIF,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '心象',
-        titleEn: 'PSYCHE',
-        listenLabel: '凝望',
-        silenceLabel: '移开视线',
-        quoteLeft: '「',
-        quoteRight: '」',
-        italic: true,
-        radius: '14px',
-    },
-    minimal: {
-        bg: '#ffffff',
-        border: 'rgba(15, 23, 42, 0.12)',
-        accent: '#475569',
-        text: '#1e293b',
-        subtext: 'rgba(71, 85, 105, 0.6)',
-        fadeColor: '#ffffff',
-        fontFamily: SANS,
-        showCorners: false,
-        showDivider: false,
-        titleZh: '心象',
-        titleEn: 'PSYCHE',
-        listenLabel: '凝望',
-        silenceLabel: '移开视线',
-        quoteLeft: '"',
-        quoteRight: '"',
-        italic: false,
-        radius: '10px',
-    },
-    ink: {
-        bg: 'linear-gradient(160deg, #f9f6ee 0%, #f2ecdf 60%, #ece4d4 100%)',
-        border: 'rgba(70, 60, 48, 0.28)',
-        accent: '#4a4238',
-        text: '#3d3830',
-        subtext: 'rgba(74, 66, 56, 0.55)',
-        fadeColor: '#f4efe3',
-        fontFamily: SERIF,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '墨迹',
-        titleEn: 'INK',
-        listenLabel: '展卷',
-        silenceLabel: '收卷',
-        quoteLeft: '「',
-        quoteRight: '」',
-        italic: false,
-        radius: '2px',
-        decoKind: 'inkSeal',
-    },
-    neon: {
-        bg: 'linear-gradient(135deg, #0b1026 0%, #10173a 55%, #1a0f2e 100%)',
-        border: 'rgba(94, 234, 212, 0.4)',
-        accent: '#5eead4',
-        text: '#c8f4ff',
-        subtext: 'rgba(94, 234, 212, 0.6)',
-        glow: 'rgba(94, 234, 212, 0.32)',
-        fadeColor: '#10173a',
-        fontFamily: SANS,
-        showCorners: true,
-        showDivider: false,
-        titleZh: '脑域',
-        titleEn: 'NEURO-LINK',
-        listenLabel: '接入',
-        silenceLabel: '断开',
-        quoteLeft: '⟨',
-        quoteRight: '⟩',
-        italic: false,
-        radius: '8px',
-        overlay: 'scanlines',
-        decoKind: 'neonGlitch',
-    },
-    terminal: {
-        bg: '#0b120d',
-        border: 'rgba(74, 222, 128, 0.35)',
-        accent: '#4ade80',
-        text: '#a7e8b4',
-        subtext: 'rgba(74, 222, 128, 0.55)',
-        glow: 'rgba(74, 222, 128, 0.18)',
-        fadeColor: '#0b120d',
-        fontFamily: MONO,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '内核',
-        titleEn: 'KERNEL.LOG',
-        listenLabel: 'tail -f',
-        silenceLabel: '^C',
-        quoteLeft: '$ ',
-        quoteRight: '',
-        italic: false,
-        radius: '6px',
-        decoKind: 'termHud',
-    },
-    stellar: {
-        bg: 'linear-gradient(180deg, #0d1b2a 0%, #16263c 60%, #22344e 100%)',
-        border: 'rgba(168, 199, 250, 0.35)',
-        accent: '#a8c7fa',
-        text: '#dce8ff',
-        subtext: 'rgba(168, 199, 250, 0.62)',
-        glow: 'rgba(168, 199, 250, 0.3)',
-        fadeColor: '#16263c',
-        fontFamily: SERIF,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '星语',
-        titleEn: 'STELLAR',
-        listenLabel: '仰望',
-        silenceLabel: '垂眸',
-        quoteLeft: '「',
-        quoteRight: '」',
-        italic: true,
-        radius: '12px',
-        decoKind: 'starScatter',
-    },
-    // 拓麻歌子：粉壳 + 液晶点阵屏，框本身拟态成电子宠物机
-    tama: {
-        bg: 'linear-gradient(180deg, #d6e2c2 0%, #c8d6b0 100%)',
-        border: '#f2a5c4',
-        accent: '#44562f',
-        text: '#3f5230',
-        subtext: 'rgba(68, 86, 47, 0.6)',
-        fadeColor: '#cfdbb9',
-        fontFamily: PIXEL,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '心宠',
-        titleEn: 'TMGC-LOG',
-        listenLabel: '喂食',
-        silenceLabel: '哄睡',
-        quoteLeft: '▶',
-        quoteRight: '',
-        italic: false,
-        radius: '16px',
-        borderWidth: '3px',
-        cardShadow: '0 0 0 3px rgba(242, 165, 196, 0.35), 0 3px 8px rgba(120, 80, 100, 0.18)',
-        overlay: 'dotMatrix',
-        decoKind: 'tamaShell',
-    },
-    // 像素：JRPG 对话框，白粗框 + 硬像素投影
-    pixel: {
-        bg: '#23255e',
-        border: '#ffffff',
-        accent: '#ffd75e',
-        text: '#f2f3ff',
-        subtext: 'rgba(242, 243, 255, 0.65)',
-        fadeColor: '#23255e',
-        fontFamily: PIXEL,
-        showCorners: false,
-        showDivider: false,
-        titleZh: '任务',
-        titleEn: 'QUEST.LOG',
-        listenLabel: '继续',
-        silenceLabel: '合上',
-        quoteLeft: '『',
-        quoteRight: '』',
-        italic: false,
-        radius: '2px',
-        borderWidth: '3px',
-        cardShadow: '4px 4px 0 rgba(0, 0, 0, 0.4)',
-        decoKind: 'pixelArrow',
-    },
-    // 性冷淡：暖灰米白、细线、留白，什么装饰都不要
-    muji: {
-        bg: '#f7f6f3',
-        border: 'rgba(60, 60, 54, 0.14)',
-        accent: '#8a8a84',
-        text: '#4d4d48',
-        subtext: 'rgba(90, 90, 84, 0.5)',
-        fadeColor: '#f7f6f3',
-        fontFamily: SANS,
-        showCorners: false,
-        showDivider: true,
-        titleZh: '独白',
-        titleEn: 'MONOLOGUE',
-        listenLabel: '展开',
-        silenceLabel: '收起',
-        quoteLeft: '',
-        quoteRight: '',
-        italic: false,
-        radius: '6px',
-    },
-    // ins：白卡软影 feed 风，右上一颗小红心
-    ins: {
-        bg: '#ffffff',
-        border: 'rgba(0, 0, 0, 0.07)',
-        accent: '#e1306c',
-        text: '#262626',
-        subtext: '#8e8e8e',
-        fadeColor: '#ffffff',
-        fontFamily: SANS,
-        showCorners: false,
-        showDivider: false,
-        titleZh: '碎碎念',
-        titleEn: 'STORIES',
-        listenLabel: '查看',
-        silenceLabel: '收起',
-        quoteLeft: '“',
-        quoteRight: '”',
-        italic: false,
-        radius: '16px',
-        cardShadow: '0 4px 16px rgba(0, 0, 0, 0.07)',
-        decoKind: 'insHeart',
-    },
-};
-
-export function resolveThinkingChainStyle(
-    styleId?: ThinkingChainStyleId,
-    customColors?: { bg?: string; accent?: string; text?: string },
-): ThinkingChainStyleSpec {
-    if (styleId === 'custom') {
-        const bg = customColors?.bg || '#1f2937';
-        const accent = customColors?.accent || '#fbbf24';
-        const text = customColors?.text || '#f1f5f9';
-        return {
-            ...THINKING_CHAIN_PRESETS.echo,
-            bg,
-            border: accent,
-            accent,
-            text,
-            subtext: text,
-            glow: accent,
-            fadeColor: bg,
-            titleZh: '心象',
-            titleEn: 'PSYCHE',
-            listenLabel: '凝望',
-            silenceLabel: '移开视线',
-        };
-    }
-    return THINKING_CHAIN_PRESETS[styleId || 'echo'] || THINKING_CHAIN_PRESETS.echo;
-}
-
-// 心象卡片的「破格」装饰：溢出卡片边框的风格化元素。
-// 必须渲染在卡片（overflow-hidden）的兄弟层、且父容器 relative + 不裁剪，才能真的探出边框。
-// 被 ThinkingChainBlock 与设置弹窗的 StylePreview 共用；compact 用于迷你预览缩小尺寸。
-export const PsycheDecor: React.FC<{ spec: ThinkingChainStyleSpec; compact?: boolean }> = ({ spec, compact }) => {
-    switch (spec.decoKind) {
-        case 'inkSeal': // 右下角压出边框的朱文印
-            return (
-                <span
-                    aria-hidden
-                    className="absolute z-10 pointer-events-none flex items-center justify-center font-bold"
-                    style={{
-                        bottom: compact ? -4 : -7,
-                        right: compact ? -2 : -4,
-                        width: compact ? 15 : 23,
-                        height: compact ? 15 : 23,
-                        background: '#b3382c',
-                        color: '#f7ede0',
-                        fontSize: compact ? 8 : 12,
-                        fontFamily: SERIF,
-                        borderRadius: 3,
-                        transform: 'rotate(9deg)',
-                        boxShadow: '0 1px 3px rgba(80, 20, 10, 0.4)',
-                        opacity: 0.92,
-                    }}
-                >心</span>
-            );
-        case 'neonGlitch': // 探出四角的霓虹括角（青 × 品红错位残影）
-            return (
-                <>
-                    <span aria-hidden className={`absolute z-10 pointer-events-none border-t-2 border-l-2 ${compact ? '-top-0.5 -left-0.5 w-2 h-2' : '-top-1 -left-1 w-3 h-3'}`} style={{ borderColor: spec.accent, filter: `drop-shadow(0 0 3px ${spec.accent})` }} />
-                    <span aria-hidden className={`absolute z-10 pointer-events-none border-b-2 border-r-2 ${compact ? '-bottom-0.5 -right-0.5 w-2 h-2' : '-bottom-1 -right-1 w-3 h-3'}`} style={{ borderColor: '#f0abfc', filter: 'drop-shadow(0 0 3px #f0abfc)' }} />
-                </>
-            );
-        case 'termHud': // 顶出上边框的窗口红绿灯
-            return (
-                <span aria-hidden className="absolute z-10 pointer-events-none flex gap-1" style={{ top: compact ? -2 : -3, right: compact ? 8 : 12 }}>
-                    {['#ff5f56', '#ffbd2e', '#27c93f'].map(c => (
-                        <span key={c} className="rounded-full" style={{ width: compact ? 4 : 6, height: compact ? 4 : 6, background: c, boxShadow: `0 0 4px ${c}88` }} />
-                    ))}
-                </span>
-            );
-        case 'starScatter': // 缀在边框内外的星子
-            return (
-                <>
-                    <span aria-hidden className="absolute z-10 pointer-events-none animate-pulse" style={{ top: compact ? -5 : -8, right: compact ? 10 : 16, color: spec.accent, fontSize: compact ? 8 : 12, textShadow: spec.glow ? `0 0 6px ${spec.glow}` : undefined }}>✦</span>
-                    <span aria-hidden className="absolute z-10 pointer-events-none" style={{ top: compact ? 6 : 10, right: compact ? -4 : -6, color: spec.accent, fontSize: compact ? 6 : 8, opacity: 0.75 }}>✧</span>
-                    <span aria-hidden className="absolute z-10 pointer-events-none animate-pulse" style={{ bottom: compact ? -3 : -5, left: compact ? 12 : 20, color: spec.accent, fontSize: compact ? 5 : 7, opacity: 0.6, animationDelay: '0.8s' }}>✦</span>
-                </>
-            );
-        case 'tamaShell': // 底边探出的机壳三按钮（电子宠物机的 A/B/C 键）
-            return (
-                <span aria-hidden className="absolute z-10 pointer-events-none flex" style={{ bottom: compact ? -5 : -8, left: '50%', transform: 'translateX(-50%)', gap: compact ? 5 : 8 }}>
-                    {[0, 1, 2].map(i => (
-                        <span
-                            key={i}
-                            className="rounded-full"
-                            style={{
-                                width: compact ? 5 : 8,
-                                height: compact ? 5 : 8,
-                                background: 'radial-gradient(circle at 35% 30%, #fbc9dd, #ee8fb6)',
-                                boxShadow: '0 1px 2px rgba(150, 80, 110, 0.45), inset 0 0.5px 1px rgba(255,255,255,0.7)',
-                            }}
-                        />
-                    ))}
-                </span>
-            );
-        case 'pixelArrow': // JRPG「还有下文」的闪烁小三角，压在右下边框上
-            return (
-                <span
-                    aria-hidden
-                    className="absolute z-10 pointer-events-none animate-pulse"
-                    style={{
-                        bottom: compact ? -4 : -7,
-                        right: compact ? 8 : 14,
-                        color: spec.accent,
-                        fontSize: compact ? 8 : 12,
-                        textShadow: '1px 1px 0 rgba(0,0,0,0.5)',
-                    }}
-                >▼</span>
-            );
-        case 'insHeart': // 右上角一颗小红心，feed 点赞感
-            return (
-                <span
-                    aria-hidden
-                    className="absolute z-10 pointer-events-none"
-                    style={{
-                        top: compact ? -5 : -7,
-                        right: compact ? 8 : 14,
-                        color: spec.accent,
-                        fontSize: compact ? 9 : 13,
-                        transform: 'rotate(10deg)',
-                        filter: 'drop-shadow(0 1px 2px rgba(225, 48, 108, 0.35))',
-                    }}
-                >♥</span>
-            );
-        default:
-            return null;
-    }
-};
-
-// 思考链卡片：可视化 metadata.thinkingChain。
-// 内容来源：useChatAI 抽取的 LLM reasoning_content + <think>/<thinking>/<thought>。
-// 多风格通过 resolveThinkingChainStyle() 统一渲染；齿轮触发 onOpenSettings 进入设置弹窗。
 export const ThinkingChainBlock: React.FC<{
     chain: string;
     styleId?: ThinkingChainStyleId;
@@ -432,7 +34,7 @@ export const ThinkingChainBlock: React.FC<{
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pointerIdRef = useRef<number | null>(null);
-    const pointerTypeRef = useRef<React.PointerEvent<HTMLDivElement>['pointerType']>('');
+    const pointerTypeRef = useRef<string>('');
     const pointerStartRef = useRef({ x: 0, y: 0 });
     const longPressReadyRef = useRef(false);
     const suppressNextClickRef = useRef(false);
@@ -786,8 +388,8 @@ const ForwardCard: React.FC<{
                                     <div className={`max-w-[80%] ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
                                         <div className="text-[10px] text-slate-400 mb-1 px-1">{senderName} {msg.timestamp ? formatTime(msg.timestamp) : ''}</div>
                                         <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-all ${isUser ? 'bg-primary text-white rounded-br-sm' : 'bg-white text-slate-700 rounded-bl-sm shadow-sm border border-slate-100'}`}>
-                                            {msg.type === 'image' ? (msg.content ? <TokenImg value={msg.content} className="max-w-[200px] rounded-xl" /> : <span className="italic opacity-60">[图片已丢失]</span>) :
-                                             msg.type === 'emoji' ? (msg.content ? <TokenImg value={msg.content} className="max-w-[100px]" /> : <span className="italic opacity-60">[表情已丢失]</span>) :
+                                            {msg.type === 'image' ? (msg.content ? <img src={msg.content} className="max-w-[200px] rounded-xl" /> : <span className="italic opacity-60">[图片已丢失]</span>) :
+                                             msg.type === 'emoji' ? (msg.content ? <img src={msg.content} className="max-w-[100px]" /> : <span className="italic opacity-60">[表情已丢失]</span>) :
                                              msg.content}
                                         </div>
                                     </div>
@@ -1112,7 +714,7 @@ const Like520ChatCard: React.FC<{ data: any }> = ({ data }) => {
                     boxShadow: '0 2px 6px rgba(74,36,24,0.18), inset 0 0 0 1px rgba(184,146,63,0.25)',
                 }}>
                     {data.photoDataUrl
-                        ? <TokenImg value={data.photoDataUrl} alt="合照" style={{ width: '100%', display: 'block' }} />
+                        ? <img src={data.photoDataUrl} alt="合照" style={{ width: '100%', display: 'block' }} />
                         : <div style={{ width: '100%', aspectRatio: '1200 / 780', background: 'linear-gradient(180deg, #FFE0E8, #FFD3DC)' }} />}
                 </div>
 
@@ -1240,7 +842,7 @@ const Like520ChatCard: React.FC<{ data: any }> = ({ data }) => {
 
                         {data.photoDataUrl ? (
                             <>
-                                <TokenImg value={data.photoDataUrl} alt="合照" draggable={false} style={{ width: '100%', display: 'block', borderRadius: 8, boxShadow: '0 8px 20px rgba(122,46,58,0.2), 0 0 0 1px rgba(184,146,63,0.4)' }} />
+                                <img src={data.photoDataUrl} alt="合照" draggable={false} style={{ width: '100%', display: 'block', borderRadius: 8, boxShadow: '0 8px 20px rgba(122,46,58,0.2), 0 0 0 1px rgba(184,146,63,0.4)' }} />
                                 <div style={{ fontSize: 10, fontStyle: 'italic', color: '#9D7585', textAlign: 'center', marginTop: 4, fontFamily: '"Cormorant Garamond", serif', letterSpacing: 2 }}>长按图片保存到相册</div>
                             </>
                         ) : null}
@@ -1296,7 +898,7 @@ const LifeSimResetCardView: React.FC<{ card: any }> = ({ card }) => {
                 }}
             >
                 {parsed.charAvatar ? (
-                    <TokenImg value={parsed.charAvatar} className="w-8 h-8 object-cover shrink-0" style={{ borderRadius: 2, border: '2px solid rgba(255,255,255,0.25)' }} />
+                    <img src={parsed.charAvatar} className="w-8 h-8 object-cover shrink-0" style={{ borderRadius: 2, border: '2px solid rgba(255,255,255,0.25)' }} />
                 ) : (
                     <div className="w-8 h-8 flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ borderRadius: 2, background: 'linear-gradient(135deg, #b86c3d, #d39b62)' }}>
                         {parsed.charName?.[0] || '?'}
@@ -1391,7 +993,6 @@ interface MessageItemProps {
     onToggleThinkingSelect?: (id: number) => void;
     // Translation (AI messages only, bilingual content parsed from %%BILINGUAL%%)
     translationEnabled?: boolean;
-    translationExpanded?: boolean;
     isShowingTarget?: boolean;
     onTranslateToggle?: (msgId: number) => void;
     // Voice TTS
@@ -1424,14 +1025,16 @@ interface MessageItemProps {
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
-    /** 打开协同文件柜里的原始 Blob；消息本身只保存 assetId 引用。 */
-    onOpenCollaborationFile?: (m: Message) => void | Promise<void>;
+    /** 生图消息：AI 主动生成的图片，失败时点「重试」重新触发 */
+    onRetryImageGen?: (msgId: number, sceneDesc: string) => void;
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
         customColors?: { bg?: string; accent?: string; text?: string };
         onOpenSettings?: () => void;
     };
+    /** 线下模式配置：offline 消息按行级解析渲染旁白/台词（缺省走默认样式） */
+    offlineConfig?: OfflineConfig;
 }
 
 const MessageItem = React.memo(({
@@ -1452,7 +1055,6 @@ const MessageItem = React.memo(({
     isThinkingSelected,
     onToggleThinkingSelect,
     translationEnabled,
-    translationExpanded,
     isShowingTarget,
     onTranslateToggle,
     voiceData,
@@ -1475,8 +1077,9 @@ const MessageItem = React.memo(({
     onLuckinCandidate,
     onResolveTransfer,
     onResolveLifeRecord,
-    onOpenCollaborationFile,
+    onRetryImageGen,
     thinkingChainOptions,
+    offlineConfig,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
@@ -1498,11 +1101,10 @@ const MessageItem = React.memo(({
     const replyReadyRef = useRef(false);
 
     const styleConfig = isUser ? activeTheme.user : activeTheme.ai;
-    // 气泡底纹画在 CSS background-image 上，拿不到 <img> 那层的自动解析，只能在顶层
-    // 无条件解析一次（hook 不能进条件分支）。挂件/头像挂件走 TokenImg，各自组件内解析。
-    const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
     const [showVoiceText, setShowVoiceText] = useState(false);
-    const [openingCollaborationFile, setOpeningCollaborationFile] = useState(false);
+    // 点击聊天气泡里的图片 → 全屏浅色弹层放大查看；null 表示未打开
+    const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+    const [previewDownloading, setPreviewDownloading] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
     const [isReplyReady, setIsReplyReady] = useState(false);
@@ -1519,6 +1121,24 @@ const MessageItem = React.memo(({
         setIsReplyGestureActive(false);
         setIsReplyReady(false);
         setReplyOffset(0);
+    };
+
+    // 全屏预览里的下载/分享：base64 直接转 Blob，http URL 走 CORS-free 拉取，再调分享/下载
+    const handlePreviewDownload = async () => {
+        if (!previewSrc || previewDownloading) return;
+        setPreviewDownloading(true);
+        try {
+            const isData = previewSrc.startsWith('data:');
+            const blob = isData
+                ? dataUrlToBlob(previewSrc)
+                : await fetchBlobForShare(previewSrc, 'image/png');
+            const name = `sully-image-${Date.now()}.png`;
+            await shareOrDownloadBlob({ blob, fileName: name });
+        } catch (e) {
+            console.error('[MessageItem] 图片保存失败', e);
+        } finally {
+            setPreviewDownloading(false);
+        }
     };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1630,16 +1250,16 @@ const MessageItem = React.memo(({
             <div className={`relative ${avatarSizeClass} z-0 ${options?.className || ''}`}>
                 {visible && (
                     <>
-                        <TokenImg
-                            value={src}
+                        <img
+                            src={src}
                             className={`sully-chat-message-avatar-img w-full h-full ${avatarRadiusClass} object-cover shadow-sm ring-1 ring-black/5 relative z-0`}
                             alt="avatar"
                             loading="lazy"
                             decoding="async"
                         />
                         {styleConfig.avatarDecoration && (
-                            <TokenImg
-                                value={styleConfig.avatarDecoration}
+                            <img
+                                src={styleConfig.avatarDecoration}
                                 className="absolute pointer-events-none z-10 max-w-none"
                                 style={{
                                     left: `${styleConfig.avatarDecorationX ?? 50}%`,
@@ -1703,7 +1323,7 @@ const MessageItem = React.memo(({
                                 {/* Header — date stamp + char avatar */}
                                 <div className="px-4 pt-3 pb-2.5 flex items-center gap-2.5" style={{ borderBottom: '1px dashed rgba(200,160,100,0.3)', background: 'linear-gradient(135deg, rgba(245,210,150,0.25), rgba(240,195,130,0.15))' }}>
                                     {scoreData.charAvatar ? (
-                                        <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(220,180,110,0.5)' }} />
+                                        <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(220,180,110,0.5)' }} />
                                     ) : (
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #d4a55a, #b8843a)' }}>{scoreData.charName?.[0] || '?'}</div>
                                     )}
@@ -1770,7 +1390,7 @@ const MessageItem = React.memo(({
                                 {/* Header */}
                                 <div className="px-4 pt-3 pb-2 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(200,185,190,0.2)', background: 'linear-gradient(135deg, rgba(200,185,190,0.2), rgba(190,175,195,0.15))' }}>
                                     {scoreData.charAvatar ? (
-                                        <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
+                                        <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
                                     ) : (
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>{scoreData.charName?.[0] || '?'}</div>
                                     )}
@@ -1819,7 +1439,7 @@ const MessageItem = React.memo(({
             const durationSec = Math.max(1, Number(m.metadata?.durationSec || 0));
             const turnCount = Math.max(1, Number(m.metadata?.turnCount || 1));
             const durationText = `${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')}`;
-            const callMemo = String(m.metadata?.keepsakeLine || `“今天这通电话，我会记很久。” —— ${m.metadata?.characterName || charName}`);
+            const callMemo = String(m.metadata?.keepsakeLine || `"今天这通电话，我会记很久。" —— ${m.metadata?.characterName || charName}`);
             const memoTitle = m.metadata?.characterName || charName;
             const memoAvatar = m.metadata?.characterAvatar || charAvatar;
             const timeHint = durationSec <= 240 ? '差不多是一杯咖啡的时间' : '像听完一首喜欢的歌再多一点';
@@ -1836,7 +1456,7 @@ const MessageItem = React.memo(({
                     <div className="w-full px-5 my-3" {...interactionProps}>
                         <div className="rounded-3xl bg-gradient-to-br from-slate-50 to-slate-100/80 border border-slate-200/50 p-4 shadow-sm">
                             <div className="flex items-center gap-3">
-                                <TokenImg value={memoAvatar} alt={memoTitle} className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200/80" loading="lazy" decoding="async" />
+                                <img src={memoAvatar} alt={memoTitle} className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200/80" loading="lazy" decoding="async" />
                                 <div className="min-w-0 flex-1">
                                     <div className="text-sm font-medium text-slate-600 truncate">和 {memoTitle} 通了电话</div>
                                     <div className="text-xs text-slate-400 mt-0.5">{durationText} · {turnCount}轮对话</div>
@@ -1957,7 +1577,7 @@ const MessageItem = React.memo(({
                     </div>
                 )}
 
-                {/* 白框布局钩子：组首额外挂一份默认隐藏的头像；显示它即可做“每轮一次、头像在气泡上方”。 */}
+                {/* 白框布局钩子：组首额外挂一份默认隐藏的头像；显示它即可做"每轮一次、头像在气泡上方"。 */}
                 {isFirstInGroup && !isModuleCard && (
                     <div className={`sully-chat-turn-avatar-slot hidden absolute top-0 z-0 ${isUser ? 'right-3' : (selectionMode ? 'left-14' : 'left-3')}`}>
                         {renderAvatar(isUser ? userAvatar : charAvatar, {
@@ -2027,7 +1647,7 @@ const MessageItem = React.memo(({
                     </div>
                 </div>
 
-                {/* 用户侧若存在导入/历史模块卡，也保持同一条“卡片不带消息外侧头像”规则。 */}
+                {/* 用户侧若存在导入/历史模块卡，也保持同一条"卡片不带消息外侧头像"规则。 */}
                 {isUser && !isModuleCard && (
                     <div className={`sully-chat-message-avatar-slot absolute right-3 bottom-0 z-0 transition-[left] duration-300`}>
                         {renderAvatar(userAvatar, { className: 'sully-chat-message-avatar' })}
@@ -2036,90 +1656,6 @@ const MessageItem = React.memo(({
             </div>
         </>
     );
-
-    // --- Fanwai Card (拾光转发的番外故事·迷你书卡片·横版长方形) ---
-    if (m.type === 'fanwai_card' && m.metadata?.fanwaiStory) {
-        const fw = m.metadata.fanwaiStory;
-        const title = fw.title || m.content || '未命名番外';
-        const summary = (fw.summary || '').trim();
-        const who = (fw.charName || '').trim();
-        // HTML 番外：转发的是完整 HTML（存 metadata），聊天里渲染成缩小预览图（沙盒 iframe 禁脚本）
-        if (fw.format === 'html' && fw.content) {
-            return commonLayout(
-                <div className="w-60 overflow-hidden rounded-2xl border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none bg-white">
-                    <div className="flex items-center justify-between px-3 py-1.5 bg-[#12101d]">
-                        <span className="text-[9px] italic font-extrabold tracking-wider text-[#f5c86b]">拾光 · 番外（{HTML_TYPE_LABELS[((fw.htmlType as string) || 'custom') as keyof typeof HTML_TYPE_LABELS]}）</span>
-                        <span className="text-[9px] italic text-[#c8bbd6]/70">{who || ''}</span>
-                    </div>
-                    <iframe
-                        title={`${fw.htmlType || 'custom'} 番外预览`}
-                        srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:4px;background:#fff;font-family:-apple-system,'PingFang SC',sans-serif;}*{box-sizing:border-box}</style></head><body>${fw.content}</body></html>`}
-                        sandbox={fw.htmlType === 'custom' ? 'allow-same-origin allow-scripts' : 'allow-same-origin'}
-                        style={{ width: '100%', height: 220, border: 'none', background: '#fff', pointerEvents: 'none' }}
-                    />
-                    <div className="px-3 py-1.5 bg-[#16131f] flex items-center gap-2">
-                        <span className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f]">HTML 预览</span>
-                        <span className="text-[10px] text-[#c8bbd6] line-clamp-1 min-w-0">{title}</span>
-                    </div>
-                </div>
-            );
-        }
-        // 方正几何感字体：英数 Nunito + 中文 Noto Sans SC（均已在 index.html 引入），斜体 italic 走 Nunito italic
-        const SQUARE = '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
-        return commonLayout(
-            <div className="w-60 overflow-hidden rounded-2xl bg-[#12101d] border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none">
-                {/* 上下布局：上方黑金封面标题条 + 下方摘要区，整体压扁成横版长方形 */}
-                {/* 封面标题条：高度更扁，左侧发光羽 + 斜体大字标题 + 右上角色名 */}
-                <div className="relative h-16 bg-gradient-to-br from-[#0c0a14] via-[#1a0f1c] to-[#2a1530] overflow-hidden flex items-center">
-                    {/* 浮动光效：斜射金色光带 + 漂浮光斑（更收敛一点） */}
-                    <div aria-hidden className="absolute -top-2 -left-2 h-16 w-24 bg-gradient-to-br from-[#f5c86b]/35 to-transparent blur-md rotate-[-24deg] pointer-events-none" />
-                    <div aria-hidden className="absolute right-24 top-2 h-1.5 w-1.5 rounded-full bg-[#ffd98a]/70 blur-[1px] pointer-events-none animate-float" />
-                    <div aria-hidden className="absolute right-32 bottom-3 h-1 w-1 rounded-full bg-[#fff0c9]/80 blur-[2px] pointer-events-none animate-bounce-slow" />
-                    <div aria-hidden className="absolute left-20 bottom-1 h-1.5 w-1.5 rounded-full bg-[#ffc85e]/60 blur-[1px] pointer-events-none animate-float" />
-                    {/* 左侧发光星羽 */}
-                    <div className="relative shrink-0 ml-2.5 h-9 w-9 rounded-full bg-[#f5c86b]/10 flex items-center justify-center shadow-[0_0_12px_rgba(245,200,107,0.35)]">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#f5c86b] drop-shadow-[0_0_4px_rgba(245,200,107,0.8)]">
-                            <path d="M12 2 9.7 8.9 3 9.3l5.4 4.1L6.5 21 12 16.8 17.5 21l-1.9-7.6L21 9.3l-6.7-.4L12 2Z" />
-                        </svg>
-                    </div>
-                    {/* 标题：方正斜体大字（单行截断） */}
-                    <h4
-                        style={{ fontFamily: SQUARE }}
-                        className="relative flex-1 min-w-0 ml-3 mr-3 italic font-black text-[18px] leading-[1.1] tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-[#e8c98a] via-[#d4a665] to-[#a87841] line-clamp-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] [text-shadow:0_0_10px_rgba(180,140,80,0.25)]"
-                        title={title}
-                    >
-                        {title}
-                    </h4>
-                    {/* 右上角：字数 + 角色名 */}
-                    <div className="relative shrink-0 mr-3 flex flex-col items-end gap-0.5 text-right">
-                        {fw.wordCount ? (
-                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] font-extrabold text-[#f5c86b]/90 tracking-wider">
-                                {fw.wordCount} 字
-                            </span>
-                        ) : null}
-                        {who ? (
-                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#c8bbd6]/80 truncate max-w-[5rem]" title={`${who} 的番外`}>
-                                {who}
-                            </span>
-                        ) : null}
-                    </div>
-                </div>
-                {/* 摘要 + 徽章：深色纸感底 */}
-                <div className="px-3 py-2 bg-[#16131f] flex items-center gap-2">
-                    <span style={{ fontFamily: SQUARE }} className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f] shadow-sm shadow-[#f0b64f]/30">
-                        拾光·番外
-                    </span>
-                    {summary ? (
-                        <p style={{ fontFamily: SQUARE }} className="italic text-[11px] text-[#c8bbd6] leading-snug line-clamp-1 min-w-0">
-                            {summary}
-                        </p>
-                    ) : (
-                        <p style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#8b7f9e]/70 line-clamp-1 min-w-0">暂无摘要</p>
-                    )}
-                </div>
-            </div>
-        );
-    }
 
     // [New] Social Card Rendering
     // --- Chat Forward Card ---
@@ -2148,7 +1684,7 @@ const MessageItem = React.memo(({
                 }}
             >
                 {src ? (
-                    <TokenImg value={src} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer"
+                    <img src={src} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer"
                         onError={(e: any) => {
                             const img = e.target;
                             const p = img.parentElement;
@@ -2220,8 +1756,8 @@ const MessageItem = React.memo(({
                 {/* Cover */}
                 <div className="relative w-full h-28 overflow-hidden">
                     {song.albumPic ? (
-                        <TokenImg
-                            value={song.albumPic}
+                        <img
+                            src={song.albumPic}
                             alt=""
                             className="w-full h-full object-cover"
                             loading="lazy"
@@ -2422,6 +1958,90 @@ const MessageItem = React.memo(({
                         <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed mt-1.5">{excerpt}</p>
                     ) : (
                         <p className="text-[11px] text-slate-300 mt-1.5">未能提取到正文预览，点开看原网页</p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // --- Fanwai Card (拾光转发的番外故事·迷你书卡片·横版长方形) ---
+    if (m.type === 'fanwai_card' && m.metadata?.fanwaiStory) {
+        const fw = m.metadata.fanwaiStory;
+        const title = fw.title || m.content || '未命名番外';
+        const summary = (fw.summary || '').trim();
+        const who = (fw.charName || '').trim();
+        // HTML 番外：转发的是完整 HTML（存 metadata），聊天里渲染成缩小预览图（沙盒 iframe 禁脚本）
+        if (fw.format === 'html' && fw.content) {
+            return commonLayout(
+                <div className="w-60 overflow-hidden rounded-2xl border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none bg-white">
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-[#12101d]">
+                        <span className="text-[9px] italic font-extrabold tracking-wider text-[#f5c86b]">拾光 · 番外（{HTML_TYPE_LABELS[((fw.htmlType as string) || 'custom') as keyof typeof HTML_TYPE_LABELS]}）</span>
+                        <span className="text-[9px] italic text-[#c8bbd6]/70">{who || ''}</span>
+                    </div>
+                    <iframe
+                        title={`${fw.htmlType || 'custom'} 番外预览`}
+                        srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:4px;background:#fff;font-family:-apple-system,'PingFang SC',sans-serif;}*{box-sizing:border-box}</style></head><body>${fw.content}</body></html>`}
+                        sandbox={fw.htmlType === 'custom' ? 'allow-same-origin allow-scripts' : 'allow-same-origin'}
+                        style={{ width: '100%', height: 220, border: 'none', background: '#fff', pointerEvents: 'none' }}
+                    />
+                    <div className="px-3 py-1.5 bg-[#16131f] flex items-center gap-2">
+                        <span className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f]">HTML 预览</span>
+                        <span className="text-[10px] text-[#c8bbd6] line-clamp-1 min-w-0">{title}</span>
+                    </div>
+                </div>
+            );
+        }
+        // 方正几何感字体：英数 Nunito + 中文 Noto Sans SC（均已在 index.html 引入），斜体 italic 走 Nunito italic
+        const SQUARE = '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+        return commonLayout(
+            <div className="w-60 overflow-hidden rounded-2xl bg-[#12101d] border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none">
+                {/* 上下布局：上方黑金封面标题条 + 下方摘要区，整体压扁成横版长方形 */}
+                {/* 封面标题条：高度更扁，左侧发光羽 + 斜体大字标题 + 右上角色名 */}
+                <div className="relative h-16 bg-gradient-to-br from-[#0c0a14] via-[#1a0f1c] to-[#2a1530] overflow-hidden flex items-center">
+                    {/* 浮动光效：斜射金色光带 + 漂浮光斑（更收敛一点） */}
+                    <div aria-hidden className="absolute -top-2 -left-2 h-16 w-24 bg-gradient-to-br from-[#f5c86b]/35 to-transparent blur-md rotate-[-24deg] pointer-events-none" />
+                    <div aria-hidden className="absolute right-24 top-2 h-1.5 w-1.5 rounded-full bg-[#ffd98a]/70 blur-[1px] pointer-events-none animate-float" />
+                    <div aria-hidden className="absolute right-32 bottom-3 h-1 w-1 rounded-full bg-[#fff0c9]/80 blur-[2px] pointer-events-none animate-bounce-slow" />
+                    <div aria-hidden className="absolute left-20 bottom-1 h-1.5 w-1.5 rounded-full bg-[#ffc85e]/60 blur-[1px] pointer-events-none animate-float" />
+                    {/* 左侧发光星羽 */}
+                    <div className="relative shrink-0 ml-2.5 h-9 w-9 rounded-full bg-[#f5c86b]/10 flex items-center justify-center shadow-[0_0_12px_rgba(245,200,107,0.35)]">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#f5c86b] drop-shadow-[0_0_4px_rgba(245,200,107,0.8)]">
+                            <path d="M12 2 9.7 8.9 3 9.3l5.4 4.1L6.5 21 12 16.8 17.5 21l-1.9-7.6L21 9.3l-6.7-.4L12 2Z" />
+                        </svg>
+                    </div>
+                    {/* 标题：方正斜体大字（单行截断） */}
+                    <h4
+                        style={{ fontFamily: SQUARE }}
+                        className="relative flex-1 min-w-0 ml-3 mr-3 italic font-black text-[18px] leading-[1.1] tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-[#e8c98a] via-[#d4a665] to-[#a87841] line-clamp-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] [text-shadow:0_0_10px_rgba(180,140,80,0.25)]"
+                        title={title}
+                    >
+                        {title}
+                    </h4>
+                    {/* 右上角：字数 + 角色名 */}
+                    <div className="relative shrink-0 mr-3 flex flex-col items-end gap-0.5 text-right">
+                        {fw.wordCount ? (
+                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] font-extrabold text-[#f5c86b]/90 tracking-wider">
+                                {fw.wordCount} 字
+                            </span>
+                        ) : null}
+                        {who ? (
+                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#c8bbd6]/80 truncate max-w-[5rem]" title={`${who} 的番外`}>
+                                {who}
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+                {/* 摘要 + 徽章：深色纸感底 */}
+                <div className="px-3 py-2 bg-[#16131f] flex items-center gap-2">
+                    <span style={{ fontFamily: SQUARE }} className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f] shadow-sm shadow-[#f0b64f]/30">
+                        拾光·番外
+                    </span>
+                    {summary ? (
+                        <p style={{ fontFamily: SQUARE }} className="italic text-[11px] text-[#c8bbd6] leading-snug line-clamp-1 min-w-0">
+                            {summary}
+                        </p>
+                    ) : (
+                        <p style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#8b7f9e]/70 line-clamp-1 min-w-0">暂无摘要</p>
                     )}
                 </div>
             </div>
@@ -2756,6 +2376,102 @@ const MessageItem = React.memo(({
             return commonLayout(card);
         }
 
+        // 偷看手机总结卡片：可展开（<details>），点开看完整查看明细
+        if (pc.kind === 'reverse_summary') {
+            const rAccent = '#fb7185';
+            const items: any[] = Array.isArray(pc.items) ? pc.items : [];
+            const moodStr = pc.mood || '';
+            const card = (
+                <div className="w-64">
+                    <details className="group relative rounded-2xl overflow-hidden border shadow-[0_8px_24px_rgba(45,20,30,0.45)] [&_summary]:list-none [&::-webkit-details-marker]:hidden"
+                        style={{ borderColor: 'rgba(251,113,133,0.3)', background: 'linear-gradient(160deg,#2a1620 0%,#1d1018 55%,#130a0f 100%)' }}>
+                        <div className="absolute -top-8 -right-6 w-28 h-28 rounded-full blur-2xl pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(251,113,133,0.3), transparent 70%)' }} />
+                        <summary className="relative px-3 pt-2.5 pb-2 flex items-center gap-2 border-b cursor-pointer select-none" style={{ borderColor: 'rgba(251,113,133,0.18)' }}>
+                            <span className="text-sm leading-none">👁️</span>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[9px] tracking-[0.25em] font-bold uppercase" style={{ color: rAccent }}>偷看手机</div>
+                                <div className="text-[12px] text-white/90 font-semibold truncate">{pc.title || '偷看手机'}</div>
+                            </div>
+                            {moodStr && (
+                                <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ color: rAccent, background: 'rgba(251,113,133,0.14)' }}>{moodStr}</span>
+                            )}
+                            <span className="shrink-0 text-[12px] font-bold leading-none transition-transform group-open:rotate-90" style={{ color: rAccent }}>›</span>
+                        </summary>
+                        <div className="relative px-3 py-2.5 max-h-[400px] overflow-y-auto sully-card-scroll">
+                            {/* 角色感想：标签 + 左侧竖线引区块，与明细分开 */}
+                            {pc.detail ? (
+                                <div className="pl-2.5 border-l" style={{ borderColor: 'rgba(251,113,133,0.35)' }}>
+                                    <span className="inline-block text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-full mb-1"
+                                        style={{ color: rAccent, background: 'rgba(251,113,133,0.14)' }}>角色感想</span>
+                                    <p className="text-[12px] leading-[1.6] text-white/80 whitespace-pre-wrap break-words">{pc.detail}</p>
+                                </div>
+                            ) : null}
+                            {items.length > 0 && (
+                                <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'rgba(251,113,133,0.16)' }}>
+                                    {items.map((it, i) => (
+                                        <div key={i} className={i > 0 ? 'pt-2.5 mt-2.5 border-t' : ''} style={i > 0 ? { borderColor: 'rgba(251,113,133,0.12)' } : undefined}>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[10px] font-bold" style={{ color: rAccent }}>▸ {it.appName || '应用'}</span>
+                                            </div>
+                                            {it.detail && (
+                                                <div className="mt-1 flex items-start gap-1.5">
+                                                    <span className="shrink-0 mt-0.5 text-[8px] font-bold px-1 py-px rounded"
+                                                        style={{ color: '#94a3b8', background: 'rgba(148,163,184,0.16)' }}>看到</span>
+                                                    <p className="text-[11px] leading-[1.6] text-white/55 break-words">{it.detail}</p>
+                                                </div>
+                                            )}
+                                            {it.learned && (
+                                                <div className="mt-1 flex items-start gap-1.5">
+                                                    <span className="shrink-0 mt-0.5 text-[8px] font-bold px-1 py-px rounded"
+                                                        style={{ color: rAccent, background: 'rgba(251,113,133,0.14)' }}>角色想法</span>
+                                                    <p className="text-[11px] leading-[1.6] break-words" style={{ color: 'rgba(251,113,133,0.88)' }}>{it.learned}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="relative px-3 py-1.5 border-t flex items-center justify-between" style={{ borderColor: 'rgba(251,113,133,0.16)' }}>
+                            <span className="text-[9px] italic text-white/40">TA 悄悄翻了你手机 · {timeStr}</span>
+                            <span className="text-[9px] font-bold tracking-wide" style={{ color: rAccent }}>来自查手机</span>
+                        </div>
+                    </details>
+                </div>
+            );
+            return commonLayout(card);
+        }
+
+        // 偷看手机 · 被拒卡片：角色想查手机被拒绝（每次被拒都生成一张），可展开看被拒次数 + 角色反应
+        if (pc.kind === 'reverse_reject') {
+            const rAccent = '#f472b6';
+            const rcCount = (pc as any).rejectCount || 1;
+            const card = (
+                <div className="w-64">
+                    <details className="group relative rounded-2xl overflow-hidden border shadow-[0_8px_24px_rgba(50,20,35,0.45)] [&_summary]:list-none [&::-webkit-details-marker]:hidden"
+                        style={{ borderColor: 'rgba(244,114,182,0.28)', background: 'linear-gradient(160deg,#2a1420 0%,#1e0e18 55%,#140a10 100%)' }}>
+                        <div className="absolute -top-8 -right-6 w-28 h-28 rounded-full blur-2xl pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.28), transparent 70%)' }} />
+                        <summary className="relative px-3 pt-2.5 pb-2 flex items-center gap-2 border-b cursor-pointer select-none" style={{ borderColor: 'rgba(244,114,182,0.16)' }}>
+                            <span className="text-sm leading-none">🚫</span>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[9px] tracking-[0.25em] font-bold uppercase" style={{ color: rAccent }}>偷看手机 · 被拒</div>
+                                <div className="text-[12px] text-white/90 font-semibold truncate">被拒绝了 {rcCount} 次</div>
+                            </div>
+                            <span className="shrink-0 text-[12px] font-bold leading-none transition-transform group-open:rotate-90" style={{ color: rAccent }}>›</span>
+                        </summary>
+                        <div className="relative px-3 py-2.5">
+                            <p className="text-[12px] leading-[1.6] text-white/75 whitespace-pre-wrap">{pc.detail || ''}</p>
+                        </div>
+                        <div className="relative px-3 py-1.5 border-t flex items-center justify-between" style={{ borderColor: 'rgba(244,114,182,0.16)' }}>
+                            <span className="text-[9px] italic text-white/40">TA 想查看你的手机 · {timeStr}</span>
+                            <span className="text-[9px] font-bold tracking-wide" style={{ color: rAccent }}>来自查手机</span>
+                        </div>
+                    </details>
+                </div>
+            );
+            return commonLayout(card);
+        }
+
         const accent = '#7dd3fc';
         const isChat = pc.kind === 'chat';
         const card = (
@@ -2837,7 +2553,7 @@ const MessageItem = React.memo(({
                                     {l?.emotion || '·'}
                                 </span>
                                 <p
-                                    className={`flex-1 min-w-0 text-[12.5px] leading-[1.55] whitespace-pre-wrap break-words ${/[「」“”"]/.test(l?.text || '') ? 'text-white font-medium' : 'text-white/90'}`}
+                                    className={`flex-1 min-w-0 text-[12.5px] leading-[1.55] whitespace-pre-wrap break-words ${/[「」"""]/.test(l?.text || '') ? 'text-white font-medium' : 'text-white/90'}`}
                                 >{l?.text || ''}</p>
                             </div>
                         )) : (
@@ -3104,6 +2820,54 @@ const MessageItem = React.memo(({
         return commonLayout(card);
     }
 
+    if (m.type === 'location_card') {
+        const md: any = m.metadata || {};
+        const name: string = md.name || (md.lat && md.lng ? `${md.lat.toFixed(4)}, ${md.lng.toFixed(4)}` : '未知位置');
+        const desc: string | undefined = md.desc;
+        const lat: number | undefined = md.lat;
+        const lng: number | undefined = md.lng;
+        const isReal = md.source === 'real' && lat != null && lng != null;
+        const card = (
+            <div className="w-56 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.06)]">
+                {/* 顶栏：定位图标 + 来源 */}
+                <div className="flex items-center justify-between px-3 pt-2.5">
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 256 256" className="w-3.5 h-3.5"><path d="M128 24a88.1 88.1 0 0 0-88 88c0 58 74 112 80 119.2a12 12 0 0 0 16 0c6-7.2 80-61.2 80-119.2a88.1 88.1 0 0 0-88-88Zm0 56a32 32 0 1 1-32 32 32 32 0 0 1 32-32Z"/></svg>
+                        位置
+                    </span>
+                    <span className="flex items-center gap-1 text-[9px] text-slate-400">
+                        {isReal ? (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 0 1 15 0Z" /></svg>
+                                真实定位
+                            </>
+                        ) : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" /></svg>
+                                手动填写
+                            </>
+                        )}
+                    </span>
+                </div>
+                {/* 真实定位：迷你地图缩略图（微信发位置样式，失败自动回落纯文字） */}
+                {isReal && (
+                    <div className="px-3 pt-2">
+                        <LocationMapThumb lat={lat!} lng={lng!} name={name} />
+                    </div>
+                )}
+                {/* 地点名 */}
+                <div className="px-3 py-2">
+                    <p className="text-[13px] font-bold text-slate-800 leading-snug">{name}</p>
+                    {desc && <p className="text-[11px] text-slate-500 leading-snug mt-0.5">{desc}</p>}
+                    {isReal && (
+                        <p className="text-[9px] text-slate-400 font-mono mt-1">({lat!.toFixed(4)}, {lng!.toFixed(4)})</p>
+                    )}
+                </div>
+            </div>
+        );
+        return commonLayout(card);
+    }
+
     if (m.type === 'game_replay') {
         const meta: any = m.metadata || {};
         const card = <GameReplayCard meta={meta} />;
@@ -3147,7 +2911,7 @@ const MessageItem = React.memo(({
                 </div>
                 <div className="p-3">
                     <div className="flex items-center gap-2 mb-2">
-                        <TokenImg value={post.authorAvatar} className="w-4 h-4 rounded-full" />
+                        <img src={post.authorAvatar} className="w-4 h-4 rounded-full" />
                         <span className="text-[10px] text-slate-500">{post.authorName}</span>
                     </div>
                     <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{post.content}</p>
@@ -3168,10 +2932,6 @@ const MessageItem = React.memo(({
             return commonLayout(<LifeSimResetCardView card={scoreData} />);
         }
 
-        if (scoreData?.type === 'qixi_event_card') {
-            return commonLayout(<QixiEventCardView card={scoreData} timestamp={m.timestamp} interactionProps={interactionProps} />);
-        }
-
         // Guidebook End Card
         if (scoreData?.type === 'guidebook_card') {
             const diff = scoreData.finalAffinity - scoreData.initialAffinity;
@@ -3181,7 +2941,7 @@ const MessageItem = React.memo(({
                     {/* Header bar */}
                     <div className="px-4 pt-3 pb-2 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(200,185,190,0.2)', background: 'linear-gradient(135deg, rgba(200,185,190,0.2), rgba(190,175,195,0.15))' }}>
                         {scoreData.charAvatar ? (
-                            <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
+                            <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
                         ) : (
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>{scoreData.charName?.[0] || '?'}</div>
                         )}
@@ -3242,7 +3002,7 @@ const MessageItem = React.memo(({
                     {/* Header */}
                     <div className="px-4 pt-3 pb-2.5 flex items-center gap-2.5" style={{ background: 'linear-gradient(135deg, rgba(251,191,110,0.25), rgba(249,168,96,0.15))', borderBottom: '1px solid rgba(251,191,110,0.2)' }}>
                         {scoreData.charAvatar ? (
-                            <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(251,191,110,0.4)' }} />
+                            <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(251,191,110,0.4)' }} />
                         ) : (
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>{scoreData.charName?.[0] || '?'}</div>
                         )}
@@ -3373,80 +3133,13 @@ const MessageItem = React.memo(({
         return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
     }
 
-    if (m.type === 'collaboration_file') {
-        const fileName = String(m.metadata?.fileName || m.content || '未命名文件');
-        const mimeType = String(m.metadata?.mimeType || 'application/octet-stream');
-        const rawSize = Number(m.metadata?.fileSize || 0);
-        const fileSize = rawSize >= 1024 * 1024
-            ? `${(rawSize / (1024 * 1024)).toFixed(rawSize >= 10 * 1024 * 1024 ? 0 : 1)} MB`
-            : rawSize >= 1024 ? `${Math.max(1, Math.round(rawSize / 1024))} KB` : `${rawSize || 0} B`;
-        const extension = String(m.metadata?.format || fileName.split('.').pop() || 'FILE').toUpperCase().slice(0, 8);
-        const isPdf = extension === 'PDF' || mimeType.includes('pdf');
-        const isWord = ['DOC', 'DOCX'].includes(extension) || mimeType.includes('wordprocessingml');
-        const isInstallable = m.metadata?.collaborationAttachmentKind === 'installable' || mimeType.includes('vnd.sullyos.installable');
-        const displayExtension = isInstallable ? '作品' : extension;
-        const accentClass = isInstallable
-            ? 'bg-violet-50 text-violet-600 border-violet-100'
-            : isPdf
-            ? 'bg-rose-50 text-rose-600 border-rose-100'
-            : isWord ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-100 text-slate-600 border-slate-200';
-        const badgeClass = isInstallable ? 'bg-violet-600' : isPdf ? 'bg-rose-600' : isWord ? 'bg-blue-600' : 'bg-slate-600';
-        const openFile = async (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            if (selectionMode) {
-                onToggleSelect(m.id);
-                return;
-            }
-            if (!onOpenCollaborationFile || openingCollaborationFile) return;
-            setOpeningCollaborationFile(true);
-            try {
-                await onOpenCollaborationFile(m);
-            } finally {
-                setOpeningCollaborationFile(false);
-            }
-        };
-        return commonLayout(
-            <button
-                type="button"
-                onClick={openFile}
-                disabled={openingCollaborationFile && !selectionMode}
-                className="sully-collaboration-file group w-[min(276px,72vw)] overflow-hidden rounded-[18px] border border-slate-200/90 bg-white text-left shadow-[0_8px_24px_rgba(15,23,42,0.08)] transition-[transform,box-shadow,opacity] duration-150 active:scale-[0.985] disabled:opacity-70"
-                aria-label={`打开文件 ${fileName}`}
-            >
-                <span className="flex min-w-0 items-center gap-3.5 px-3.5 py-3.5">
-                    <span className={`sully-collaboration-file-icon relative grid h-12 w-11 shrink-0 place-items-center rounded-[13px] border ${accentClass}`}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true">
-                            <path d="M7 3.75h6.75L18.5 8.5v11.75H7z" />
-                            <path d="M13.5 3.75V8.5h5" />
-                        </svg>
-                        <span className={`absolute -bottom-1 rounded-[5px] px-1.5 py-[1px] text-[7px] font-black tracking-[0.08em] text-white ${badgeClass}`}>{displayExtension}</span>
-                    </span>
-                    <span className="sully-collaboration-file-meta min-w-0 flex-1">
-                        <span className="sully-collaboration-file-name block max-h-[2.7em] overflow-hidden break-words text-[13px] font-semibold leading-[1.35] text-slate-800">{fileName}</span>
-                        <span className="sully-collaboration-file-detail mt-1.5 block text-[10px] font-medium tracking-wide text-slate-400">{displayExtension} · {fileSize}</span>
-                    </span>
-                    <span className="sully-collaboration-file-action grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 transition-colors group-hover:text-slate-700">
-                        {openingCollaborationFile ? (
-                            <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px] animate-spin" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity=".22"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                        ) : isInstallable ? (
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></svg>
-                        ) : (
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg>
-                        )}
-                    </span>
-                </span>
-                <span className="block border-t border-slate-100 px-3.5 py-2 text-[9px] font-semibold tracking-[0.12em] text-slate-400">协同工作 · {isInstallable ? '可安装作品' : '原始文件'}</span>
-            </button>
-        );
-    }
-
     // 表情气泡默认尺寸 160→96（吸收社区美化的共识尺寸）。sully-emoji-msg 是给自定义 CSS 用的
     // 稳定锚点——旧美化代码锚在 .max-w-\[160px\] 类名上，类名一变就失配（恰好无缝退休：
     // 新默认就是它们想要的 96px）；以后想改尺寸请选择器写 .sully-emoji-msg，不再锚类名。
     if (m.type === 'emoji') {
         return commonLayout(
             m.content ? (
-                <TokenImg value={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
+                <img src={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
             ) : (
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
             )
@@ -3454,38 +3147,138 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'image') {
-        return commonLayout(
-            <div className="relative group">
+        const imgMeta = (m as any).metadata || {};
+        const isPlaceholder = !!imgMeta.imageGenPlaceholder;
+        const isPending = !!imgMeta.imageGenPending;
+        const isFailed = !!imgMeta.imageGenFailed;
+        const modeBadgeStyles: Record<string, string> = {
+            char: 'bg-violet-500/15 text-violet-600',
+            user: 'bg-emerald-500/15 text-emerald-600',
+            joint: 'bg-pink-500/15 text-pink-600',
+        };
+        const modeLabels: Record<string, string> = { char: '角色', user: '你', joint: '合照' };
+        return (
+            <>
+                {commonLayout(
+                    <div className="relative group">
                 {m.content ? (
-                    <TokenImg
-                        value={m.content}
-                        className="max-w-[200px] max-h-[300px] rounded-2xl"
+                    <img
+                        src={m.content}
+                        className="max-w-[200px] max-h-[300px] rounded-2xl cursor-zoom-in hover:opacity-95 transition-opacity"
                         alt="Uploaded"
                         loading={isLatestMessage ? 'eager' : 'lazy'}
                         decoding="async"
+                        onClick={() => setPreviewSrc(m.content)}
                         onLoad={() => onMediaLoad?.(m.id)}
                     />
+                ) : isPlaceholder ? (
+                    isPending ? (
+                        // 正在生成：半透明占位卡 + 动画
+                        <div className="w-[200px] px-4 py-8 rounded-2xl bg-slate-100 border border-slate-200 flex flex-col items-center gap-2">
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce" />
+                                <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce [animation-delay:120ms]" />
+                                <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce [animation-delay:240ms]" />
+                            </div>
+                            <span className="text-xs text-slate-500 text-center">
+                                {imgMeta.imageGenStatusText || 'AI 正在生成图片...'}
+                            </span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${(modeBadgeStyles[imgMeta.imageGenMode] || modeBadgeStyles.char)}`}>
+                                {modeLabels[imgMeta.imageGenMode] || '角色'}
+                            </span>
+                        </div>
+                    ) : isFailed ? (
+                        // 生成失败：失败卡 + 重试
+                        <div className="w-[200px] px-4 py-8 rounded-2xl bg-red-50 border border-red-100 flex flex-col items-center gap-2">
+                            <span className="text-lg">😢</span>
+                            <span className="text-xs text-red-500 text-center" title={imgMeta.imageGenError || ''}>
+                                {imgMeta.imageGenError || '图片生成失败'}
+                            </span>
+                            {imgMeta.imageGenSceneDesc && onRetryImageGen && (
+                                <button
+                                    onClick={() => onRetryImageGen(m.id, imgMeta.imageGenSceneDesc)}
+                                    className="px-3 py-1.5 rounded-full bg-red-500 text-white text-xs font-medium active:scale-95"
+                                >
+                                    重试
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
+                    )
                 ) : (
                     <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
                 )}
-            </div>
+                    </div>
+                )}
+
+                {/* 全屏预览弹层：用 createPortal 渲染到 body，脱离父级消息容器的
+                    overflow/transform/contain 限制，确保 fixed inset-0 真正全屏覆盖。
+                    这样图片能按 width: 95vw 撑满整个聊天窗口。 */}
+                {previewSrc && createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483000] bg-black/85 backdrop-blur-md flex flex-col items-center justify-center py-6 overflow-y-auto"
+                        onClick={() => setPreviewSrc(null)}
+                    >
+                        {/* 关闭按钮（右上角，半透明风格） */}
+                        <button
+                            type="button"
+                            className="fixed top-4 right-4 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all"
+                            onClick={() => setPreviewSrc(null)}
+                            aria-label="关闭"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        {/* 大图：固定按宽度撑满视口，高度按 9:16 原比例自动撑高，
+                            允许超出部分被容器滚动查看（这样永远比气泡缩略图大得多）。
+                            用内联 style 是为了避开 Tailwind 的 arbitrary value 在某些构建里被裁剪的问题。 */}
+                        <img
+                            src={previewSrc}
+                            alt="预览大图"
+                            draggable={false}
+                            style={{
+                                width: '95vw',
+                                height: 'auto',
+                                maxWidth: 'none',
+                                maxHeight: 'none',
+                                userSelect: 'none',
+                                display: 'block',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+
+                        {/* 下载按钮（右下角悬浮，半透明风格） */}
+                        <button
+                            type="button"
+                            disabled={previewDownloading}
+                            onClick={(e) => { e.stopPropagation(); handlePreviewDownload(); }}
+                            className="fixed bottom-6 right-6 z-10 w-14 h-14 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all shadow-lg disabled:opacity-60"
+                            aria-label="下载图片"
+                        >
+                            {previewDownloading ? (
+                                <svg className="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                </svg>
+                            )}
+                        </button>
+                    </div>,
+                    document.body
+                )}
+            </>
         );
     }
 
     // --- Dynamic Style Generation for Bubble ---
-    const cornerRadii = resolveBubbleCornerRadii(styleConfig);
-    const borderObj: React.CSSProperties = {
-        borderTopLeftRadius: `${cornerRadii.topLeft}px`,
-        borderTopRightRadius: `${cornerRadii.topRight}px`,
-        borderBottomRightRadius: `${cornerRadii.bottomRight}px`,
-        borderBottomLeftRadius: `${cornerRadii.bottomLeft}px`,
-    };
-    const hideBubbleTail = shouldHideBubbleTail(styleConfig.tailMode, isLastInGroup);
-    const bubbleGroupClasses = [
-        isFirstInGroup ? 'sully-bubble-group-first' : '',
-        isLastInGroup ? 'sully-bubble-group-last' : '',
-        hideBubbleTail ? 'sully-bubble-tail-hidden' : 'sully-bubble-tail-visible',
-    ].filter(Boolean).join(' ');
+    const radius = styleConfig.borderRadius;
+    const borderObj: React.CSSProperties = { borderRadius: `${radius}px` };
 
     // Container style (BackgroundColor + Opacity) with bubble variant
     const containerStyle: React.CSSProperties = {
@@ -3626,14 +3419,8 @@ const MessageItem = React.memo(({
     // 两家服务商的演出标记都不会漏给用户看。
     const cleanVoiceText = (t?: string | null) => stripFishCuesForDisplay(cleanVoiceMarkupForDisplay(t ?? ''));
 
-    // 引用快照原样存着 %%BILINGUAL%% 等原始标记（双语消息），预览前先清洗。
-    // 历史快照里还可能原样躺着图片令牌 / data: / 图床 URL（用户侧引用图片消息时曾直接落库），
-    // 那种值洗不出正文、截 10 个字就是一串 `blobref:b_`，交给写入端同一个快照函数换成占位符。
-    const replyPreview = m.replyTo
-        ? (isImageValue(m.replyTo.content)
-            ? buildReplySnapshotContent({ content: m.replyTo.content })
-            : stripJunk(m.replyTo.content))
-        : '';
+    // 引用快照原样存着 %%BILINGUAL%% 等原始标记（双语消息），预览前先清洗
+    const replyPreview = m.replyTo ? stripJunk(m.replyTo.content) : '';
 
     // Parse %%BILINGUAL%% for bilingual display (langA = "选" language, langB = "译" language)
     const bilingualIdx = rawContent.toLowerCase().indexOf('%%bilingual%%');
@@ -3641,12 +3428,9 @@ const MessageItem = React.memo(({
     const langAContent = hasBilingual ? stripJunk(rawContent.substring(0, bilingualIdx)) : stripJunk(rawContent);
     const langBContent = hasBilingual ? stripJunk(rawContent.substring(bilingualIdx + '%%BILINGUAL%%'.length)) : '';
 
-    // Display: 默认点击切换；可选“直接展开”时，上方原文 + 下方译文同时显示。
-    const showExpandedTranslation = Boolean(translationEnabled && translationExpanded && hasBilingual && langBContent);
-    const displayContent = showExpandedTranslation
-        ? langAContent
-        : (isShowingTarget && langBContent) ? langBContent : langAContent;
-    const showTranslateButton = translationEnabled && !showExpandedTranslation && hasBilingual && langBContent;
+    // Display: "选" language by default, "译" language when toggled
+    const displayContent = (isShowingTarget && langBContent) ? langBContent : langAContent;
+    const showTranslateButton = translationEnabled && hasBilingual && langBContent;
 
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
     // 未闭合的开标签也算 (历史坏数据: 语音块曾被 chunkText 切碎, 开标签落单) —
@@ -3665,6 +3449,153 @@ const MessageItem = React.memo(({
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
 
+    // ── 已撤回消息：不显示原文，渲染居中的灰色撤回提示（用户撤回；角色「他撤回」已隐藏，统一按灰字不可点） ──
+    if (m.isRevoked || m.metadata?.recallSecret) {
+        const recallText = isUser ? '你撤回了一条消息' : `${charName || '对方'} 撤回了一条消息`;
+        return commonLayout(
+            <div className={`w-full text-center select-none py-0.5 ${suppressEntranceAnimation ? '' : 'animate-fade-in'}`}>
+                <span className="text-[11px] italic text-slate-400/70">{recallText}</span>
+            </div>,
+        );
+    }
+
+    // ── 线下模式 · 进入/退出长分隔线（横跨整宽，不落胶囊条） ──
+    if (m.metadata?.offlineDivider) {
+        const entering = m.metadata.offlineDivider === 'start';
+        return commonLayout(
+            <div className="flex items-center gap-2 py-1 px-1 w-full select-none">
+                <div className="flex-1 h-px" style={{ background: entering ? 'rgba(56,189,248,0.45)' : 'rgba(148,163,184,0.4)' }} />
+                <span
+                    className="text-[10px] font-bold tracking-wider"
+                    style={{ color: entering ? 'rgba(56,189,248,0.85)' : 'rgba(100,116,139,0.8)' }}
+                >
+                    {entering ? '线下模式 · 进入' : '线下模式 · 结束'}
+                </span>
+                <div className="flex-1 h-px" style={{ background: entering ? 'rgba(56,189,248,0.45)' : 'rgba(148,163,184,0.4)' }} />
+            </div>,
+        );
+    }
+
+    // ── 线下模式消息：行级解析 → 旁白(斜体居中·无头像) / 台词(气泡+头像) 交替 ──
+    // 注意：必须绕过 commonLayout——它硬编码了 char 的头像槽（ml-12 让位）和
+    // max-w-[72%] 内容壳，会让旁白「带头像 + 被挤窄不居中」。这里自写无头像布局：
+    // 旁白横跨整宽居中，台词才带头像气泡。
+    if (m.offline && m.type === 'text' && !hasVoiceContent) {
+        // 线下双语消息：后处理在落库时用 metadata.offlineRole 标记了它是台词还是旁白
+        // （译文切换后引号会丢，不能依赖行首引号判断）。优先读它，整条作为单段。
+        const offlineRole = (m.metadata as any)?.offlineRole as 'dialogue' | 'narration' | undefined;
+        let segs: Array<{ type: 'narration' | 'dialogue'; text: string }> = [];
+        if (offlineRole) {
+            // 双语台词原文可能带引号（后处理未剥），这里剥掉避免显示
+            let txt = displayContent;
+            if (offlineRole === 'dialogue') {
+                txt = txt.replace(/^["「『"]/, '').replace(/["」』"]$/, '').trim();
+            }
+            segs = [{ type: offlineRole, text: txt }];
+        } else {
+            segs = parseOfflineMessage(displayContent);
+        }
+        if (segs.length > 0) {
+            const oCfg = normalizeOfflineConfig(offlineConfig);
+            const nColor = isUser
+                ? (oCfg.userNarrationColor || oCfg.narrationColor)
+                : oCfg.narrationColor;
+            // 线下双语：原文是中文就不需要翻译按钮（自动检测）
+            const offlineShowTranslate = showTranslateButton && !isChineseText(langAContent);
+            // 翻译切换按钮（复用普通气泡样式）：有台词时挂在台词气泡内，纯旁白时放消息底部
+            const renderTranslateToggle = () => (
+                <button
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onTranslateToggle?.(m.id); }}
+                    className="flex items-center gap-1 text-[10px] font-medium transition-opacity active:opacity-80 select-none"
+                    style={{ color: styleConfig.textColor, opacity: 0.45 }}
+                >
+                    {isShowingTarget ? (
+                        <>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M7.793 2.232a.75.75 0 0 1-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 0 1 0 10.75H10.75a.75.75 0 0 1 0-1.5h2.875a3.875 3.875 0 0 0 0-7.75H3.622l4.146 3.957a.75.75 0 0 1-1.036 1.085l-5.5-5.25a.75.75 0 0 1 0-1.085l5.5-5.25a.75.75 0 0 1 1.06.025Z" clipRule="evenodd" /></svg>
+                            <span>原文</span>
+                        </>
+                    ) : (
+                        <>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M7.75 2.75a.75.75 0 0 0-1.5 0v1.258a32.987 32.987 0 0 0-3.599.278.75.75 0 1 0 .198 1.487A31.545 31.545 0 0 1 8.7 5.545 19.381 19.381 0 0 1 7.257 9.04a19.391 19.391 0 0 1-1.727-2.29.75.75 0 1 0-1.29.77 20.9 20.9 0 0 0 2.023 2.684 19.549 19.549 0 0 1-3.158 2.57.75.75 0 1 0 .86 1.229A21.056 21.056 0 0 0 7.5 11.03c1.1.95 2.3 1.79 3.593 2.49a.75.75 0 1 0 .69-1.331A19.545 19.545 0 0 1 8.46 9.89a20.893 20.893 0 0 0 1.91-4.644h2.38a.75.75 0 0 0 0-1.5h-3v-1a.75.75 0 0 0-.75-.75Z" /><path d="M12.75 10a.75.75 0 0 1 .692.462l2.5 6a.75.75 0 1 1-1.384.576l-.532-1.278h-3.052l-.532 1.278a.75.75 0 1 1-1.384-.576l2.5-6A.75.75 0 0 1 12.75 10Zm-1.018 4.26h2.036L12.75 11.6l-1.018 2.66Z" /></svg>
+                            <span>翻译</span>
+                        </>
+                    )}
+                </button>
+            );
+            const lineCls = [
+                'sully-chat-message',
+                isUser ? 'sully-chat-message-user justify-end' : 'sully-chat-message-ai justify-start',
+                isFirstInGroup ? 'sully-chat-message-group-first' : '',
+                isLastInGroup ? 'sully-chat-message-group-last' : '',
+                `flex items-end ${marginBottom} px-3 group relative select-none transition-[padding] duration-300`,
+                selectionMode ? 'pl-12' : '',
+            ].filter(Boolean).join(' ');
+            return (
+                <div
+                    className={lineCls}
+                    style={{
+                        '--sully-chat-message-avatar-size': `${avatarSizePx}px`,
+                        touchAction: 'pan-y',
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
+                    } as React.CSSProperties}
+                    {...interactionProps}
+                >
+                    {selectionMode && (
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 cursor-pointer z-20" onClick={() => onToggleSelect(m.id)}>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                                {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                            </div>
+                        </div>
+                    )}
+                    <div
+                        className={`relative flex flex-col ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${isUser ? 'items-end' : 'items-start'} min-w-0 w-full`}
+                    >
+                        {segs.map((seg, i) =>
+                            seg.type === 'narration' ? (
+                                <div
+                                    key={i}
+                                    className="w-full max-w-[80%] mx-auto text-center italic select-text px-1"
+                                    style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
+                                >
+                                    {renderInline(seg.text)}
+                                </div>
+                            ) : (
+                                // 台词：带头像气泡，头像在首条台词前
+                                <div
+                                    key={i}
+                                    className={`relative flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 mt-1 ${i === 0 ? 'mt-2' : 'mt-1.5'}`}
+                                >
+                                    {renderAvatar(isUser ? userAvatar : charAvatar, { visible: true, className: isUser ? 'sully-offline-avatar-user' : 'sully-offline-avatar-ai' })}
+                                    <div
+                                        className={`relative z-10 max-w-[72%] px-4 py-2.5 text-[15px] leading-relaxed break-all select-text ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm'} ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
+                                        style={containerStyle}
+                                    >
+                                        <span style={{ color: styleConfig.textColor }}>{renderInline(seg.text)}</span>
+                                        {offlineShowTranslate && (
+                                            <div className="mt-1.5 pt-1.5 flex justify-end" style={{ borderTop: '1px solid rgba(127,127,127,0.16)' }}>
+                                                {renderTranslateToggle()}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ),
+                        )}
+                        {offlineShowTranslate && !segs.some((s) => s.type === 'dialogue') && (
+                            <div className="mt-1 w-full flex justify-center">
+                                {renderTranslateToggle()}
+                            </div>
+                        )}
+                        {isLastInGroup && showTimestamp !== 'never' && (
+                            <div className={`absolute top-full ${isUser ? 'right-0' : 'left-0'} mt-0.5 px-1 text-[9px] text-slate-400/80 font-medium whitespace-nowrap pointer-events-none ${showTimestamp === 'hover' ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}`}>{formatTime(m.timestamp)}</div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+    }
+
     // Voice-only messages (no display text, only voice bar): skip bubble styling
     const isVoiceOnlyMsg = !displayContent && hasVoiceContent && !isUser && m.type === 'text';
 
@@ -3677,15 +3608,15 @@ const MessageItem = React.memo(({
     return commonLayout(
         <div className={isVoiceOnlyMsg
             ? `relative ${suppressEntranceAnimation ? '' : 'animate-fade-in'}`
-            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm '}px-5 py-3 ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'} ${bubbleGroupClasses}`}
+            : `relative ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm '}px-5 py-3 ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${bubbleVariant === 'outline' ? '' : 'border border-black/5 '}active:scale-[0.98] transition-transform overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
             style={isVoiceOnlyMsg ? undefined : containerStyle}>
 
             {/* Layer 1: Background Image with Independent Opacity */}
-            {bubbleBgUrl && (
+            {styleConfig.backgroundImage && (
                 <div
                     className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
                     style={{
-                        backgroundImage: `url(${bubbleBgUrl})`,
+                        backgroundImage: `url(${styleConfig.backgroundImage})`,
                         opacity: styleConfig.backgroundImageOpacity ?? 0.5,
                         borderRadius: 'inherit'
                     }}
@@ -3694,8 +3625,8 @@ const MessageItem = React.memo(({
 
             {/* Layer 2: Decoration Sticker (Custom Position) */}
             {styleConfig.decoration && (
-                <TokenImg
-                    value={styleConfig.decoration}
+                <img
+                    src={styleConfig.decoration}
                     className="absolute z-10 w-8 h-8 object-contain drop-shadow-sm pointer-events-none"
                     style={{
                         left: `${styleConfig.decorationX ?? (isUser ? 90 : 10)}%`,
@@ -3719,12 +3650,6 @@ const MessageItem = React.memo(({
             {displayContent && !isForeignVoiceMsg && (
             <div className="relative z-10 text-[15px] leading-relaxed whitespace-pre-wrap break-all select-text" style={{ color: styleConfig.textColor }}>
                 {renderContent(displayContent)}
-                {showExpandedTranslation && (
-                    <div className="mt-2.5 pt-2 border-t border-current/15">
-                        <div className="mb-1 text-[9px] font-bold tracking-[0.16em] opacity-40 select-none">翻译</div>
-                        {renderContent(langBContent)}
-                    </div>
-                )}
             </div>
             )}
 
@@ -3765,12 +3690,12 @@ const MessageItem = React.memo(({
                 // 外语语音消息顶部正文已隐藏（交给语音条渲染），同样按纯语音处理，去掉多余上间距。
                 const isVoiceOnly = !!voiceData?.url && (!displayContent || isForeignVoiceMsg);
                 return (
-                <div className={`sully-voice-bar-shell relative z-10 ${isVoiceOnly ? '' : 'mt-2.5'}`}>
+                <div className={`relative z-10 ${isVoiceOnly ? '' : 'mt-2.5'}`}>
                     {voiceData?.url ? (
                         <div className="max-w-[260px]">
                             <button
                                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); if (!isVoicePlaying) trackEvent('播放语音条'); }}
-                                className="sully-voice-bar group flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl transition-all duration-300 active:scale-[0.97] select-none"
+                                className="group flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl transition-all duration-300 active:scale-[0.97] select-none"
                                 style={{
                                     background: isVoicePlaying
                                         ? (vbActiveBg || 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(52,211,153,0.08) 100%)')
@@ -3781,7 +3706,7 @@ const MessageItem = React.memo(({
                                 }}
                             >
                                 {/* Play/Pause circle */}
-                                <div className="sully-voice-bar-button shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300"
+                                <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300"
                                     style={{
                                         backgroundColor: isVoicePlaying ? (vbBtn || '#10b981') : (vbBg ? 'rgba(255,255,255,0.25)' : 'rgba(148,163,184,0.2)'),
                                         boxShadow: isVoicePlaying ? `0 2px 8px ${vbBtn ? vbBtn + '4D' : 'rgba(16,185,129,0.3)'}` : 'none',
@@ -3794,11 +3719,11 @@ const MessageItem = React.memo(({
                                     )}
                                 </div>
                                 {/* Waveform bars */}
-                                <div className="sully-voice-bar-wave flex-1 flex items-center gap-[3px] h-5 overflow-hidden">
+                                <div className="flex-1 flex items-center gap-[3px] h-5 overflow-hidden">
                                     {[4, 10, 6, 14, 8, 12, 5, 11, 7, 13, 4, 9, 6, 11, 5, 8, 10, 7, 12, 6].map((h, i) => (
                                         <div
                                             key={i}
-                                            className={`sully-voice-bar-wave-segment w-[2.5px] rounded-full transition-all duration-150 ${isVoicePlaying ? 'animate-pulse' : ''}`}
+                                            className={`w-[2.5px] rounded-full transition-all duration-150 ${isVoicePlaying ? 'animate-pulse' : ''}`}
                                             style={{
                                                 height: isVoicePlaying ? `${Math.max(3, h + Math.sin(i * 0.8) * 3)}px` : `${Math.max(2, h * 0.4)}px`,
                                                 backgroundColor: isVoicePlaying
@@ -3812,7 +3737,7 @@ const MessageItem = React.memo(({
                                 </div>
                                 {/* Text toggle button — always available so user can read the text */}
                                 <div
-                                    className={`sully-voice-bar-toggle shrink-0 ml-0.5 px-1.5 py-0.5 rounded-lg text-[9px] font-medium transition-all ${showVoiceText ? 'ring-1 ring-current/20' : ''}`}
+                                    className={`shrink-0 ml-0.5 px-1.5 py-0.5 rounded-lg text-[9px] font-medium transition-all ${showVoiceText ? 'ring-1 ring-current/20' : ''}`}
                                     style={{
                                         color: vbText || 'rgba(100,116,139,0.7)',
                                         backgroundColor: showVoiceText ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.04)',
@@ -3830,7 +3755,7 @@ const MessageItem = React.memo(({
                             {/* Expandable text area — shows spoken text + Chinese translation */}
                             {showVoiceText && (
                                 <div>
-                                    <div className="sully-voice-bar-transcript mt-1.5 px-3 py-2 rounded-xl text-[11px] leading-relaxed space-y-1"
+                                    <div className="mt-1.5 px-3 py-2 rounded-xl text-[11px] leading-relaxed space-y-1"
                                         style={{
                                             backgroundColor: vbBg || 'rgba(0,0,0,0.02)',
                                             color: vbText || '#475569',
@@ -3871,7 +3796,7 @@ const MessageItem = React.memo(({
                             )}
                         </div>
                     ) : voiceLoading ? (
-                        <div className="sully-voice-bar sully-voice-bar-loading flex items-center gap-2 px-3 py-2 max-w-[200px] rounded-2xl" style={{ background: vbBg || 'linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%)', border: '1px solid rgba(0,0,0,0.04)' }}>
+                        <div className="flex items-center gap-2 px-3 py-2 max-w-[200px] rounded-2xl" style={{ background: vbBg || 'linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%)', border: '1px solid rgba(0,0,0,0.04)' }}>
                             <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: vbBg ? 'rgba(255,255,255,0.2)' : '#f1f5f9' }}>
                                 <svg className="animate-spin h-3.5 w-3.5" style={{ color: vbBtn || '#94a3b8' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3.5"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                             </div>
@@ -3889,7 +3814,7 @@ const MessageItem = React.memo(({
                            aligning fake voice messages with real ones. */
                         <div className="max-w-[260px]">
                             <div
-                                className="sully-voice-bar sully-voice-bar-placeholder flex items-center gap-2 px-3 py-2 rounded-2xl"
+                                className="flex items-center gap-2 px-3 py-2 rounded-2xl"
                                 style={{ background: vbBg || 'linear-gradient(135deg, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0.06) 100%)', border: '1px solid rgba(0,0,0,0.05)' }}
                             >
                                 <button
@@ -3920,7 +3845,7 @@ const MessageItem = React.memo(({
                                 )}
                             </div>
                             {showVoiceText && (voiceTagText || displayContent) && (
-                                <div className="sully-voice-bar-transcript mt-1.5 px-3 py-2 rounded-xl text-[11px] leading-relaxed whitespace-pre-wrap"
+                                <div className="mt-1.5 px-3 py-2 rounded-xl text-[11px] leading-relaxed whitespace-pre-wrap"
                                     style={{
                                         backgroundColor: vbBg || 'rgba(0,0,0,0.02)',
                                         color: vbText || '#475569',
@@ -3957,7 +3882,6 @@ const MessageItem = React.memo(({
            prev.selectionMode === next.selectionMode &&
            prev.isSelected === next.isSelected &&
            prev.translationEnabled === next.translationEnabled &&
-           prev.translationExpanded === next.translationExpanded &&
            prev.isShowingTarget === next.isShowingTarget &&
            prev.avatarShape === next.avatarShape &&
            prev.avatarSize === next.avatarSize &&

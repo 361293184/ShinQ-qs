@@ -33,7 +33,6 @@ import {
   handleInstantErrorPushMessage,
   startLateEmotionPoll,
 } from './activeMsgRuntime';
-import { MULTIPART_FAILURE_REASON } from '@rei-standard/amsg-shared';
 import * as Analytics from './analytics';
 import {
   AMSG_INSTANT_CHAT_PENDING_LS_KEY,
@@ -51,6 +50,26 @@ import { AMSG_SELF_LOG_KEY, amsgStateNamespace } from './amsgFirePack';
 import { CHAT_GEN_EVENTS } from './chatGenEvents';
 import { DB } from './db';
 import { readAllInstantTraces } from './instantTraceLog';
+
+// 同 activeMsgRuntime.ts：@rei-standard/amsg-shared@0.4.0-next.8 缺 protocol.js，
+// 这里本地冻结一份与 shared 协议一致的常量，避免 Vite 报 missing export。
+const MULTIPART_FAILURE_REASON: Readonly<{
+    TTL_EXPIRED: 'ttl-expired';
+    INVALID_CHUNK: 'invalid-chunk';
+    CHUNK_CONFLICT: 'chunk-conflict';
+    SIZE_LIMIT_EXCEEDED: 'size-limit-exceeded';
+    RESTORE_FAILED: 'restore-failed';
+    STORAGE_FAILED: 'storage-failed';
+    DISABLED: 'disabled';
+}> = Object.freeze({
+    TTL_EXPIRED: 'ttl-expired',
+    INVALID_CHUNK: 'invalid-chunk',
+    CHUNK_CONFLICT: 'chunk-conflict',
+    SIZE_LIMIT_EXCEEDED: 'size-limit-exceeded',
+    RESTORE_FAILED: 'restore-failed',
+    STORAGE_FAILED: 'storage-failed',
+    DISABLED: 'disabled',
+});
 
 // resolveFireExpireDecision 是从「防穿帮闸·客户端兜底」吞没闸抽出来的 get-or-compute
 // helper（带 TTL 清扫），单测把闸的关键不变量钉住，防回归：

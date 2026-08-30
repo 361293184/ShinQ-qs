@@ -320,8 +320,16 @@ export interface APIConfig {
   imageGenApiKey?: string;
   imageGenBaseUrl?: string;
   imageGenModel?: string;
+  // 生图模式开关（三种独立，互不干扰）
+  imageGenCharEnabled?: boolean;   // 角色生图
   imageGenUserEnabled?: boolean;   // 用户生图
   imageGenJointEnabled?: boolean;  // 合照（自动调用上下文的角色+用户锁脸和描述词）
+  // 角色「主动发照片」控制：开启后会在 system prompt 注入「主动发图规则」，让 AI
+  // 在合适的场景（例如风景/心情/纪念日）通过图片-X 触发器自发生图。
+  // 用户没启 imageGenCharEnabled 时此开关无效。
+  imageGenProactiveEnabled?: boolean;
+  // 主动发图的频率档位：conservative（罕见，强烈信号才发）/ moderate（普通，合适就发）/ bold（活跃，常发）
+  imageGenProactiveRate?: 'conservative' | 'moderate' | 'bold';
 }
 
 export interface InstantPushConfig {
@@ -3020,6 +3028,8 @@ export interface CharacterProfile {
   dateStyleConfig?: DateStyleConfig; // 见面模式文风（写作风格 / 叙事人称 / 自定义补充）
   /** 观测协议 OBSERVE：开启后每条回复注入「时间/地点/状态/细节」结构化观测，渲染成全息 HUD（样式/字段可自定义） */
   dateObserve?: DateObserveConfig;
+  /** 私聊线下模式配置（开关/文风/字数/人称/旁白样式），按角色记忆，见 offlineMode/offlineSettings.ts */
+  offlineConfig?: OfflineConfig;
 
   savedDateState?: DateState;
   specialMomentRecords?: Record<string, SpecialMomentRecord>;
@@ -3150,6 +3160,16 @@ export interface CharacterProfile {
   activeMsg2Config?: ActiveMsg2CharacterConfig;
   activeBuffs?: CharacterBuff[];
   buffInjection?: string;   // 注入到systemPrompt的叙事型情绪底色描述
+  /**
+   * 消息撤回「抓包」概率（0..1）。用户撤回消息时，角色有一定概率「碰巧看到」被撤回的原文，
+   * 从而在后续对话里戳破/调侃/装没看见。默认 0.4（40%）。每个角色独立。
+   */
+  recallCaughtChance?: number;
+  /**
+   * 角色「他撤回」预设开关（默认关）。开启后，角色可在回复里输出
+   * `<recallmsg text="真实心声" reason="内心独白">表面话</recallmsg>`，用户点开灰字可看真实心声。
+   */
+  recallOutputEnabled?: boolean;
   emotionConfig?: {
     enabled: boolean;
     api?: {
@@ -3957,7 +3977,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'game_replay';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay';
 
 export interface Message {
     id: number;
@@ -3967,6 +3987,10 @@ export interface Message {
     type: MessageType;
     content: string;
     timestamp: number;
+    /** 线下模式消息：渲染时按行级解析器拆「旁白/台词」，退出线下后历史消息不误解析 */
+    offline?: boolean;
+    /** 已撤回：撤回不是物理删除，content 已被替换为撤回提示、此标记为 true；AI 上下文会过滤掉 */
+    isRevoked?: boolean;
     metadata?: any; 
     replyTo?: {
         id: number;

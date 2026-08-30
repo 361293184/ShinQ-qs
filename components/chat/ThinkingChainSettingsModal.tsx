@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { THINKING_CHAIN_PRESETS, resolveThinkingChainStyle, PsycheDecor, ThinkingChainStyleId } from './MessageItem';
+import { THINKING_CHAIN_PRESETS, resolveThinkingChainStyle, PsycheDecor, ThinkingChainStyleId } from './thinkingChainStyle';
 import { validateScopedCss } from '../../utils/scopedCss';
 
 interface ThinkingChainSettingsValue {

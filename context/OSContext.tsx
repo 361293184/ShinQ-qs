@@ -311,6 +311,13 @@ interface OSContextType {
   setActiveCharacterId: (id: string) => void;
 
   // 角色分组（神经链接"文件夹"，与群聊 groups 无关）
+  // 外部唤起 Message 直达某个角色的标志（一次性）：通知点击 / 主动消息打开时置为对应角色 id，
+  // Chat 组件 mount 时消费后立即清空，用于区分「普通打开先进列表」和「外部指定角色直达对话框」。
+  chatDeepLinkCharId: string | null;
+  consumeChatDeepLink: () => void;
+  /** 直接设置「外部唤起 Message 直达某角色」标志（反查手机接管等场景用，切到 Chat 前调用） */
+  setChatDeepLinkCharId: (charId: string) => void;
+
   characterGroups: CharacterGroup[];
   createCharacterGroup: (name: string) => Promise<CharacterGroup | null>;
   renameCharacterGroup: (id: string, name: string) => Promise<void>;
@@ -902,6 +909,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [activeCharacterId, setActiveCharacterId] = useState<string>('');
+  const [chatDeepLinkCharId, setChatDeepLinkCharId] = useState<string | null>(null);
+  const consumeChatDeepLink = useCallback(() => setChatDeepLinkCharId(null), []);
 
   // 刷新后能恢复"上一次聊的角色"：所有调用方（聊天切换/通知 onclick/记忆宫殿 handleSwitchChar）
   // 都走裸 setActiveCharacterId，集中在这里同步到 localStorage，避免每个调用点各写一遍
@@ -1840,6 +1849,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                                   });
                                   notif.onclick = () => {
                                       window.focus();
+                                      setChatDeepLinkCharId(char.id);
                                       setActiveApp(AppID.Chat);
                                       setActiveCharacterId(char.id);
                                   };
@@ -1963,6 +1973,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const openHandler = (e: Event) => {
           const { charId } = (e as CustomEvent).detail as { charId?: string };
           if (!charId) return;
+          setChatDeepLinkCharId(charId);
           setActiveApp(AppID.Chat);
           setActiveCharacterId(charId);
       };
@@ -5340,6 +5351,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     updateCharacter,
     deleteCharacter,
     setActiveCharacterId,
+    chatDeepLinkCharId,
+    consumeChatDeepLink,
+    setChatDeepLinkCharId,
     characterGroups,
     createCharacterGroup,
     renameCharacterGroup,

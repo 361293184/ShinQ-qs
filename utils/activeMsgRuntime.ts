@@ -33,9 +33,29 @@ import { dispatchAmsgResult } from './amsgResults';
 import { flushAmsgState } from './amsgStateSync';
 import { describeInstantChatFailure, pruneStaleTasks, type RemoteTaskLastError } from './amsg2Tasks';
 // 线协议常量的唯一出处是 shared（amsg-sw 只是 re-export 同一份）。
-import { MULTIPART_FAILURE_REASON } from '@rei-standard/amsg-shared';
+// 注意：@rei-standard/amsg-shared@0.4.0-next.8 的 dist 缺 protocol.js（只有 .d.ts），
+// Vite 解析 'MULTIPART_FAILURE_REASON' 命名导出会失败导致 App 黑屏。
+// 这里按 shared 的协议 .d.cts 本地冻结一份，值与 shared 完全一致。
 import { appendInstantTraceEntry } from './instantTraceLog';
 import { trackEvent } from './analytics';
+
+const MULTIPART_FAILURE_REASON: Readonly<{
+    TTL_EXPIRED: 'ttl-expired';
+    INVALID_CHUNK: 'invalid-chunk';
+    CHUNK_CONFLICT: 'chunk-conflict';
+    SIZE_LIMIT_EXCEEDED: 'size-limit-exceeded';
+    RESTORE_FAILED: 'restore-failed';
+    STORAGE_FAILED: 'storage-failed';
+    DISABLED: 'disabled';
+}> = Object.freeze({
+    TTL_EXPIRED: 'ttl-expired',
+    INVALID_CHUNK: 'invalid-chunk',
+    CHUNK_CONFLICT: 'chunk-conflict',
+    SIZE_LIMIT_EXCEEDED: 'size-limit-exceeded',
+    RESTORE_FAILED: 'restore-failed',
+    STORAGE_FAILED: 'storage-failed',
+    DISABLED: 'disabled',
+});
 
 // 同一个 category，两个 tag——保持 console 里现有的 [ActiveMsg] / [amsg] 标签，
 // 方便用户 / 文档里 grep 历史报错信息。两条 tag 都归 instant-push 一类。

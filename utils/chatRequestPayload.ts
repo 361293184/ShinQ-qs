@@ -96,6 +96,16 @@ export interface BuildChatPayloadInput {
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
     luckinChat?: LuckinChatState;
     /**
+     * 小说共读上下文：开启（有 bookTitle/passage）时在易变尾段注入"正在一起读的小说段落"，
+     * 让角色能顺着当前内容一起讨论 / 用生词自然提问。
+     */
+    novelReader?: {
+        bookTitle: string;
+        passage: string;
+        learnMode: 0 | 1 | 2;
+        recentVocab: { src: string; trans: string }[];
+    } | null;
+    /**
      * 把历史里的多模态图片消息（content 数组 + image_url）压平成纯文本占位。
      * 彼方/小小窝等复用聊天历史、但配了独立 API 的场景必须开：目标模型可能不支持
      * 视觉输入（DeepSeek 等对 image_url 直接 400），且这些纯文本情景里 base64 图片
@@ -210,7 +220,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     const {
         char, userProfile, groups, historyMsgs, contextLimit,
         realtimeConfig, innerState,
-        translationConfig, htmlMode, thinkingChain, mcdMiniSnap, luckinMiniSnap, luckinChat,
+        translationConfig, htmlMode, thinkingChain, mcdMiniSnap, luckinMiniSnap, luckinChat, novelReader,
     } = input;
     // 角色可见性必须在统一载荷层再次收口。UI 聊天、1.0 本地主动消息、2.0 推送、
     // 彼方/小小窝等调用方各自维护筛选很容易漏掉一条路径；一旦把全量表情传进来，
@@ -452,6 +462,19 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
                 userProfile?.name || '用户',
             );
         }
+    }
+
+    // ── 小说共读上下文（阅读器当前段落 + 学习模式 + 最近生词） ──
+    if (novelReader && novelReader.passage && novelReader.bookTitle) {
+        const passage = novelReader.passage.slice(0, 600);
+        const learnDesc = novelReader.learnMode === 0 ? ''
+            : novelReader.learnMode === 1
+                ? '（学习模式：被动复习——聊天中自然地使用生词本里的词，不刻意提问）'
+                : '（学习模式：主动测验——聊天中主动用生词本里的词向用户提问，检验掌握）';
+        const vocabBlock = novelReader.recentVocab.length > 0
+            ? `\n最近生词：${novelReader.recentVocab.slice(0, 15).map(v => `${v.src}(${v.trans})`).join('、')}`
+            : '';
+        volatileTail += `\n\n[小说共读] 你正在和用户一起读《${novelReader.bookTitle}》，当前内容：\n${passage}${learnDesc}${vocabBlock}\n（和用户自然地讨论这一段；不要复述整个段落。）`;
     }
 
     // 「关于对方的表达」+「回到你自己」必须是易变尾段的最后内容：修复旧版把双语/HTML/
