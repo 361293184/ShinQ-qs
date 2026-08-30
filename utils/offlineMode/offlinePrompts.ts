@@ -1,0 +1,146 @@
+import type { CharacterProfile, OfflineConfig } from '../../types';
+import { DATE_STYLE_PRESETS } from '../datePrompts';
+import { DEFAULT_OFFLINE_CONFIG } from './offlineSettings';
+
+/**
+ * 线下模式 prompt 构建（私聊 ChatApp 内注入）。
+ * 结构上复用见面模式的风格预设 / 人称三选项，但格式规则是线下自有的：
+ * 无立绘标签、纯字符行级解析（行首引号 = 台词）。
+ */
+
+/** 去立绘标签：VN 风格示例里每行开头的 [emotion] 前缀，线下不需要 */
+const STRIP_EMOTION_TAG = /^\[[a-z_]+\]\s*/gm;
+
+/** 线下格式规则（常驻块，每轮注入） */
+export const OFFLINE_FORMAT_BLOCK = `### 📝 线下模式 · 回复格式（必须严格遵守）
+你们正在【线下见面】，你的回复要像小说一样分开「旁白」和「台词」，两者**交替出现、台词要有明显占比**：
+1. **一行只写一种**：旁白行直接写（不加引号、不加任何标签）；台词行必须用英文双引号包裹，且**引号必须是该行行首的第一个字符**（行首第一个字符就是 "）。
+2. **⚡ 台词必须加引号，否则会变成旁白**：真正说出口的话，必须独立成行、行首加双引号。不加引号的话前端会把这段话当成旁白，显示成斜体居中——那你的台词就"听不见"了。所以**只要角色开口，就一定要加引号**。
+3. **默认骨架**：动作 / 氛围 / 心理用旁白，真正说出口的话用台词。每轮回复至少要出现 1~3 句台词（除非当前确实无话可说），台词和旁白交错推进，像写小说分镜：旁白铺垫 → 台词 → 旁白反应 → 台词。
+4. **禁止混写**：严禁在同一个里既写动作又写台词（例如"他笑了笑说…"这种要拆成两行）。
+5. 不要输出 [normal] 之类任何立绘标签，不要输出渲染说明或括号备注。
+6. 台词里的引号请保证成对出现（开头的 " 和结尾的 "）；旁白不需要引号。
+
+【正例】
+窗外雨声细密，她低头搅着杯里的咖啡。
+"你今天看起来有点累。"
+她抿了抿嘴，没立刻接话。
+"要不要…告诉我发生了什么？"`;
+
+/** 叙述风格块：复用见面模式 5 种预设，示例去掉立绘标签 */
+export const buildOfflineStyleBlock = (cfg?: Partial<OfflineConfig> | null): string => {
+    const preset =
+        DATE_STYLE_PRESETS.find((p) => p.id === (cfg?.style || DEFAULT_OFFLINE_CONFIG.style)) ||
+        DATE_STYLE_PRESETS[0];
+    return `### 🎬 叙述风格（${preset.label}：${preset.hint}）
+${preset.block.replace(STRIP_EMOTION_TAG, '')}`;
+};
+
+/** 叙事人称块（复用见面模式三选项文案，改造成线下语境） */
+export const buildOfflinePovBlock = (
+    cfg: Partial<OfflineConfig> | null | undefined,
+    charName: string,
+    userName: string,
+): string => {
+    const uname = userName || '对方';
+    switch (cfg?.pov) {
+        case 'third-name':
+            return `### 🎭 叙事人称（必须严格遵守）
+旁白使用**第三人称**：称呼你自己为「${charName}」，称呼对方为「${uname}」。旁白里不要出现"我""你"。
+示例：${charName}看向${uname}，伸手替${uname}拢了拢被风吹乱的头发。
+（台词引号内不受限，正常说话即可。上方风格示例中的人称仅为格式示意，一律以本节为准。）`;
+        case 'third-you':
+            return `### 🎭 叙事人称（必须严格遵守）
+旁白中称呼你自己为「${charName}」（第三人称），称呼对方为"你"。旁白里不要用"我"指代自己。
+示例：${charName}看向你，伸手替你拢了拢被风吹乱的头发。
+（台词引号内不受限，正常说话即可。上方风格示例中的人称仅为格式示意，一律以本节为准。）`;
+        case 'first-you':
+            return `### 🎭 叙事人称（必须严格遵守）
+旁白使用**第一人称**：称呼你自己为"我"，称呼对方为"你"。不要在旁白里用自己的名字指代自己。
+示例：我看向你，伸手替你拢了拢被风吹乱的头发。
+（上方风格示例中的人称仅为格式示意，一律以本节为准。）`;
+        default:
+            return '';
+    }
+};
+
+/** 自定义文风补充（优先级最高，空则不注入） */
+export const buildOfflineCustomStyleBlock = (cfg?: Partial<OfflineConfig> | null): string => {
+    const extra = (cfg?.customStyle || '').trim();
+    if (!extra) return '';
+    return `### ✍️ 用户对文风的额外要求（优先级高于风格预设）
+${extra}`;
+};
+
+/** 篇幅约束块（旁白+台词合计） */
+export const buildOfflineLengthBlock = (cfg?: Partial<OfflineConfig> | null): string => {
+    const n = cfg?.replyLength || DEFAULT_OFFLINE_CONFIG.replyLength;
+    return `### ✂️ 篇幅
+整条回复（旁白 + 台词合计）控制在约 **${n} 字**，不要长篇大论，写满氛围就收。`;
+};
+
+/**
+ * 线下模式主系统块（send / reroll / 主动消息共用）。
+ * 追加在既有系统提示之后，覆盖 ChatApp 默认的「纯聊天」写法。
+ */
+export const buildOfflineMainBlock = (input: {
+    char: CharacterProfile;
+    userName: string;
+    cfg?: Partial<OfflineConfig> | null;
+    /** 双语输出（translationConfig.enabled 且语言齐备时传 true + 语言标签） */
+    bilingual?: { active: boolean; sourceLang: string; targetLang: string };
+}): string => {
+    const { char, userName, cfg, bilingual } = input;
+    const parts: string[] = [];
+    parts.push(`### 🌙 线下模式 · 系统设定（覆盖上方所有"聊天对话"类指令）
+你们不是在手机上聊天，而是在同一个地方、同一个时刻【线下见面】。回复一律按下方格式输出。`);
+    parts.push(OFFLINE_FORMAT_BLOCK);
+    if (bilingual?.active) {
+        parts.push(buildOfflineBilingualBlock(bilingual.sourceLang, bilingual.targetLang));
+    }
+    const style = buildOfflineStyleBlock(cfg);
+    if (style) parts.push(style);
+    const pov = buildOfflinePovBlock(cfg, char.name, userName);
+    if (pov) parts.push(pov);
+    const extra = buildOfflineCustomStyleBlock(cfg);
+    if (extra) parts.push(extra);
+    parts.push(buildOfflineLengthBlock(cfg));
+    parts.push(`### 🌍 场景
+根据最近的对话自然延续当前场景（时间 / 地点 / 天气以最近的消息为准，不要凭空重开）。`);
+    return parts.join('\n\n');
+};
+
+/** 进入线下时的开场旁白请求（用户侧一条 user 消息的文本） */
+export const buildOfflineOpeningRequest = (charName: string): string =>
+    `（你轻轻走进${charName}所在的场景。请用一段旁白描写你此刻的状态、周围的环境和你们之间的气氛——只写旁白，不要说话，不要用引号。这一段用于建立氛围，篇幅两三行即可。）`;
+
+/** 主动消息格式块：线下激活时，主动消息也按线下格式生成；通知策略见 amsg 侧 */
+export const buildOfflineAmsgBlock = (cfg?: Partial<OfflineConfig> | null): string => {
+    const n = cfg?.replyLength || DEFAULT_OFFLINE_CONFIG.replyLength;
+    return `### 🌙 主动消息 · 线下格式
+这条主动消息同样按线下模式输出：旁白 + 台词交替，行首引号 = 台词。整条控制在约 ${n} 字。
+如果这是一条"氛围 / 状态"向的主动消息（比如角色在发呆、看窗外），可以只给旁白不给台词，一样是合法回复。`;
+};
+
+/**
+ * 线下模式双语兼容块（当角色的 translationConfig.enabled 且语言都设好时注入）。
+ * 标准双语要求「每句 <翻译>、标签外无文字」会破坏线下「台词行首引号」的解析，
+ * 所以线下用这套兼容指令：引号写在翻译标签外，台词原文带引号、旁白不带；
+ * 原生语言是中文时直接写、不用 <翻译>。
+ */
+export const buildOfflineBilingualBlock = (sourceLang: string, targetLang: string): string => `
+### 🔤 线下双语输出（覆盖上方「双语输出模式」指令）
+当前角色原生语言是「${sourceLang}」，译文语言「${targetLang}」。旁白和台词都要双语：
+1. **格式**：每一句（无论旁白还是台词）都用 XML 标签包双语：
+   <翻译>
+   <原文>${sourceLang}原文</原文>
+   <译文>${targetLang}译文</译文>
+   </翻译>
+2. **台词必须保留行首引号**：台词的双语标签要**整体包在引号里**，且行首第一个字符是引号：
+   "<翻译><原文>角色说的${sourceLang}</原文><译文>中文</译文></翻译>"
+3. **旁白不加引号**：旁白直接 <翻译> 开头（行首无引号）：
+   <翻译><原文>环境氛围的${sourceLang}叙述</原文><译文>中文</译文></翻译>
+4. **引号位置**：台词的开引号写在 <翻译> 前面、闭引号写在 </翻译> 后面（即引号包住整个翻译标签）。
+5. **原生中文例外**：如果角色原生语言本来就是中文，直接写中文，不要用 <翻译> 标签。
+6. 每条 <翻译> 单独成块，多句就多个 <翻译> 块。`;
+
