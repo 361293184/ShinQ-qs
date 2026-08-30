@@ -14,6 +14,7 @@
  */
 
 import { nowInTimeZone } from './timezone';
+import type { Anniversary } from '../types';
 
 export interface WeatherData {
     temp: number;
@@ -210,23 +211,46 @@ export const clearGeocodeCache = () => geocodeCache.clear();
 
 // ==================== 节日 ====================
 
-// 特殊日期表
-const SPECIAL_DATES: Record<string, string> = {
-    '01-01': '元旦',
-    '02-14': '情人节',
-    '03-08': '妇女节',
-    '03-12': '植树节',
-    '03-14': '白色情人节',
-    '04-01': '愚人节',
-    '05-01': '劳动节',
-    '05-04': '青年节',
-    '06-01': '儿童节',
-    '09-10': '教师节',
-    '10-01': '国庆节',
-    '10-31': '万圣节',
-    '11-11': '光棍节',
-    '12-24': '平安夜',
-    '12-25': '圣诞节'
+/**
+ * 节日分级：
+ * - core    陪伴核心（七夕/情人节/520/跨年夜/平安夜/圣诞/春节/用户生日/用户纪念日）：
+ *           完整演绎块（主动提起 + 仪式感 + 彩蛋动作），是角色情感表达的舞台。
+ * - normal  大众节日（元旦/国庆/端午/中秋/劳动节/儿童节等）：一行注入，点到为止。
+ * - light   轻量节日（植树节/愚人节等）：不注入（或极简一行），token 克制。
+ *
+ * 分级只决定「注入的深度」，节日该有的节日感仍然保留。
+ */
+export type FestivalTier = 'core' | 'normal' | 'light';
+
+/** 节日定义：分级 + 彩蛋动作（core 专属）。 */
+export interface FestivalDef {
+    name: string;
+    tier: FestivalTier;
+    /** 补充说明（如七夕：中国传统情人节）。 */
+    label?: string;
+    /** 彩蛋动作（core 专属）：让角色在这一天主动做点什么。 */
+    egg?: string;
+}
+
+// 特殊日期表（公历，MM-DD → 节日定义）
+const SPECIAL_DATES: Record<string, FestivalDef> = {
+    '01-01': { name: '元旦', tier: 'normal' },
+    '02-14': { name: '情人节', tier: 'core', label: '西方情人节', egg: '写一段心里话 / 告白' },
+    '03-08': { name: '妇女节', tier: 'normal' },
+    '03-12': { name: '植树节', tier: 'light' },
+    '03-14': { name: '白色情人节', tier: 'normal' },
+    '04-01': { name: '愚人节', tier: 'light' },
+    '05-01': { name: '劳动节', tier: 'normal' },
+    '05-04': { name: '青年节', tier: 'normal' },
+    '05-20': { name: '520', tier: 'core', label: '网络情人节', egg: '写一段心里话 / 告白' },
+    '06-01': { name: '儿童节', tier: 'normal' },
+    '09-10': { name: '教师节', tier: 'normal' },
+    '10-01': { name: '国庆节', tier: 'normal' },
+    '10-31': { name: '万圣节', tier: 'normal' },
+    '11-11': { name: '光棍节', tier: 'normal' },
+    '12-24': { name: '平安夜', tier: 'core', label: '平安夜', egg: '互送礼物氛围' },
+    '12-25': { name: '圣诞节', tier: 'core', label: '圣诞节', egg: '互送礼物氛围' },
+    '12-31': { name: '跨年夜', tier: 'core', label: '今晚跨年', egg: '一起倒数跨年' }
 };
 
 /**
@@ -241,72 +265,239 @@ const SPECIAL_DATES: Record<string, string> = {
  * 覆盖 2026–2035 十年。**过了 2035 需要按同一份对照表续表**：查不到的日期就当那天没有
  * 农历节日，不会报错也不会猜——续之前只是「角色不知道今天是中秋」，不会说错话。
  */
-const LUNAR_FESTIVAL_DATES: Record<string, string> = {
+const LUNAR_FESTIVAL_DATES: Record<string, FestivalDef> = {
     // 2026
-    '2026-02-16': '除夕', '2026-02-17': '春节', '2026-03-03': '元宵节',
-    '2026-06-19': '端午节', '2026-08-19': '七夕', '2026-09-25': '中秋节',
-    '2026-10-18': '重阳节',
+    '2026-02-16': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2026-02-17': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2026-03-03': { name: '元宵节', tier: 'normal' },
+    '2026-06-19': { name: '端午节', tier: 'normal' },
+    '2026-08-19': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2026-09-25': { name: '中秋节', tier: 'normal' },
+    '2026-10-18': { name: '重阳节', tier: 'normal' },
     // 2027
-    '2027-02-05': '除夕', '2027-02-06': '春节', '2027-02-20': '元宵节',
-    '2027-06-09': '端午节', '2027-08-08': '七夕', '2027-09-15': '中秋节',
-    '2027-10-08': '重阳节',
+    '2027-02-05': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2027-02-06': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2027-02-20': { name: '元宵节', tier: 'normal' },
+    '2027-06-09': { name: '端午节', tier: 'normal' },
+    '2027-08-08': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2027-09-15': { name: '中秋节', tier: 'normal' },
+    '2027-10-08': { name: '重阳节', tier: 'normal' },
     // 2028
-    '2028-01-25': '除夕', '2028-01-26': '春节', '2028-02-09': '元宵节',
-    '2028-05-28': '端午节', '2028-08-26': '七夕', '2028-10-03': '中秋节',
-    '2028-10-26': '重阳节',
+    '2028-01-25': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2028-01-26': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2028-02-09': { name: '元宵节', tier: 'normal' },
+    '2028-05-28': { name: '端午节', tier: 'normal' },
+    '2028-08-26': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2028-10-03': { name: '中秋节', tier: 'normal' },
+    '2028-10-26': { name: '重阳节', tier: 'normal' },
     // 2029
-    '2029-02-12': '除夕', '2029-02-13': '春节', '2029-02-27': '元宵节',
-    '2029-06-16': '端午节', '2029-08-16': '七夕', '2029-09-22': '中秋节',
-    '2029-10-16': '重阳节',
+    '2029-02-12': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2029-02-13': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2029-02-27': { name: '元宵节', tier: 'normal' },
+    '2029-06-16': { name: '端午节', tier: 'normal' },
+    '2029-08-16': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2029-09-22': { name: '中秋节', tier: 'normal' },
+    '2029-10-16': { name: '重阳节', tier: 'normal' },
     // 2030
-    '2030-02-02': '除夕', '2030-02-03': '春节', '2030-02-17': '元宵节',
-    '2030-06-05': '端午节', '2030-08-05': '七夕', '2030-09-12': '中秋节',
-    '2030-10-05': '重阳节',
+    '2030-02-02': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2030-02-03': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2030-02-17': { name: '元宵节', tier: 'normal' },
+    '2030-06-05': { name: '端午节', tier: 'normal' },
+    '2030-08-05': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2030-09-12': { name: '中秋节', tier: 'normal' },
+    '2030-10-05': { name: '重阳节', tier: 'normal' },
     // 2031
-    '2031-01-22': '除夕', '2031-01-23': '春节', '2031-02-06': '元宵节',
-    '2031-06-24': '端午节', '2031-08-24': '七夕', '2031-10-01': '中秋节',
-    '2031-10-24': '重阳节',
+    '2031-01-22': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2031-01-23': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2031-02-06': { name: '元宵节', tier: 'normal' },
+    '2031-06-24': { name: '端午节', tier: 'normal' },
+    '2031-08-24': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2031-10-01': { name: '中秋节', tier: 'normal' },
+    '2031-10-24': { name: '重阳节', tier: 'normal' },
     // 2032
-    '2032-02-10': '除夕', '2032-02-11': '春节', '2032-02-25': '元宵节',
-    '2032-06-12': '端午节', '2032-08-12': '七夕', '2032-09-19': '中秋节',
-    '2032-10-12': '重阳节',
+    '2032-02-10': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2032-02-11': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2032-02-25': { name: '元宵节', tier: 'normal' },
+    '2032-06-12': { name: '端午节', tier: 'normal' },
+    '2032-08-12': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2032-09-19': { name: '中秋节', tier: 'normal' },
+    '2032-10-12': { name: '重阳节', tier: 'normal' },
     // 2033
-    '2033-01-30': '除夕', '2033-01-31': '春节', '2033-02-14': '元宵节',
-    '2033-06-01': '端午节', '2033-08-01': '七夕', '2033-09-08': '中秋节',
-    '2033-10-01': '重阳节',
+    '2033-01-30': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2033-01-31': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2033-02-14': { name: '元宵节', tier: 'normal' },
+    '2033-06-01': { name: '端午节', tier: 'normal' },
+    '2033-08-01': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2033-09-08': { name: '中秋节', tier: 'normal' },
+    '2033-10-01': { name: '重阳节', tier: 'normal' },
     // 2034
-    '2034-02-18': '除夕', '2034-02-19': '春节', '2034-03-05': '元宵节',
-    '2034-06-20': '端午节', '2034-08-20': '七夕', '2034-09-27': '中秋节',
-    '2034-10-20': '重阳节',
+    '2034-02-18': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2034-02-19': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2034-03-05': { name: '元宵节', tier: 'normal' },
+    '2034-06-20': { name: '端午节', tier: 'normal' },
+    '2034-08-20': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2034-09-27': { name: '中秋节', tier: 'normal' },
+    '2034-10-20': { name: '重阳节', tier: 'normal' },
     // 2035
-    '2035-02-07': '除夕', '2035-02-08': '春节', '2035-02-22': '元宵节',
-    '2035-06-10': '端午节', '2035-08-10': '七夕', '2035-09-16': '中秋节',
-    '2035-10-09': '重阳节',
+    '2035-02-07': { name: '除夕', tier: 'core', label: '大年夜', egg: '主动拜年 + 新年祝福' },
+    '2035-02-08': { name: '春节', tier: 'core', label: '农历新年', egg: '主动拜年 + 新年祝福' },
+    '2035-02-22': { name: '元宵节', tier: 'normal' },
+    '2035-06-10': { name: '端午节', tier: 'normal' },
+    '2035-08-10': { name: '七夕', tier: 'core', label: '中国传统情人节', egg: '写一段心里话 / 告白' },
+    '2035-09-16': { name: '中秋节', tier: 'normal' },
+    '2035-10-09': { name: '重阳节', tier: 'normal' },
 };
 
 /**
- * 检查特殊日期（公历节日 + 农历节日）。
+ * 特殊日期命中（详细版）：节日名 + 级别 + 彩蛋动作 + 氛围文案。
+ */
+export interface SpecialDateHit {
+    name: string;
+    tier: FestivalTier;
+    label?: string;
+    egg?: string;
+    /** 窗口期氛围文案（如「正值春节 · 正月初三」）；非节日本身的窗口氛围日才有。 */
+    windowText?: string;
+    /** 今天是否是用户的生日（由调用方传入 birthday 判断）。 */
+    isUserBirthday?: boolean;
+    /** 今天是否是用户自定义纪念日（anniversaries 命中）。 */
+    isAnniversary?: boolean;
+}
+
+/**
+ * 检查特殊日期（公历节日 + 农历节日 + 用户生日 + 自定义纪念日），返回分级命中。
  * tz 非空时按角色所在时区判「今天几号」——否则角色会跟着用户的日历过节：
  * 用户这边 2/14 早上，角色在纽约还是 13 号晚上，却被告知今天是情人节。
  *
+ * - birthday：用户档案里的生日，格式 YYYY-MM-DD 或 MM-DD（可选；没传则不做生日判断）。
+ * - 窗口期：春节（除夕 → 元宵）与跨年（12/31 → 1/1）的窗口氛围日也会命中，
+ *   用 windowText 标记（如「正值春节 · 正月初三」），让角色在节日前后也能感知气氛。
+ *
  * 公历和农历撞在同一天时两个都给（比如 2031 年的中秋恰好也是国庆）。
  */
-export const checkSpecialDates = (tz?: string, nowMs?: number): string[] => {
+export const checkSpecialDatesDetailed = (
+    tz?: string,
+    nowMs?: number,
+    anniversaries?: Anniversary[],
+    birthday?: string,
+): SpecialDateHit[] => {
     const now = nowInTimeZone(tz, nowMs == null ? undefined : new Date(nowMs));
     const monthDay = `${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
     const fullDate = `${now.getFullYear()}-${monthDay}`;
 
-    const special: string[] = [];
+    const hits: SpecialDateHit[] = [];
 
-    if (SPECIAL_DATES[monthDay]) {
-        special.push(SPECIAL_DATES[monthDay]);
+    const pushDef = (def: FestivalDef) => {
+        const hit: SpecialDateHit = { name: def.name, tier: def.tier, label: def.label, egg: def.egg };
+        hits.push(hit);
+    };
+
+    const special = SPECIAL_DATES[monthDay];
+    if (special) {
+        pushDef(special);
     }
 
-    if (LUNAR_FESTIVAL_DATES[fullDate]) {
-        special.push(LUNAR_FESTIVAL_DATES[fullDate]);
+    const lunar = LUNAR_FESTIVAL_DATES[fullDate];
+    if (lunar) {
+        pushDef(lunar);
     }
 
-    return special;
+    // 用户生日：按「月-日」匹配（支持 YYYY-MM-DD 或 MM-DD），命中为陪伴核心级。
+    if (birthday) {
+        const bMonthDay = birthday.length > 5 ? birthday.slice(5) : birthday;
+        if (bMonthDay === monthDay) {
+            hits.push({
+                name: '用户生日', tier: 'core',
+                label: '今天是你家宝的生日', egg: '送上祝福 + 准备小惊喜（纯演绎）',
+                isUserBirthday: true,
+            });
+        }
+    }
+
+    // 用户自定义纪念日：按「月-日」每年同一天匹配（不管年份），当天感知为陪伴核心级。
+    // charId 过滤由调用方在传入前做好（只传当前角色的纪念日）。
+    if (anniversaries && anniversaries.length > 0) {
+        for (const a of anniversaries) {
+            const aMonthDay = (a.date || '').slice(5); // 取 YYYY-MM-DD 的 MM-DD
+            if (aMonthDay === monthDay && a.title) {
+                hits.push({
+                    name: a.title, tier: 'core',
+                    label: '对你和角色都很重要的日子', egg: '记住并郑重提起（纯演绎）',
+                    isAnniversary: true,
+                });
+            }
+        }
+    }
+
+    // ── 窗口期氛围 ──
+    // 春节：除夕 → 元宵（含）。除夕/春节/元宵当天上面已命中，这里只补「初X」的氛围日。
+    const springHit = findSpringFestivalWindowHit(now, monthDay, fullDate);
+    if (springHit) hits.push(springHit);
+    // 跨年：12/31 → 1/1。12/31 的跨年夜与 1/1 的元旦上面已命中，这里补 1/1 的「昨夜跨年」氛围。
+    const crossYearHit = findCrossYearWindowHit(monthDay, hits);
+    if (crossYearHit) hits.push(crossYearHit);
+
+    return hits;
+};
+
+/**
+ * 兼容入口：只返回节日名（保持旧签名 string[]，既有调用方不用改）。
+ */
+export const checkSpecialDates = (
+    tz?: string,
+    nowMs?: number,
+    anniversaries?: Anniversary[],
+): string[] =>
+    checkSpecialDatesDetailed(tz, nowMs, anniversaries)
+        .filter((h) => !h.windowText)
+        .map((h) => h.name);
+
+/** 春节窗口：当年除夕 → 元宵。返回初 X 氛围 hit（当天已是除夕/春节/元宵则不重复）。 */
+const findSpringFestivalWindowHit = (
+    now: Date,
+    monthDay: string,
+    fullDate: string,
+): SpecialDateHit | null => {
+    const year = now.getFullYear();
+    const yearPrefix = `${year}-`;
+    let chuxi: string | null = null; // 除夕公历日期 YYYY-MM-DD
+    let chunjie: string | null = null; // 春节（正月初一）公历日期
+    let yuanxiao: string | null = null; // 元宵公历日期
+
+    for (const [date, def] of Object.entries(LUNAR_FESTIVAL_DATES)) {
+        if (!date.startsWith(yearPrefix)) continue;
+        if (def.name === '除夕') chuxi = date;
+        else if (def.name === '春节') chunjie = date;
+        else if (def.name === '元宵节') yuanxiao = date;
+    }
+    if (!chuxi || !chunjie || !yuanxiao) return null;
+
+    // 当天已是节日本体（除夕/春节/元宵），不重复给氛围 hit。
+    if (fullDate === chuxi || fullDate === chunjie || fullDate === yuanxiao) return null;
+    if (monthDay < chuxi.slice(5) || monthDay > yuanxiao.slice(5)) return null;
+
+    // 算「正月初几」：春节=初X 锚点，往前是除夕，往后递加。
+    const springBase = Date.UTC(year, Number(chunjie.slice(5, 7)) - 1, Number(chunjie.slice(8, 10)));
+    const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.round((todayUtc - springBase) / 86400000);
+    const dayX = diffDays + 1; // 正月初一 = 1
+    return {
+        name: '春节', tier: 'core',
+        windowText: `正值春节 · 正月初${dayX}（春节氛围仍在）`,
+    };
+};
+
+/** 跨年窗口：1/1 元旦当天补「昨夜刚跨年」氛围（12/31 跨年夜本体已命中）。 */
+const findCrossYearWindowHit = (
+    monthDay: string,
+    existing: SpecialDateHit[],
+): SpecialDateHit | null => {
+    if (monthDay !== '01-01') return null;
+    if (existing.some((h) => h.name === '跨年夜')) return null; // 理论上不会同时，保险
+    return {
+        name: '元旦', tier: 'normal',
+        windowText: '昨夜刚跨年 · 新的一年刚刚开始',
+    };
 };
 
 // ==================== 热搜 ====================
@@ -425,8 +616,19 @@ export interface RealtimeWorldRenderInput {
      * 一份 prompt 里就有了两个钟。
      */
     timeLine?: string;
-    /** 今日节日。归「时间感知」管：角色关掉时间感知时调用方传空。 */
+    /**
+     * 今日节日（旧签名：纯名字列表）。归「时间感知」管：角色关掉时间感知时调用方传空。
+     * 有 specialDatesDetailed 时优先用分级渲染，这个仅作兼容回退。
+     */
     specialDates?: string[];
+    /** 今日节日（分级版）：按 core/normal/light 分级渲染。优先于 specialDates。 */
+    specialDatesDetailed?: SpecialDateHit[];
+    /**
+     * 调休行（由调用方按中国节假日数据层算好传入，如「今天放假（法定节假日）」或
+     * 「今天调休上班（补班日）」）。realtimeWorldCore 是零依赖叶子、拿不到
+     * localStorage 的节假日缓存，所以由浏览器侧算好一行字传进来。
+     */
+    dayStatusLine?: string;
     /** 天气读数；没拉到传 null，天气那段连同它的用法提示一起消失。 */
     weather?: WeatherData | null;
     /** 本轮要注入的热点（抽样交给调用方，渲染保持纯净好测）。 */
@@ -441,10 +643,13 @@ export interface RealtimeWorldRenderInput {
 export const renderRealtimeWorldBlock = (input: RealtimeWorldRenderInput): string => {
     const timeLine = input.timeLine?.trim();
     const specialDates = input.specialDates?.filter(Boolean) ?? [];
+    const specialDatesDetailed = input.specialDatesDetailed ?? [];
+    const dayStatusLine = input.dayStatusLine?.trim();
     const weather = input.weather ?? null;
     const news = input.news ?? [];
 
-    if (!timeLine && specialDates.length === 0 && !weather && news.length === 0) {
+    const hasDetailed = specialDatesDetailed.length > 0;
+    if (!timeLine && specialDates.length === 0 && !hasDetailed && !dayStatusLine && !weather && news.length === 0) {
         return '';
     }
 
@@ -461,8 +666,45 @@ export const renderRealtimeWorldBlock = (input: RealtimeWorldRenderInput): strin
         parts.push(`📅 当前真实时间: ${timeLine}`);
     }
 
+    // 1b. 调休行（今日放假 / 补班），紧跟在时间行后面，属于「今日状态」的一部分。
+    if (dayStatusLine) {
+        parts.push(`📅 今日状态: ${dayStatusLine}`);
+    }
+
     // 2. 特殊日期（跟上面的「当前真实时间」同一个时区，否则同一段里日期和节日会打架）
-    if (specialDates.length > 0) {
+    //    分级渲染：core 完整演绎（主动提起 + 仪式感 + 彩蛋），normal 一行，light 不注入。
+    if (hasDetailed) {
+        const coreHits = specialDatesDetailed.filter((h) => h.tier === 'core');
+        const normalHits = specialDatesDetailed.filter((h) => h.tier === 'normal');
+        const windowHits = specialDatesDetailed.filter((h) => h.windowText);
+
+        // 2a. 陪伴核心节日：完整演绎块，这是角色情感表达的舞台。
+        for (const hit of coreHits) {
+            const title = hit.label && hit.label !== hit.name ? `${hit.name}（${hit.label}）` : hit.name;
+            parts.push('');
+            parts.push(`🎉 【今日特别的日子 · ${title}】`);
+            parts.push(`今天是很特别的日子，你应该主动提起，不要等对方开口。`);
+            parts.push(`表达要有仪式感：结合你们之间的相处方式，说出心里话、给一点承诺或期待。`);
+            if (hit.egg) {
+                parts.push(`💝 今天你可以试试：${hit.egg}。`);
+            }
+            parts.push(`⚠️ 分寸：除非记忆里明确有你们一起过这个日子的经历，否则不要编造"去年我们一起…"之类的过往；没有共同回忆，就真诚地把它当作"我们一起的第一个${hit.name}"来对待。`);
+        }
+
+        // 2b. 大众节日：一行注入，点到为止。
+        if (normalHits.length > 0) {
+            parts.push(`📅 今日节日: ${normalHits.map((h) => h.name).join('、')}`);
+        }
+
+        // 2c. 窗口期氛围：非节日本体、但正处在节日氛围里（如春节初X、跨年余韵）。
+        for (const hit of windowHits) {
+            if (hit.tier === 'core' && hit.windowText) {
+                parts.push(`⏳ ${hit.windowText}`);
+            } else if (hit.windowText) {
+                parts.push(`⏳ ${hit.windowText}`);
+            }
+        }
+    } else if (specialDates.length > 0) {
         parts.push(`🎉 今日特殊: ${specialDates.join('、')}`);
     }
 

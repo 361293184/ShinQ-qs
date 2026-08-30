@@ -31,6 +31,9 @@ import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
+import ImageGenPanel from '../components/chat/ImageGenPanel';
+import NovelReaderPanel from '../components/chat/NovelReaderPanel';
+import FanwaiGeneratePage from '../components/fanwai/FanwaiGeneratePage';
 import LuckinLocationModal from '../components/luckin/LuckinLocationModal';
 import LuckinHelpModal from '../components/luckin/LuckinHelpModal';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
@@ -138,7 +141,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -1346,6 +1349,41 @@ const Chat: React.FC = () => {
 
     // --- Actions ---
 
+    const handleSendCharImage = async (url: string, caption: string) => {
+        if (!char) return;
+        const recentChat = messages.slice(-10).map(m => {
+            const sender = m.role === 'user' ? userProfile.name : char.name;
+            return `${sender}: ${m.content.substring(0, 100)}`;
+        });
+        try {
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url,
+                timestamp: Date.now(),
+                savedDate: localDateKey,
+                chatContext: recentChat,
+            });
+        } catch { /* 相册保存失败不阻断消息 */ }
+        const newMsgId = await DB.saveMessage({
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            metadata: { source: 'manual_image_gen', caption },
+        } as any);
+        setMessages(prev => [...prev, {
+            id: newMsgId,
+            charId: char.id,
+            role: 'assistant',
+            type: 'image',
+            content: url,
+            timestamp: Date.now(),
+            metadata: { source: 'manual_image_gen', caption },
+        }]);
+        addToast(caption || '图片已发送', 'info');
+    };
+
     const handleSendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
         if (!char || (!input.trim() && !customContent)) return;
         // 只累加内存里的计数，这里不发任何请求；页面切走时才按区间报一次。见 utils/analytics.ts
@@ -1702,6 +1740,7 @@ const Chat: React.FC = () => {
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
             'poke', 'emoji-import', 'add-category', 'mcd-end', 'luckin-end',
+            'imagegen', 'novel', 'fanwai',
         ].includes(type)) {
             trackEvent('打开聊天功能面板项', { action: type });
         }
@@ -1770,6 +1809,9 @@ const Chat: React.FC = () => {
                 setShowThinkingChainModal(true);
                 break;
             }
+            case 'imagegen': setShowPanel('none'); setShowImageGenPanel(true); break;
+            case 'novel': setShowPanel('none'); setNovelReaderOpen(true); break;
+            case 'fanwai': setShowPanel('none'); setFanwaiOpen(true); break;
         }
     };
 
@@ -1778,6 +1820,14 @@ const Chat: React.FC = () => {
     const [mcdAppOpen, setMcdAppOpen] = useState(false);
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
+
+    // 角色生图面板（加号面板「生图」进入）
+    const [showImageGenPanel, setShowImageGenPanel] = useState(false);
+    // 小说共读悬浮面板（加号面板「小说共读」进入）
+    const [novelReaderOpen, setNovelReaderOpen] = useState(false);
+    const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | undefined>(undefined);
+    // 番外生成页（加号面板「番外」进入，全屏独立页面）
+    const [fanwaiOpen, setFanwaiOpen] = useState(false);
 
     // 瑞幸聊天点单模式: 激活态用 React state (临时会话态, 不落库)
     const [luckinMode, setLuckinMode] = useState(false);
@@ -4734,6 +4784,59 @@ const Chat: React.FC = () => {
                 onClose={() => setShowLuckinHelp(false)}
             />
 
+            {/* 角色生图面板（加号面板「生图」进入） */}
+            {char && showImageGenPanel && (
+                <>
+                    <div className="fixed inset-0 z-[89] bg-black/40" onClick={() => setShowImageGenPanel(false)} />
+                    <div className="fixed inset-x-4 top-12 bottom-12 z-[90] max-w-md mx-auto bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-slide-up flex flex-col">
+                        <ImageGenPanel
+                            onClose={() => setShowImageGenPanel(false)}
+                            charName={char.name || ''}
+                            charAvatar={char.avatar || ''}
+                            charPersona={(char as any).persona || (char as any).description || ''}
+                            chatContext={messages.slice(-6).map(m => `${m.role === 'user' ? '用户' : char?.name}: ${(m.content || '').slice(0, 100)}`).join('\n')}
+                            onGenerate={(url, caption) => {
+                                handleSendCharImage(url, caption);
+                                setShowImageGenPanel(false);
+                            }}
+                            imageGenApiKey={apiConfig.imageGenApiKey || ''}
+                            imageGenBaseUrl={apiConfig.imageGenBaseUrl || ''}
+                            imageGenModel={apiConfig.imageGenModel || ''}
+                            subBaseUrl={apiConfig.subBaseUrl}
+                            subApiKey={apiConfig.subApiKey}
+                            subModel={apiConfig.subModel}
+                            availableModes={[
+                                'char',
+                                apiConfig.imageGenUserEnabled ? 'user' : null,
+                                apiConfig.imageGenJointEnabled ? 'joint' : null,
+                            ].filter(Boolean) as ('char' | 'user' | 'joint')[]}
+                        />
+                    </div>
+                </>
+            )}
+
+            {/* 小说共读悬浮面板（加号面板「小说共读」进入） */}
+            {char && novelReaderOpen && (
+                <div className="fixed inset-0 z-[60] pointer-events-none">
+                    <NovelReaderPanel
+                        charName={char.name}
+                        onClose={() => setNovelReaderOpen(false)}
+                        onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
+                    />
+                </div>
+            )}
+
+            {/* 番外生成页（加号面板「番外」进入，全屏独立页面） */}
+            {char && fanwaiOpen && (
+                <FanwaiGeneratePage
+                    char={char}
+                    userProfile={userProfile}
+                    apiConfig={apiConfig}
+                    addToast={addToast}
+                    onClose={() => setFanwaiOpen(false)}
+                    onCollect={async (story) => { await addFanwaiStory(story); }}
+                />
+            )}
 
             {/* Forward Modal */}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>

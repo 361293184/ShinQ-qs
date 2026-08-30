@@ -36,8 +36,10 @@ const SocialApp = lazyApp(() => import('../apps/SocialApp'));
 const StudyApp = lazyApp(() => import('../apps/StudyApp'));
 const FAQApp = lazyApp(() => import('../apps/FAQApp'));
 const GameApp = lazyApp(() => import('../apps/GameApp'));
+const GameHubApp = lazyApp(() => import('../apps/GameHubApp'));
 const WorldbookApp = lazyApp(() => import('../apps/WorldbookApp'));
 const NovelApp = lazyApp(() => import('../apps/NovelApp'));
+const FanwaiApp = lazyApp(() => import('../apps/FanwaiApp'));
 const BankApp = lazyApp(() => import('../apps/BankApp'));
 const XhsStockApp = lazyApp(() => import('../apps/XhsStockApp'));
 const XhsFreeRoamApp = lazyApp(() => import('../apps/XhsFreeRoamApp'));
@@ -50,6 +52,7 @@ const GuidebookApp = lazyApp(() => import('../apps/GuidebookApp'));
 const LifeSimApp = lazyApp(() => import('../apps/LifeSimApp'));
 const MemoryPalaceApp = lazyApp(() => import('../apps/MemoryPalaceApp'));
 const HandbookApp = lazyApp(() => import('../apps/HandbookApp'));
+const TechoApp = lazyApp(() => import('../apps/TechoApp'));
 const QQBridge = lazyApp(() => import('../apps/QQBridge'));
 const HotNewsApp = lazyApp(() => import('../apps/HotNewsApp'));
 const VRWorldApp = lazyApp(() => import('../apps/VRWorldApp'));
@@ -80,12 +83,12 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.Gallery]: Gallery, [AppID.Date]: DateApp, [AppID.User]: UserApp,
   [AppID.Journal]: JournalApp, [AppID.Schedule]: ScheduleApp, [AppID.Room]: RoomApp,
   [AppID.CheckPhone]: CheckPhone, [AppID.Social]: SocialApp, [AppID.Study]: StudyApp,
-  [AppID.FAQ]: FAQApp, [AppID.Game]: GameApp, [AppID.Worldbook]: WorldbookApp,
-  [AppID.Novel]: NovelApp, [AppID.Bank]: BankApp, [AppID.XhsStock]: XhsStockApp,
+  [AppID.FAQ]: FAQApp, [AppID.Game]: GameApp, [AppID.GameHub]: GameHubApp, [AppID.Worldbook]: WorldbookApp,
+  [AppID.Novel]: NovelApp, [AppID.Fanwai]: FanwaiApp, [AppID.Bank]: BankApp, [AppID.XhsStock]: XhsStockApp,
   [AppID.XhsFreeRoam]: XhsFreeRoamApp, [AppID.Browser]: BrowserApp, [AppID.Songwriting]: SongwritingApp,
   [AppID.Music]: MusicApp, [AppID.Call]: CallApp, [AppID.VoiceDesigner]: VoiceDesignerApp,
   [AppID.Guidebook]: GuidebookApp, [AppID.LifeSim]: LifeSimApp, [AppID.MemoryPalace]: MemoryPalaceApp,
-  [AppID.Handbook]: HandbookApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp,
+  [AppID.Handbook]: HandbookApp, [AppID.Techo]: TechoApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp,
   [AppID.VRWorld]: VRWorldApp, [AppID.CharCreatorDev]: CharCreatorDevApp, [AppID.SpecialMoments]: SpecialMomentsApp,
   [AppID.WorldHome]: WorldHomeApp,
 };
@@ -968,8 +971,10 @@ const PhoneShell: React.FC = () => {
       case AppID.Study: return <StudyApp />; 
       case AppID.FAQ: return <FAQApp />; 
       case AppID.Game: return <GameApp />; 
+      case AppID.GameHub: return <GameHubApp />;
       case AppID.Worldbook: return <WorldbookApp />;
       case AppID.Novel: return <NovelApp />; 
+      case AppID.Fanwai: return <FanwaiApp />;
       case AppID.Bank: return <BankApp />;
       case AppID.XhsStock: return <XhsStockApp />;
       case AppID.XhsFreeRoam: return <XhsFreeRoamApp />;
@@ -982,6 +987,7 @@ const PhoneShell: React.FC = () => {
       case AppID.LifeSim: return <LifeSimApp />;
       case AppID.MemoryPalace: return <MemoryPalaceApp />;
       case AppID.Handbook: return <HandbookApp />;
+      case AppID.Techo: return <TechoApp />;
       case AppID.QQBridge: return <QQBridge />;
       case AppID.HotNews: return <HotNewsApp />;
       case AppID.SpecialMoments: return <SpecialMomentsApp />;
@@ -1076,10 +1082,18 @@ const PhoneShell: React.FC = () => {
           <div className="absolute top-12 left-0 w-full flex flex-col items-center gap-2 pointer-events-none z-[60]">
               {toasts.map(toast => (
                  <div key={toast.id} className="animate-fade-in bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-xl border border-black/5 flex items-start gap-3 max-w-[85%] ring-1 ring-white/20">
-                     {toast.type === 'success' && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>}
-                     {toast.type === 'error' && <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>}
-                     {toast.type === 'info' && <div className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></div>}
-                     <span className="min-w-0 text-left text-xs font-bold text-slate-800 whitespace-normal break-words [overflow-wrap:anywhere] leading-5">{toast.message}</span>
+                    {toast.type === 'success' && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>}
+                    {toast.type === 'error' && <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>}
+                    {toast.type === 'info' && <div className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></div>}
+                    <span className="min-w-0 text-left text-xs font-bold text-slate-800 whitespace-normal break-words [overflow-wrap:anywhere] leading-5">{toast.message}</span>
+                    {toast.action && (
+                        <button
+                            onClick={() => { toast.action!.onClick(); }}
+                            className="shrink-0 ml-1 rounded-full bg-gradient-to-r from-[#F0A93B] to-[#E8845A] px-3 py-1 text-[11px] font-bold text-white shadow-sm shadow-[#E8845A]/30 hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                        >
+                            {toast.action.label}
+                        </button>
+                    )}
                  </div>
               ))}
            </div>

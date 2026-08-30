@@ -38,6 +38,9 @@ export enum AppID {
   VRWorld = 'vrworld', // 彼方 — 角色自主登入的虚拟世界（定时驱动，房间里看小说/听歌/留言，产出活动卡注入聊天+记忆）
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
+  Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
+  Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
+  GameHub = 'game_hub', // 游戏大厅 — 小游戏合集（首个内置「你说我猜」综艺局）
 }
 
 export interface SystemLog {
@@ -110,6 +113,9 @@ export interface OSTheme {
   wallpaper: string;
   /** 独立锁屏壁纸；未设置时跟随桌面 wallpaper。 */
   lockWallpaper?: string;
+  /** Message App 会话列表页背景图（与 wallpaper 同源：CSS gradient / URL / blobref 令牌）。
+   *  未设置时使用默认的半透明白色玻璃。 */
+  messageWallpaper?: string;
   darkMode: boolean;
   contentColor?: string;
   /** 冷启动时是否播放整机开机过场。默认开启（undefined 视为 true）。 */
@@ -306,6 +312,16 @@ export interface APIConfig {
   stream?: boolean;
   // Per-API temperature for chat / 约会 main calls. Missing → 0.85.
   temperature?: number;
+  // 副 API 配置（番外生成 / 你说我猜 / 记忆宫殿水线评估等小模型任务共用）。
+  subBaseUrl?: string;
+  subApiKey?: string;
+  subModel?: string;
+  // 生图 API（角色生图面板）：缺省时用主 API（baseUrl/apiKey/model）。
+  imageGenApiKey?: string;
+  imageGenBaseUrl?: string;
+  imageGenModel?: string;
+  imageGenUserEnabled?: boolean;   // 用户生图
+  imageGenJointEnabled?: boolean;  // 合照（自动调用上下文的角色+用户锁脸和描述词）
 }
 
 export interface InstantPushConfig {
@@ -593,6 +609,11 @@ export interface RealtimeConfig {
   xhsEnabled: boolean;
   xhsMcpConfig?: XhsMcpConfig;
 
+  // 定位配置（位置分享：真实定位走高德 JS API，虚拟定位免配置）
+  locationEnabled?: boolean;
+  amapKey?: string;            // 高德 JS API Key（真实定位选点用）
+  amapSecurityJsCode?: string; // 高德安全密钥 securityJsCode
+
   // 缓存配置
   cacheMinutes: number;
 }
@@ -712,6 +733,33 @@ export interface DateStyleConfig {
   digDeeper?: boolean;
   /** 自定义补充文风要求，原样追加进风格块 */
   extra?: string;
+}
+
+/**
+ * 私聊「线下模式」配置。按角色记忆（仿 dateStyleConfig），由 Chat「线下」设置弹窗调整，
+ * offlinePrompts 构建提示词时读取，改动即时生效于后续生成。
+ * - 开关状态同样记在角色上：A 角色在线下，切去 B 聊几句再回来，A 仍在线下。
+ * - 缺省值见 offlineMode/offlineSettings.ts 的 DEFAULT_OFFLINE_CONFIG。
+ */
+export interface OfflineConfig {
+  /** 线下模式总开关 */
+  enabled?: boolean;
+  /** 叙事文风预设 id：cinematic/plain/lyrical/playful/intense，复用 datePrompts 风格预设；缺省 = cinematic */
+  style?: string;
+  /** 自定义文风描述，原样注入 prompt（优先级高于风格预设） */
+  customStyle?: string;
+  /** 回复总字数约束（旁白+台词），默认 150，范围 50-500 */
+  replyLength?: number;
+  /** 叙事人称：first-you=「我」 third-name=第三人称称呼角色名 third-you=第三人称称呼"你"；缺省 = first-you */
+  pov?: 'first-you' | 'third-name' | 'third-you';
+  /** 角色旁白颜色（hex），默认灰 */
+  narrationColor?: string;
+  /** 用户旁白颜色（hex），默认蓝 */
+  userNarrationColor?: string;
+  /** 旁白字号（px），角色与用户共用 */
+  narrationSize?: number;
+  /** 进入时开场旁白（默认开）：开启后进入时角色先来一段场景旁白建立氛围 */
+  openingNarration?: boolean;
 }
 
 export interface RoomItem {
@@ -1191,6 +1239,144 @@ export interface NovelBook {
     segments: NovelSegment[];
     createdAt: number;
     lastActiveAt: number;
+}
+
+// =====================================================================
+// --- 番外（拾光 App）类型 ---
+// 私聊「番外」入口打开全屏生成页，用副 API 生成小说式番外，收藏到「拾光」。
+// 可从「拾光」转发给角色：写入角色记忆 + 注入私聊消息，让角色真正"知道"这个故事。
+// =====================================================================
+
+/** 收藏的一篇番外。 */
+export interface FanwaiStory {
+    id: string;          // `fanwai-${Date.now()}-${rand}`
+    charId: string;      // 生成时的当前角色 id
+    charName: string;    // 角色名（列表/转发展示）
+    style: string;       // 文风
+    wordCount: number;   // 字数档位
+    pov: 'first' | 'second' | 'third'; // 第几人称
+    worldSetting: string; // 用户粘贴的世界设定
+    content: string;     // 生成的全文（文字番外为纯文本；HTML 番外为完整 HTML 字符串）
+    /** 展示标题（可选；缺省用 content 或「未命名番外」兜底）。 */
+    title?: string;
+    /** 展示摘要（可选）。 */
+    summary?: string;
+    createdAt: number;   // 时间戳
+    /** 番外格式：缺省按 'text' 处理（存量零迁移）。'html' 时 content 为 HTML。 */
+    format?: 'text' | 'html';
+    /** HTML 番外的具体模板类型：phone 小手机 / forum 论坛 / statusbar 状态栏 / custom AI自由。 */
+    htmlType?: 'phone' | 'forum' | 'statusbar' | 'custom';
+    /** 最近一次续写的时间戳（可选，续写后记录，展示用）。 */
+    continuedAt?: number;
+}
+
+// =====================================================================
+// --- TECNO HANDOU (手账) TYPES ---
+// 个人日程/打卡/碎碎念手账（源自 techo 插件 React 移植）。
+// 存储走 STORE_TECHO 通用 KV store，key 见 utils/techoStore.ts。
+// =====================================================================
+
+/** 时间轴任务（有固定时间的任务）。 */
+export interface TechoTimelineItem {
+    id: string;
+    time: string;        // "HH:mm"
+    text: string;
+    done: boolean;
+    star?: boolean;
+}
+
+/** 灵活任务（Todo，无固定时间）。 */
+export interface TechoTodoItem {
+    id: string;
+    text: string;
+    done: boolean;
+    star?: boolean;
+    overdue?: boolean;   // 延期滚入次日标记
+}
+
+/** 单日数据。 */
+export interface TechoDayData {
+    date: string;        // YYYY-MM-DD
+    timeline: TechoTimelineItem[];
+    todos: TechoTodoItem[];
+    notes: string;       // 碎碎念
+}
+
+/** 习惯频率。 */
+export type TechoHabitFrequency =
+    | { type: 'daily' }
+    | { type: 'weekly_count'; count: number }
+    | { type: 'weekly_fixed'; days: number[] }; // 0-6 周日-周六
+
+/** 习惯。 */
+export interface TechoHabit {
+    id: string;
+    name: string;
+    icon: string;
+    frequency: TechoHabitFrequency;
+    targetDays?: number;   // 养成目标（每日习惯=天数，每周习惯=周数）
+    startDate: string;
+    phase: 'growing' | 'sustained';
+    checkins: Record<string, number>; // { YYYY-MM-DD: 次数 }
+    color?: string;        // 习惯专属色（年视图色带 / 周视图标记用），旧数据兜底为随机中性色
+}
+
+/** 21 天挑战。进行中 = 每天打卡，连续 21 天完成；中断超 3 天判定失效。 */
+export interface TechoChallenge {
+    id: string;
+    name: string;
+    icon: string;
+    color: string;
+    startDate: string;          // 开始日 YYYY-MM-DD
+    targetDays: number;         // 目标天数（默认 21）
+    checkins: Record<string, number>; // { YYYY-MM-DD: 1 }
+    status: 'active' | 'done' | 'failed';
+    doneDate?: string;          // 完成日
+    failDate?: string;          // 失效日
+}
+
+/** 大事记。 */
+export interface TechoMilestone {
+    id: string;
+    date: string;
+    text: string;
+}
+
+/** 年度目标。 */
+export interface TechoGoal {
+    id: string;
+    text: string;
+    target: number;
+    type: 'habit_count';
+    habitId: string;
+}
+
+/** 生理期记录（存月数据里）。 */
+export interface TechoPeriod {
+    start: string;
+    end: string;
+}
+
+/** 月数据（月备注 + 生理期）。 */
+export interface TechoMonthData {
+    note: string;
+    period: TechoPeriod | null;
+}
+
+/** 手账设置。 */
+export interface TechoSettings {
+    theme: string;
+    fontSize: number;
+    notebookName: string;
+    city: string;
+    characterFrequency: 'high' | 'medium' | 'low';
+    characterTone: 'gentle' | 'direct';
+    charWhitelist: string[];
+    charData: Record<string, { name: string; lastSeen: number }>;
+    nodeSwitches: { period: boolean; weather: boolean; habit: boolean; milestone: boolean };
+    habitReminder: boolean;
+    bgUrl: string;
+    bgOpacity: number;
 }
 
 // =====================================================================
@@ -2925,6 +3111,9 @@ export interface CharacterProfile {
   // 总开关：默认关（opt-in）。开启后才注入「用户生活记录」section（潜意识背景约束 +
   // 各模块今日摘要 + [[LIFE:...]] 代记指令说明）。关闭时连指令说明都不给角色看。
   lifeRecordEnabled?: boolean;
+  // 手账感知总开关：默认关（opt-in）。开启后把用户手账（techo：今日日程/碎碎念/习惯）
+  // 作为「潜意识背景」注入角色对话上下文，角色自然接话（不点破、不逐条复述）。
+  journalSensingEnabled?: boolean;
   // 小开关：默认开（!== false 即开），受总开关统辖；分别控制对应模块的数据摘要与代记指令。
   lifeRecordPeriodEnabled?: boolean;    // 生理期
   lifeRecordMedEnabled?: boolean;       // 药盒
@@ -3173,6 +3362,8 @@ export interface UserProfile {
     name: string;
     avatar: string;
     bio: string;
+    /** 用户生日（YYYY-MM-DD）。可空；填了之后节日注入会把生日当天当陪伴核心节日处理。 */
+    birthday?: string;
     /** 分角色聊天头像（档案 App 设置）：charId → 头像（http(s) URL 或 data:image）。
      *  私聊里「你」的头像取 perCharAvatars[charId] || avatar（上面的整体头像作宏观默认）；
      *  群聊/其他场合仍用整体头像。删角色留下的孤儿键无害，读取端永远按当前 charId 取。 */
@@ -3207,6 +3398,8 @@ export interface Toast {
     id: string;
     message: string;
     type: 'success' | 'error' | 'info';
+    /** 可选操作按钮（如「撤销」）。点击后先隐藏 toast 再执行回调。 */
+    action?: { label: string; onClick: () => void };
 }
 
 export interface XhsStockImage {
@@ -3764,7 +3957,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'game_replay';
 
 export interface Message {
     id: number;
@@ -3842,6 +4035,7 @@ export interface FullBackupData {
     roomCustomAssets?: { id?: string; name: string; image: string; defaultScale: number; description?: string; visibility?: 'public' | 'character'; assignedCharIds?: string[] }[]; 
     
     novels?: NovelBook[];
+    fanwaiStories?: FanwaiStory[];      // 番外收藏（拾光 App）
     vrNovels?: VRWorldNovel[];          // 虚拟世界「彼方」全局小说库
     vrAnnotations?: VRNovelAnnotation[]; // 虚拟世界小说批注
     customCreatorParts?: CustomCreatorPart[]; // 捏脸系统自定义部件
@@ -4365,4 +4559,135 @@ export interface LifeSimState {
     buildings?: SimBuilding[];
     worldInventory?: Record<string, number>;
     worldGold?: number;
+}
+
+// ===== 反查手机（Reverse Check Phone）TYPES =====
+// 「查手机」的反向：角色接管并查看用户的真实 SullyOS（真实界面自动操作）。
+// 覆盖：反查记录、权限、替回消息标记、总结卡片标记、接管状态。
+
+/** 反查中查看的具体内容明细（用于记录 + 总结卡片，防幻觉依据） */
+export interface ReverseCheckItem {
+    /** 查看了什么 App（AppID 字符串） */
+    appId: string;
+    /** App 中文名 */
+    appName: string;
+    /** 在该 App 里具体看了什么（如：和「小柴」的聊天记录、某张相册图片、朋友圈） */
+    detail?: string;
+    /** 查看开始时间戳 */
+    startedAt: number;
+    /** 查看结束时间戳 */
+    endedAt?: number;
+    /** 角色"知道了什么"（从真实查看内容提炼，用于记忆，不带入未查看内容） */
+    learned?: string;
+}
+
+/** 单条反查记录（谁/时间/查看了什么/结果） */
+export interface ReverseCheckLog {
+    id: string;
+    /** 发起反查的角色 id */
+    charId: string;
+    /** 角色名（冗余存储，便于展示） */
+    charName: string;
+    /** 反查发生时间戳 */
+    timestamp: number;
+    /** 结果：同意查看 / 被拒绝（未查看）/ 接管中被打断 */
+    result: 'viewed' | 'rejected' | 'interrupted';
+    /** 查看明细（result==='viewed' 时有效） */
+    items?: ReverseCheckItem[];
+    /** 角色被拒绝时的请求语（result==='rejected' 时记录） */
+    rejectRequest?: string;
+}
+
+/** 反查权限（每个 App 一个开关；设置永远禁止） */
+export interface ReversePermission {
+    appId: string;
+    appName: string;
+    /** 是否允许角色查看该 App（默认 true） */
+    allowed: boolean;
+    /** 是否永久禁止（设置 App = true，不可开启） */
+    hardBlocked?: boolean;
+}
+
+/** 反查权限设置（appId -> 是否允许；存 localStorage 单份，简单一致） */
+export type ReversePermissionState = Record<string, boolean>;
+
+/** 反查替回消息的 metadata 标记（挂在 Message.metadata.source 上） */
+export interface ReverseReplyMeta {
+    /** 固定标记，用于区分"真实用户消息 vs 角色替回" */
+    source: 'reverse_reply';
+    /** 替回消息的角色 id */
+    charId: string;
+    /** 替回消息的角色名 */
+    charName: string;
+    /** 替回的时间戳 */
+    timestamp: number;
+    /** 替回上下文备注（可选） */
+    note?: string;
+}
+
+/** 反查总结卡片消息的 metadata 标记 */
+export interface ReverseSummaryMeta {
+    source: 'reverse_summary';
+    charId: string;
+    charName: string;
+    timestamp: number;
+    /** 联动删除的记忆节点 id 列表 */
+    memoryNodeIds?: string[];
+    /** 可展开卡片数据（偷看手机专用卡片渲染用） */
+    phoneCard?: {
+        kind: 'reverse_summary';
+        title: string;
+        detail: string;
+        mood?: string;
+        /** 完整查看明细（角色以后能点开读到） */
+        items?: { appName: string; detail?: string; learned?: string }[];
+    };
+    /** 情绪标签（如吃醋/好奇/担心） */
+    mood?: string;
+}
+
+/** 反查倾向等级 */
+export type ReverseProclivity = 'high' | 'medium' | 'low' | 'none';
+
+/** 反查记忆节点标记（写入记忆宫殿时打 tags） */
+export const REVERSE_MEMORY_TAG = 'reverse_check';
+
+/** 接管状态（OSContext 全局持有，驱动全局接管覆盖层） */
+export interface ReverseTakeoverState {
+    /** 是否正在接管 */
+    active: boolean;
+    /** 正在接管的角色 id */
+    charId?: string;
+    /** 正在接管的角色名 */
+    charName?: string;
+    /** 是否已暂停（暂停 = 停止自动操作，交还手动） */
+    paused?: boolean;
+    /** 接管开始时间戳 */
+    startedAt?: number;
+}
+
+/** 健康数据快照（HealthPanel 手动输入 + 远程手环同步共用）。 */
+export interface HealthSnapshot {
+    /** 步数 */
+    steps?: number;
+    /** 实时心率（bpm） */
+    heartRate?: number;
+    /** 总睡眠小时数 */
+    sleepHours?: number;
+    /** 体重（kg） */
+    weightKg?: number;
+    /** 平均心率 */
+    heartRateAvg?: number;
+    /** 深睡小时数 */
+    deepSleepHours?: number;
+    /** 浅睡小时数 */
+    lightSleepHours?: number;
+    /** 消耗热量（kcal） */
+    calories?: number;
+    /** 压力指数 */
+    stress?: number;
+    /** 数据时间戳 */
+    updatedAt?: number;
+    /** 数据来源：'manual' | 'remote' */
+    source?: string;
 }

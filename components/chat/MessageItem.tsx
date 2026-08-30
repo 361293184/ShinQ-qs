@@ -18,6 +18,8 @@ import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import QixiEventCardView from './QixiEventCard';
+import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
+import GameReplayCard from '../games/GameReplayCard';
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -2035,6 +2037,90 @@ const MessageItem = React.memo(({
         </>
     );
 
+    // --- Fanwai Card (拾光转发的番外故事·迷你书卡片·横版长方形) ---
+    if (m.type === 'fanwai_card' && m.metadata?.fanwaiStory) {
+        const fw = m.metadata.fanwaiStory;
+        const title = fw.title || m.content || '未命名番外';
+        const summary = (fw.summary || '').trim();
+        const who = (fw.charName || '').trim();
+        // HTML 番外：转发的是完整 HTML（存 metadata），聊天里渲染成缩小预览图（沙盒 iframe 禁脚本）
+        if (fw.format === 'html' && fw.content) {
+            return commonLayout(
+                <div className="w-60 overflow-hidden rounded-2xl border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none bg-white">
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-[#12101d]">
+                        <span className="text-[9px] italic font-extrabold tracking-wider text-[#f5c86b]">拾光 · 番外（{HTML_TYPE_LABELS[((fw.htmlType as string) || 'custom') as keyof typeof HTML_TYPE_LABELS]}）</span>
+                        <span className="text-[9px] italic text-[#c8bbd6]/70">{who || ''}</span>
+                    </div>
+                    <iframe
+                        title={`${fw.htmlType || 'custom'} 番外预览`}
+                        srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:4px;background:#fff;font-family:-apple-system,'PingFang SC',sans-serif;}*{box-sizing:border-box}</style></head><body>${fw.content}</body></html>`}
+                        sandbox={fw.htmlType === 'custom' ? 'allow-same-origin allow-scripts' : 'allow-same-origin'}
+                        style={{ width: '100%', height: 220, border: 'none', background: '#fff', pointerEvents: 'none' }}
+                    />
+                    <div className="px-3 py-1.5 bg-[#16131f] flex items-center gap-2">
+                        <span className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f]">HTML 预览</span>
+                        <span className="text-[10px] text-[#c8bbd6] line-clamp-1 min-w-0">{title}</span>
+                    </div>
+                </div>
+            );
+        }
+        // 方正几何感字体：英数 Nunito + 中文 Noto Sans SC（均已在 index.html 引入），斜体 italic 走 Nunito italic
+        const SQUARE = '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+        return commonLayout(
+            <div className="w-60 overflow-hidden rounded-2xl bg-[#12101d] border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none">
+                {/* 上下布局：上方黑金封面标题条 + 下方摘要区，整体压扁成横版长方形 */}
+                {/* 封面标题条：高度更扁，左侧发光羽 + 斜体大字标题 + 右上角色名 */}
+                <div className="relative h-16 bg-gradient-to-br from-[#0c0a14] via-[#1a0f1c] to-[#2a1530] overflow-hidden flex items-center">
+                    {/* 浮动光效：斜射金色光带 + 漂浮光斑（更收敛一点） */}
+                    <div aria-hidden className="absolute -top-2 -left-2 h-16 w-24 bg-gradient-to-br from-[#f5c86b]/35 to-transparent blur-md rotate-[-24deg] pointer-events-none" />
+                    <div aria-hidden className="absolute right-24 top-2 h-1.5 w-1.5 rounded-full bg-[#ffd98a]/70 blur-[1px] pointer-events-none animate-float" />
+                    <div aria-hidden className="absolute right-32 bottom-3 h-1 w-1 rounded-full bg-[#fff0c9]/80 blur-[2px] pointer-events-none animate-bounce-slow" />
+                    <div aria-hidden className="absolute left-20 bottom-1 h-1.5 w-1.5 rounded-full bg-[#ffc85e]/60 blur-[1px] pointer-events-none animate-float" />
+                    {/* 左侧发光星羽 */}
+                    <div className="relative shrink-0 ml-2.5 h-9 w-9 rounded-full bg-[#f5c86b]/10 flex items-center justify-center shadow-[0_0_12px_rgba(245,200,107,0.35)]">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#f5c86b] drop-shadow-[0_0_4px_rgba(245,200,107,0.8)]">
+                            <path d="M12 2 9.7 8.9 3 9.3l5.4 4.1L6.5 21 12 16.8 17.5 21l-1.9-7.6L21 9.3l-6.7-.4L12 2Z" />
+                        </svg>
+                    </div>
+                    {/* 标题：方正斜体大字（单行截断） */}
+                    <h4
+                        style={{ fontFamily: SQUARE }}
+                        className="relative flex-1 min-w-0 ml-3 mr-3 italic font-black text-[18px] leading-[1.1] tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-[#e8c98a] via-[#d4a665] to-[#a87841] line-clamp-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] [text-shadow:0_0_10px_rgba(180,140,80,0.25)]"
+                        title={title}
+                    >
+                        {title}
+                    </h4>
+                    {/* 右上角：字数 + 角色名 */}
+                    <div className="relative shrink-0 mr-3 flex flex-col items-end gap-0.5 text-right">
+                        {fw.wordCount ? (
+                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] font-extrabold text-[#f5c86b]/90 tracking-wider">
+                                {fw.wordCount} 字
+                            </span>
+                        ) : null}
+                        {who ? (
+                            <span style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#c8bbd6]/80 truncate max-w-[5rem]" title={`${who} 的番外`}>
+                                {who}
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+                {/* 摘要 + 徽章：深色纸感底 */}
+                <div className="px-3 py-2 bg-[#16131f] flex items-center gap-2">
+                    <span style={{ fontFamily: SQUARE }} className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f] shadow-sm shadow-[#f0b64f]/30">
+                        拾光·番外
+                    </span>
+                    {summary ? (
+                        <p style={{ fontFamily: SQUARE }} className="italic text-[11px] text-[#c8bbd6] leading-snug line-clamp-1 min-w-0">
+                            {summary}
+                        </p>
+                    ) : (
+                        <p style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#8b7f9e]/70 line-clamp-1 min-w-0">暂无摘要</p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     // [New] Social Card Rendering
     // --- Chat Forward Card ---
     if (m.type === 'chat_forward') {
@@ -3015,6 +3101,12 @@ const MessageItem = React.memo(({
                 </div>
             </div>
         );
+        return commonLayout(card);
+    }
+
+    if (m.type === 'game_replay') {
+        const meta: any = m.metadata || {};
+        const card = <GameReplayCard meta={meta} />;
         return commonLayout(card);
     }
 

@@ -9,7 +9,7 @@ import {
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
-    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask
+    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, FanwaiStory
 } from '../types';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
@@ -27,7 +27,7 @@ const DB_NAME = 'AetherOS_Data';
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
-const DB_VERSION = 71;
+const DB_VERSION = 72;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -52,6 +52,7 @@ const STORE_COURSES = 'courses';
 const STORE_GAMES = 'games';
 const STORE_WORLDBOOKS = 'worldbooks'; 
 const STORE_NOVELS = 'novels'; 
+const STORE_FANWAI_STORIES = 'fanwai_stories'; // 番外收藏（拾光 App）
 const STORE_BANK_TX = 'bank_transactions';
 const STORE_BANK_DATA = 'bank_data';
 const STORE_XHS_STOCK = 'xhs_stock';
@@ -118,6 +119,25 @@ const SULLY_PRESET_EMOJIS = [
 // 改成复用同一条连接, 并在连接被外部失效 (另一 tab 升级版本 / 浏览器强制关闭) 时
 // 清掉缓存, 下次 openDB 自动重开 —— 一处改, 全部 ~165 个调用点受益。
 let dbPromise: Promise<IDBDatabase> | null = null;
+
+// —— 番外收藏 localStorage 镜像（模块级函数，避免依赖 DB 对象上的 this）——
+const FANWAI_MIRROR_KEY = 'os_fanwai_stories_v1';
+function readFanwaiMirror(): FanwaiStory[] {
+    try {
+        const raw = localStorage.getItem(FANWAI_MIRROR_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch {
+        return [];
+    }
+}
+function writeFanwaiMirror(stories: FanwaiStory[]): void {
+    try {
+        localStorage.setItem(FANWAI_MIRROR_KEY, JSON.stringify(stories));
+    } catch {
+        /* 隐私模式/配额满等场景静默忽略，IndexedDB 仍是主存储 */
+    }
+}
 
 export const openDB = (): Promise<IDBDatabase> => {
   if (dbPromise) return dbPromise;
@@ -285,6 +305,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_GAMES, { keyPath: 'id' }); 
       createStore(STORE_WORLDBOOKS, { keyPath: 'id' }); 
       createStore(STORE_NOVELS, { keyPath: 'id' });
+      createStore(STORE_FANWAI_STORIES, { keyPath: 'id' }); // v72: 番外收藏（拾光 App）
 
       createStore(STORE_VR_NOVELS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(STORE_VR_ANNOTATIONS)) {
@@ -2348,6 +2369,74 @@ export const DB = {
       transaction.objectStore(STORE_NOVELS).delete(id);
   },
 
+  // --- 番外收藏（拾光 App） ---
+  // IndexedDB 在部分移动端/浏览器偶发"写入成功但刷新即丢"，为了兜底，
+  // 番外收藏同时维护一份 localStorage 镜像（os_fanwai_stories_v1），
+  // 保存/删除同步写镜像，读取时若 IndexedDB 为空则从镜像恢复回填。
+  // 镜像读写全部 try/catch 包裹，失败仅静默忽略，绝不影响主路径。
+  // 注意：DB 是对象字面量，方法里的 `this` 在解构/透传场景下可能丢失，
+  // 因此镜像 helper 用模块级函数实现，方法内部不依赖 `this`。
+  getAllFanwaiStories: async (): Promise<FanwaiStory[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_FANWAI_STORIES)) return [];
+      const dbStories: FanwaiStory[] = await new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_FANWAI_STORIES, 'readonly');
+          const store = transaction.objectStore(STORE_FANWAI_STORIES);
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+      });
+      // 双保险：IndexedDB 为空但镜像里有 → 从镜像回填进 IndexedDB，保住数据
+      if (dbStories.length === 0) {
+          const mirror = readFanwaiMirror();
+          if (mirror.length > 0) {
+              try {
+                  const tx = db.transaction(STORE_FANWAI_STORIES, 'readwrite');
+                  const store = tx.objectStore(STORE_FANWAI_STORIES);
+                  for (const s of mirror) store.put(s);
+                  await new Promise<void>((resolve, reject) => {
+                      tx.oncomplete = () => resolve();
+                      tx.onerror = () => reject(tx.error);
+                      tx.onabort = () => reject(tx.error || new Error('abort'));
+                  });
+              } catch { /* 回填失败不强求，返回镜像数据本身 */ }
+              return mirror;
+          }
+      }
+      return dbStories;
+  },
+
+  saveFanwaiStory: async (story: FanwaiStory): Promise<void> => {
+      const db = await openDB();
+      await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction(STORE_FANWAI_STORIES, 'readwrite');
+          transaction.objectStore(STORE_FANWAI_STORIES).put(story);
+          // 必须等事务真正 commit（落盘）后才算完成。若在 oncomplete 前刷新页面，
+          // 浏览器会回滚丢弃该写入，导致"收藏后刷新就消失"。
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error('abort'));
+      });
+      // 落盘成功后同步镜像：先读镜像最新，去重后塞进新 story（放最前），写回
+      const mirror = readFanwaiMirror();
+      writeFanwaiMirror([story, ...mirror.filter(s => s.id !== story.id)]);
+  },
+
+  deleteFanwaiStory: async (id: string): Promise<void> => {
+      const db = await openDB();
+      await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction(STORE_FANWAI_STORIES, 'readwrite');
+          transaction.objectStore(STORE_FANWAI_STORIES).delete(id);
+          // 同上：等事务 commit 后才确认删除生效。
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error('abort'));
+      });
+      // 同步从镜像移除
+      const mirror = readFanwaiMirror();
+      writeFanwaiMirror(mirror.filter(s => s.id !== id));
+  },
+
   // --- VR World 「彼方」 全局小说库 ---
   getVRNovels: async (): Promise<VRWorldNovel[]> => {
       const db = await openDB();
@@ -3112,7 +3201,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, fanwaiStories, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3137,6 +3226,7 @@ export const DB = {
           getAllFromStore(STORE_STORY_THEATER_PRESETS),
           getAllFromStore(STORE_STORY_THEATER_MASKS),
           getAllFromStore(STORE_NOVELS),
+          getAllFromStore(STORE_FANWAI_STORIES),
           getAllFromStore(STORE_BANK_TX),
           getAllFromStore(STORE_BANK_DATA),
           getAllFromStore(STORE_XHS_ACTIVITIES),
@@ -3178,7 +3268,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, fanwaiStories,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3240,7 +3330,7 @@ export const DB = {
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
-          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
+          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_FANWAI_STORIES, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
           STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
           STORE_QUIZZES,
@@ -3606,6 +3696,10 @@ export const DB = {
           await clearAndAdd(STORE_NOVELS, data.novels, '小说', false);
           data.novels = undefined as any;
       }, data.novels?.length || 0);
+      await runSection('番外收藏（拾光）', data.fanwaiStories !== undefined, async () => {
+          await clearAndAdd(STORE_FANWAI_STORIES, data.fanwaiStories, '番外收藏', false);
+          data.fanwaiStories = undefined as any;
+      }, data.fanwaiStories?.length || 0);
       await runSection('彼方小说库', data.vrNovels !== undefined, async () => {
           await clearAndAdd(STORE_VR_NOVELS, data.vrNovels, '彼方小说库', false);
           data.vrNovels = undefined as any;

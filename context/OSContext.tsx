@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, MemoryPalaceFeatureFlags } from '../types';
+import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, FanwaiStory, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, MemoryPalaceFeatureFlags } from '../types';
 import { DB } from '../utils/db';
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { clampClaudeTemperature, modelRejectsSamplingParams, stripSamplingParams } from '../utils/samplingParamCompat';
@@ -328,6 +328,12 @@ interface OSContextType {
   updateNovel: (id: string, updates: Partial<NovelBook>) => Promise<void>;
   deleteNovel: (id: string) => void;
 
+  // 番外收藏（拾光 App）
+  fanwaiStories: FanwaiStory[];
+  addFanwaiStory: (story: FanwaiStory) => void;
+  deleteFanwaiStory: (id: string) => void;
+  updateFanwaiStory: (id: string, story: FanwaiStory) => void;
+
   // Songs (Songwriting)
   songs: SongSheet[];
   addSong: (song: SongSheet) => void;
@@ -382,7 +388,7 @@ interface OSContextType {
   importAppearancePreset: (file: File) => Promise<void>;
 
   toasts: Toast[];
-  addToast: (message: string, type?: Toast['type']) => void;
+  addToast: (message: string, type?: Toast['type'], action?: { label: string; onClick: () => void }) => void;
 
   // 长报错弹窗：toast 一行装不下 / 手机没法开 console 时, 用 showError 弹一个
   // 多行预览框 + 复制按钮, 方便用户把原文反馈过来。
@@ -909,6 +915,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [characterGroups, setCharacterGroups] = useState<CharacterGroup[]>([]);
   const [worldbooks, setWorldbooks] = useState<Worldbook[]>([]); 
   const [novels, setNovels] = useState<NovelBook[]>([]); // New
+  const [fanwaiStories, setFanwaiStories] = useState<FanwaiStory[]>([]); // 番外收藏（拾光 App）
+  const pendingFanwaiDeleteRef = useRef<Record<string, number>>({}); // 软删除撤销窗口的定时器 id，撤销时取消真正删除
   const [songs, setSongs] = useState<SongSheet[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(defaultUserProfile);
@@ -1570,13 +1578,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         };
 
-        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbSongs, dbCharGroups] = await Promise.all([
+        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbFanwaiStories, dbSongs, dbCharGroups] = await Promise.all([
             settle(DB.getAllCharacters(), 'characters', [] as CharacterProfile[]),
             settle(DB.getThemes(), 'themes', [] as ChatTheme[]),
             settle(DB.getUserProfile(), 'userProfile', null as UserProfile | null),
             settle(DB.getGroups(), 'groups', [] as GroupProfile[]),
             settle(DB.getAllWorldbooks(), 'worldbooks', [] as Worldbook[]),
             settle(DB.getAllNovels(), 'novels', [] as NovelBook[]),
+            settle(DB.getAllFanwaiStories(), 'fanwaiStories', [] as FanwaiStory[]),
             settle(DB.getAllSongs(), 'songs', [] as SongSheet[]),
             settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
@@ -1686,6 +1695,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         setCharacterGroups(dbCharGroups);
         setWorldbooks(dbWorldbooks);
         setNovels(dbNovels);
+        setFanwaiStories(dbFanwaiStories ?? []);
         setSongs(dbSongs);
         setCustomThemes(dbThemes);
         if (dbUser) setUserProfile(dbUser);
@@ -3426,6 +3436,44 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       await DB.deleteNovel(id);
   };
 
+  // 番外收藏（拾光 App）Methods
+  const addFanwaiStory = async (story: FanwaiStory) => {
+      setFanwaiStories(prev => [story, ...prev]);
+      await DB.saveFanwaiStory(story);
+  };
+
+  // 更新一篇番外（如续写后追加 content）。同步内存态 + 写回 DB。
+  const updateFanwaiStory = async (id: string, story: FanwaiStory) => {
+      setFanwaiStories(prev => prev.map(s => s.id === id ? story : s));
+      await DB.saveFanwaiStory(story);
+  };
+
+  const deleteFanwaiStory = async (id: string) => {
+      // 软删除：先从内存列表移除（书架立即消失），真正的数据库删除延迟到「撤销窗口」结束后再执行，
+      // 期间用户可在 toast 上点「撤销」恢复。防止误删 / 以为转发把番外删掉的困惑。
+      const doomed = fanwaiStories.find(s => s.id === id);
+      setFanwaiStories(prev => prev.filter(s => s.id !== id));
+      // 撤销窗口内恢复：重新放回列表 + 写回数据库
+      const undo = () => {
+          if (pendingFanwaiDeleteRef.current[id]) clearTimeout(pendingFanwaiDeleteRef.current[id]);
+          delete pendingFanwaiDeleteRef.current[id];
+          if (doomed) {
+              setFanwaiStories(prev => prev.some(s => s.id === id) ? prev : [doomed, ...prev]);
+              DB.saveFanwaiStory(doomed).catch(() => {});
+          }
+          addToast('已恢复这篇番外', 'success');
+      };
+      // 窗口结束：真正删除，并清掉撤销入口
+      const timer = window.setTimeout(() => {
+          delete pendingFanwaiDeleteRef.current[id];
+          DB.deleteFanwaiStory(id).catch(() => {});
+      }, 5000);
+      pendingFanwaiDeleteRef.current[id] = timer;
+      if (doomed) {
+          addToast('已从拾光移除，可撤销', 'info', { label: '撤销', onClick: undo });
+      }
+  };
+
   // Song Methods
   const addSong = async (song: SongSheet) => {
       setSongs(prev => [song, ...prev]);
@@ -3470,7 +3518,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (stored) await DB.saveAsset(`icon_${appId}`, stored);
       else await DB.deleteAsset(`icon_${appId}`);
   };
-  const addToast = (message: string, type: Toast['type'] = 'info') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); };
+  const addToast = (message: string, type: Toast['type'] = 'info', action?: { label: string; onClick: () => void }) => {
+      const id = Date.now().toString();
+      // 带操作按钮的 toast（如「撤销」）停留久一点，给用户留足点按时间
+      const duration = action ? 6000 : 3000;
+      setToasts(prev => [...prev, { id, message, type, action }]);
+      setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, duration);
+  };
   const showError = (title: string, details: string) => {
       setErrorDialog({ title, details });
       // showError 是分发型入口，title 由调用方传。这里写显式白名单：
@@ -4258,6 +4312,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               story_theater_presets: 'storyTheaterPresets',
               story_theater_masks: 'storyTheaterMasks',
               novels: 'novels',
+              fanwai_stories: 'fanwaiStories',
               songs: 'songs',
               bank_transactions: 'bankTransactions',
               xhs_activities: 'xhsActivities',
@@ -4497,6 +4552,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'story_theater_presets': backupData.storyTheaterPresets = processedData; break;
                   case 'story_theater_masks': backupData.storyTheaterMasks = processedData; break;
                   case 'novels': backupData.novels = processedData; break;
+                  case 'fanwai_stories': backupData.fanwaiStories = processedData; break;
                   case 'songs': backupData.songs = processedData; break;
                   case 'bank_transactions': backupData.bankTransactions = processedData; break;
                   case 'bank_data': {
@@ -5113,6 +5169,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const user = await DB.getUserProfile();
           const books = await DB.getAllWorldbooks();
           const novelList = await DB.getAllNovels();
+          const fanwaiList = await DB.getAllFanwaiStories();
           const songList = await DB.getAllSongs();
           
           if (hadAssetStoreBackup || hadCustomIconsBackup || hadAppearancePresetsBackup) {
@@ -5167,6 +5224,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (user) setUserProfile(user);
           if (books.length > 0) setWorldbooks(books);
           if (novelList.length > 0) setNovels(novelList);
+          if (fanwaiList.length > 0) setFanwaiStories(fanwaiList);
           if (songList.length > 0) setSongs(songList);
 
           // ─── 主动消息 2.0：导入后跟云端对一次账 ───
@@ -5294,6 +5352,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     addNovel,
     updateNovel,
     deleteNovel,
+    fanwaiStories,
+    addFanwaiStory,
+    deleteFanwaiStory,
+    updateFanwaiStory,
     songs,
     addSong,
     updateSong,

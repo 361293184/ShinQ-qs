@@ -644,6 +644,30 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">协同工作</span>
                             </button>
 
+                            {/* 生图：给当前角色生成一张配图并发出 */}
+                            <button onClick={() => onPanelAction('imagegen')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#7c6ee6]' : isDiscordStyle ? 'bg-slate-800 text-emerald-300 border-emerald-400/20' : 'bg-emerald-50 text-emerald-500 border-emerald-100'}`}>
+                                    <Image className="w-6 h-6" weight="fill" />
+                                </div>
+                                <span className="text-xs font-bold">生图</span>
+                            </button>
+
+                            {/* 番外：给当前角色写一篇番外（全屏生成页） */}
+                            <button onClick={() => onPanelAction('fanwai')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#7c6ee6]' : isDiscordStyle ? 'bg-slate-800 text-amber-300 border-amber-400/20' : 'bg-amber-50 text-amber-500 border-amber-100'}`}>
+                                    <PencilSimple className="w-6 h-6" weight="fill" />
+                                </div>
+                                <span className="text-xs font-bold">番外</span>
+                            </button>
+
+                            {/* 小说共读：和角色一起读小说 */}
+                            <button onClick={() => onPanelAction('novel')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#7c6ee6]' : isDiscordStyle ? 'bg-slate-800 text-violet-300 border-violet-400/20' : 'bg-violet-50 text-violet-500 border-violet-100'}`}>
+                                    <BookOpenText className="w-6 h-6" weight="fill" />
+                                </div>
+                                <span className="text-xs font-bold">小说共读</span>
+                            </button>
+
                             {/* 见面：直接跳到该角色的见面模式（等同于进见面 App 并点击该角色） */}
                             <button onClick={() => onPanelAction('meetup')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-violet-300 border-violet-400/20' : 'bg-violet-50 text-violet-500 border-violet-100'}`}>

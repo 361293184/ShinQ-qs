@@ -39,11 +39,13 @@ export const SELF_SAFE_AREA_APPS: ReadonlySet<AppID> = new Set<AppID>([
     AppID.LifeSim,
     AppID.MemoryPalace,
     AppID.Handbook,
+    AppID.Techo,
     AppID.QQBridge,
     AppID.HotNews,
     AppID.WorldHome,
     AppID.CharCreatorDev,
     AppID.SpecialMoments,
+    AppID.Fanwai,
 ]);
 
 // 外壳是否需要替这个 App 让出安全区：不在自理名单里的才需要。

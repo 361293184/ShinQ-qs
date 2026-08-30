@@ -94,10 +94,13 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Bank, name: '存钱罐', icon: 'Bank', color: 'lime' }, // Hidden
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update
+  { id: AppID.Techo, name: 'Techo', icon: 'Techo', color: 'fuchsia' },
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },
   { id: AppID.Study, name: '自习室', icon: 'Study', color: 'emerald' },
   { id: AppID.Game, name: 'TRPG', icon: 'Game', color: 'orange' },
+  // { id: AppID.GameHub, name: '游戏大厅', icon: 'GameHub', color: 'orange' }, // Hidden temporarily, 待做好再放出
   { id: AppID.Novel, name: '笔友会', icon: 'Novel', color: 'amber' },
+  { id: AppID.Fanwai, name: '拾光', icon: 'Fanwai', color: 'amber' },
   { id: AppID.Songwriting, name: '写歌', icon: 'Songwriting', color: 'fuchsia' },
   { id: AppID.VRWorld, name: '彼方', icon: 'VRWorld', color: 'indigo' },
   { id: AppID.Schedule, name: '时光契约', icon: 'Schedule', color: 'cyan' },
@@ -125,3 +128,58 @@ export const HIDDEN_APP_NAMES: Partial<Record<AppID, string>> = {
 };
 
 export const DOCK_APPS = [AppID.Chat, AppID.GroupChat, AppID.Social, AppID.Settings];
+
+// ===== 反查手机 · 角色「反查倾向」性格映射 =====
+// 从角色人设(systemPrompt)中的关键词推导「反查倾向」，决定角色多主动发起反查手机、
+// 拒绝后多闹腾、总结卡片的篇幅。纯本地关键词匹配，不给 LLM 额外开销。
+
+/** 反查倾向等级 */
+export type ReverseProclivity = 'high' | 'medium' | 'low' | 'none';
+
+/** 反查倾向映射配置：命中关键词 → 加成（分）。分数越高越爱查手机/越爱闹腾。 */
+export const REVERSE_PROCLIVITY_KEYWORDS: {
+    /** 命中后加多少分（正=更爱查，负=更不爱查） */
+    score: number;
+    /** 命中的关键词（对 systemPrompt 做包含匹配） */
+    words: string[];
+}[] = [
+    // 高频主动发起（查手机狂魔/控制欲强/粘人）
+    { score: 3, words: ['查手机', '偷看', '控制欲', '占有欲', '爱吃醋', '吃醋', '粘人', '黏人', '多疑', '疑心', '爱翻手机', '八卦'] },
+    { score: 2, words: ['傲娇', '傲娇系', '别扭', '嘴硬', '小气', '嫉妒', '敏感', '小心眼'] },
+    // 中性（略倾向）
+    { score: 1, words: ['好奇', '爱凑热闹', '活跃', '自来熟', '直率', '敢爱敢恨'] },
+    // 低频/不主动（温和/内向/克制）
+    { score: -3, words: ['内向', '害羞', '腼腆', '温和', '温柔', '佛系', '沉稳', '克制', '尊重隐私'] },
+    { score: -2, words: ['安静', '话少', '高冷', '清冷', '疏离', '不主动'] },
+];
+
+/** 把 systemPrompt 文本换算成反查倾向等级 */
+export function resolveReverseProclivity(systemPrompt?: string): ReverseProclivity {
+    const text = (systemPrompt || '').toLowerCase();
+    if (!text) return 'medium';
+    let score = 0;
+    for (const group of REVERSE_PROCLIVITY_KEYWORDS) {
+        for (const w of group.words) {
+            if (text.includes(w.toLowerCase())) score += group.score;
+        }
+    }
+    if (score >= 3) return 'high';
+    if (score >= 1) return 'medium';
+    if (score <= -2) return 'low';
+    return 'medium';
+}
+
+/** 反查倾向等级 → 主动发起频率（每 N 秒最小间隔 / 概率权重，实施时由触发逻辑使用） */
+export const REVERSE_PROCLIVITY_TUNE: Record<ReverseProclivity, {
+    /** 主动发起的相对权重（越大越频繁） */
+    weight: number;
+    /** 拒绝后意见弹窗条数上限（max 3） */
+    maxRejectPopups: number;
+    /** 总结卡片字数倾向 */
+    summaryVerbosity: 'short' | 'medium' | 'long';
+}> = {
+    high:   { weight: 3, maxRejectPopups: 3, summaryVerbosity: 'long' },
+    medium: { weight: 2, maxRejectPopups: 2, summaryVerbosity: 'medium' },
+    low:    { weight: 1, maxRejectPopups: 1, summaryVerbosity: 'short' },
+    none:   { weight: 0, maxRejectPopups: 0, summaryVerbosity: 'short' },
+};
