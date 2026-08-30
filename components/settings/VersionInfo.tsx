@@ -3,7 +3,7 @@ import { querySwVersion } from '../../utils/swVersion';
 import { APP_VERSION, BUILD_LABEL, BUILD_TIME_LABEL } from '../../utils/buildInfo';
 import { isDevDebugAvailable, subscribeDevDebugAvailability, unlockDevDebug } from '../../utils/devDebug';
 import { trackEvent } from '../../utils/analytics';
-import AndroidUpdateControl from './AndroidUpdateControl';
+import { checkForUpdate, reloadToLatest, type UpdateCheckResult } from '../../utils/checkUpdate';
 
 /**
  * Settings 底部的版本信息脚注。
@@ -35,9 +35,27 @@ const VersionInfo: React.FC = () => {
     // available = 面板当前是否可用（非 prod 默认 true；prod 解锁后 true；强制关闭后 false）。
     const [available, setAvailable] = useState<boolean>(() => isDevDebugAvailable());
     const [hint, setHint] = useState<string | null>(null);
+    // 版本更新检查：idle = 未检查 / 检查中；available = 有新版本；none = 已是最新；error = 检查失败。
+    const [update, setUpdate] = useState<'idle' | 'checking' | 'available' | 'none' | 'error'>('idle');
+    const [updateLabel, setUpdateLabel] = useState<string | null>(null);
     const tapCountRef = useRef(0);
     const tapTimerRef = useRef<number | null>(null);
     const hintTimerRef = useRef<number | null>(null);
+
+    const handleCheckUpdate = async () => {
+        if (update === 'checking') return;
+        setUpdate('checking');
+        const result: UpdateCheckResult = await checkForUpdate();
+        if (result.status === 'update-available') {
+            setUpdate('available');
+            setUpdateLabel(result.latest.label);
+            trackEvent('检查到新版本', { 目标: result.latest.label });
+        } else if (result.status === 'up-to-date') {
+            setUpdate('none');
+        } else {
+            setUpdate('error');
+        }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -107,12 +125,49 @@ const VersionInfo: React.FC = () => {
                     built&nbsp;<span className="text-slate-500">{BUILD_TIME_LABEL}</span>
                 </span>
             </div>
+
+            {/* 检查更新 + 一键刷新 */}
+            <div className="mt-1 flex items-center gap-1.5">
+                <button
+                    type="button"
+                    onClick={handleCheckUpdate}
+                    disabled={update === 'checking'}
+                    className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-slate-800/70 text-white/80 active:scale-95 transition-all disabled:opacity-60"
+                >
+                    {update === 'checking' ? '检查中…' : '检查更新'}
+                </button>
+                {update === 'available' && (
+                    <>
+                        <button
+                            type="button"
+                            onClick={reloadToLatest}
+                            className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-400 text-amber-950 active:scale-95 transition-all"
+                        >
+                            有新版本 · 立即刷新
+                        </button>
+                    </>
+                )}
+            </div>
+            {update === 'none' && (
+                <div className="text-[9px] font-mono text-emerald-500/80 tracking-normal normal-case">
+                    ✓ 已是最新版本
+                </div>
+            )}
+            {update === 'available' && (
+                <div className="text-[9px] font-mono text-amber-500/80 tracking-normal normal-case">
+                    线上 {updateLabel} ≠ 当前 {BUILD_LABEL}
+                </div>
+            )}
+            {update === 'error' && (
+                <div className="text-[9px] font-mono text-rose-500/80 tracking-normal normal-case">
+                    检查失败，请检查网络后重试
+                </div>
+            )}
             {hint && (
                 <div className="text-[9px] font-mono text-amber-500/80 tracking-normal normal-case">
                     {hint}
                 </div>
             )}
-            <AndroidUpdateControl />
         </div>
     );
 };
