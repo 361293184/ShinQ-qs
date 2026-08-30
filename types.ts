@@ -134,6 +134,8 @@ export interface OSTheme {
   acnhChatSync?: boolean;
   launcherWidgetImage?: string; // DEPRECATED: always stripped on load — never renders.
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
+  /** 右下角方图槽位显示模式：'image' = 图片（launcherWidgets.dsq）；'anniversary' = 相伴纪念日小组件 */
+  launcherDsqMode?: 'image' | 'anniversary';
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
   launcherDockOrder?: string[];
@@ -3030,6 +3032,8 @@ export interface CharacterProfile {
   dateObserve?: DateObserveConfig;
   /** 私聊线下模式配置（开关/文风/字数/人称/旁白样式），按角色记忆，见 offlineMode/offlineSettings.ts */
   offlineConfig?: OfflineConfig;
+  /** 相伴纪念日（YYYY-MM-DD，可空）：用于桌面槽位与特殊日期「相伴 N 天」计算 */
+  relationshipStartDate?: string;
 
   savedDateState?: DateState;
   specialMomentRecords?: Record<string, SpecialMomentRecord>;

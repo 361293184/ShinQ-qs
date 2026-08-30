@@ -36,6 +36,8 @@ import {
   Planet,
   Wrench,
   HouseLine,
+  Feather,
+  CalendarBlank,
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -76,6 +78,8 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   VRWorld: ({ className }) => <Planet className={className} weight="regular" />,
   CharCreatorDev: ({ className }) => <Wrench className={className} weight="regular" />,
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
+  Fanwai: ({ className }) => <Feather className={className} weight="regular" />,
+  Techo: ({ className }) => <CalendarBlank className={className} weight="regular" />,
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
