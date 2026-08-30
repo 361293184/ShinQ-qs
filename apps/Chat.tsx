@@ -30,6 +30,11 @@ import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem'
 import ImageGenPanel from '../components/chat/ImageGenPanel';
 import NovelReaderPanel from '../components/chat/NovelReaderPanel';
 import FanwaiGeneratePage from '../components/fanwai/FanwaiGeneratePage';
+import VoiceFavoritesPortal from '../components/chat/VoiceFavoritesPortal';
+import { listVoiceFavorites, saveVoiceFavorite, removeVoiceFavorite, getVoiceFavorite } from '../utils/voiceFavorites';
+import { CollaborationStore } from '../features/collaboration/store';
+import type { CollaborationTransferMessage } from '../features/collaboration/types';
+const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
 import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
@@ -92,7 +97,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink, addWorldbook } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -152,6 +157,11 @@ const Chat: React.FC = () => {
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
     const [fanwaiOpen, setFanwaiOpen] = useState(false);
+    // 语音收藏夹面板（加号面板「语音收藏」进入）
+    const [favoritesOpen, setFavoritesOpen] = useState(false);
+    // 协作文档（协同工作）面板 + 要预览的附件 assetId
+    const [collaborationOpen, setCollaborationOpen] = useState(false);
+    const [collaborationPreviewAssetId, setCollaborationPreviewAssetId] = useState<string | null>(null);
     // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
     const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
     
@@ -1618,6 +1628,16 @@ const Chat: React.FC = () => {
             case 'fanwai': {
                 setShowPanel('none');
                 setFanwaiOpen(true);
+                break;
+            }
+            case 'voice-favorites': {
+                setShowPanel('none');
+                setFavoritesOpen(true);
+                break;
+            }
+            case 'collaboration': {
+                setShowPanel('none');
+                setCollaborationOpen(true);
                 break;
             }
         }
@@ -3962,6 +3982,13 @@ const Chat: React.FC = () => {
                             selectionMode={selectionMode}
                             isSelected={selectedMsgIds.has(m.id)}
                             onToggleSelect={toggleMessageSelection}
+                            onOpenCollaborationFile={async (cm) => {
+                                const assetId = cm.metadata?.collaborationAssetId as string | undefined;
+                                if (!assetId) return;
+                                setCollaborationPreviewAssetId(assetId);
+                                setCollaborationOpen(true);
+                            }}
+                            openingCollaborationFile={false}
                             isThinkingSelected={selectedThinkingMsgIds.has(m.id)}
                             onToggleThinkingSelect={toggleThinkingSelection}
                             translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
@@ -4386,6 +4413,118 @@ const Chat: React.FC = () => {
                     addToast={addToast}
                     onClose={() => setFanwaiOpen(false)}
                     onCollect={async (story) => { await addFanwaiStory(story); }}
+                />
+            )}
+
+            {/* 协作文档（协同工作）窗口：角色与用户的共享笔记/文档协作 */}
+            {char && (
+                <CollaborationWindow
+                    open={collaborationOpen}
+                    character={char}
+                    user={userProfile}
+                    theme={activeTheme}
+                    chatApi={apiConfig}
+                    apiPresets={apiPresets}
+                    availableModels={availableModels}
+                    characters={characters}
+                    groups={groups}
+                    emojis={emojis}
+                    emojiCategories={categories}
+                    recentChatMessages={messages}
+                    realtimeConfig={realtimeConfig}
+                    chatCollaborationEnabled={!!(char as any).chatCollaborationEnabled}
+                    requestedPreviewAssetId={collaborationPreviewAssetId}
+                    onRequestedPreviewHandled={() => setCollaborationPreviewAssetId(null)}
+                    onClose={() => setCollaborationOpen(false)}
+                    onSendToChat={async (title, msgs) => {
+                        // 把协作内容转发到私聊（collaboration_file 卡片）
+                        const fileMeta = {
+                            fileName: title,
+                            mimeType: 'application/json',
+                            fileSize: JSON.stringify(msgs).length,
+                            format: 'SULLYOS',
+                            source: 'collaboration',
+                        };
+                        const newMsgId = await DB.saveMessage({
+                            charId: char.id, role: 'assistant', type: 'collaboration_file',
+                            content: title, timestamp: Date.now(), metadata: fileMeta,
+                        } as any);
+                        setMessages(prev => [...prev, {
+                            id: newMsgId, charId: char.id, role: 'assistant', type: 'collaboration_file',
+                            content: title, timestamp: Date.now(), metadata: fileMeta,
+                        }]);
+                    }}
+                    onInstallArtifact={async (artifact, targetCharacterId) => {
+                        // 安装可安装作品：转成 worldbook，落库并挂载到角色
+                        try {
+                            const { installableToWorldbooks, upsertMountedWorldbooks } = await import('../features/collaboration/makers');
+                            const books = installableToWorldbooks(artifact);
+                            for (const book of books) await addWorldbook(book);
+                            await updateCharacter(char.id, current => ({
+                                mountedWorldbooks: upsertMountedWorldbooks(current.mountedWorldbooks || [], books),
+                            }));
+                            addToast(`已安装作品「${artifact.title || ''}」`, 'success');
+                        } catch (e) {
+                            addToast('作品安装失败', 'error');
+                        }
+                        return artifact.title || 'artifact';
+                    }}
+                    onArchiveToMemory={async (summary, occurredAt, sourceId) => {
+                        // 归档协作摘要到记忆（与上游 handleCollaborationArchiveToMemory 一致）
+                        const occurred = new Date(occurredAt);
+                        const date = `${occurred.getFullYear()}-${String(occurred.getMonth() + 1).padStart(2, '0')}-${String(occurred.getDate()).padStart(2, '0')}`;
+                        const fragmentId = `collab_archive_${sourceId}`;
+                        if ((char as any).memoryPalaceEnabled) {
+                            const embedding = memoryPalaceConfig.embedding;
+                            const lightLLM = memoryPalaceConfig.lightLLM;
+                            if (!embedding?.baseUrl || !embedding?.apiKey || !embedding?.model || !lightLLM?.baseUrl || !lightLLM?.model) {
+                                throw new Error('角色已开启记忆宫殿，但宫殿的向量 API 或副 LLM 还没有配置完整');
+                            }
+                            const { importExternalMemoryText, mergePalaceFragmentsIntoMemories } = await import('../utils/memoryPalace/pipeline');
+                            const imported = await importExternalMemoryText(summary, char.id, char.name, embedding, lightLLM, userProfile.name);
+                            if (imported.error && imported.error !== 'no_memories') {
+                                throw new Error(`记忆宫殿没有存好：${imported.error}`);
+                            }
+                            const palaceFragment: { id: string; date: string; summary: string; mood: string } = {
+                                id: fragmentId, date, summary: `- ${summary}`, mood: 'palace',
+                            };
+                            await updateCharacter(char.id, current => ({
+                                memories: (current.memories || []).some(memory => memory.id === fragmentId)
+                                    ? current.memories
+                                    : mergePalaceFragmentsIntoMemories(current.memories || [], [palaceFragment]),
+                            }));
+                            return `已把这次协作的一条总结同时存入 ${char.name} 的记忆宫殿和神经链接`;
+                        }
+                        const archiveFragment = { id: fragmentId, date, summary, mood: 'collaboration' as const };
+                        await updateCharacter(char.id, current => ({
+                            memories: (current.memories || []).some(memory => memory.id === fragmentId)
+                                ? current.memories
+                                : [...(current.memories || []), archiveFragment],
+                        }));
+                        return `已把这次协作的一条总结存入 ${char.name} 的神经链接`;
+                    }}
+                    onToggleChatCollaboration={(enabled) => {
+                        updateCharacter(char.id, current => ({ chatCollaborationEnabled: enabled }));
+                    }}
+                    notify={(message, type) => addToast(message, type || 'info')}
+                />
+            )}
+
+            {/* 语音收藏夹（加号面板「语音收藏」进入） */}
+            {favoritesOpen && (
+                <VoiceFavoritesPortal
+                    onClose={() => setFavoritesOpen(false)}
+                    onJumpToMessage={(jumpCharId, messageId) => {
+                        // 切到该角色并定位到对应消息
+                        setActiveCharacterId(jumpCharId);
+                        if (jumpCharId !== char?.id) {
+                            setView('chat');
+                        }
+                        setTimeout(() => {
+                            const el = document.getElementById(`msg-${messageId}`);
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 120);
+                    }}
                 />
             )}
 

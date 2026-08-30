@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Message, ChatTheme, OfflineConfig } from '../../types';
+import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
 import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
@@ -21,6 +22,7 @@ import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import LocationMapThumb from './LocationMapThumb';
 import GameReplayCard from '../games/GameReplayCard';
+import QixiEventCardView from './QixiEventCard';
 import { ThinkingChainStyleId, resolveThinkingChainStyle, PsycheDecor } from './thinkingChainStyle';
 
 export const ThinkingChainBlock: React.FC<{
@@ -988,6 +990,9 @@ interface MessageItemProps {
     selectionMode: boolean;
     isSelected: boolean;
     onToggleSelect: (id: number) => void;
+    /** 协作文档文件卡片：点击打开（可选；不传则卡片仅展示不可打开） */
+    onOpenCollaborationFile?: (m: Message) => Promise<void>;
+    openingCollaborationFile?: boolean;
     /** 思维链卡片在多选模式下有独立勾选框，与 isSelected 分开。 */
     isThinkingSelected?: boolean;
     onToggleThinkingSelect?: (id: number) => void;
@@ -1052,6 +1057,8 @@ const MessageItem = React.memo(({
     selectionMode,
     isSelected,
     onToggleSelect,
+    onOpenCollaborationFile,
+    openingCollaborationFile,
     isThinkingSelected,
     onToggleThinkingSelect,
     translationEnabled,
@@ -3082,6 +3089,10 @@ const MessageItem = React.memo(({
             return commonLayout(<Like520ChatCard data={scoreData} />);
         }
 
+        if (scoreData?.type === 'qixi_event_card') {
+            return commonLayout(<QixiEventCardView card={scoreData} timestamp={m.timestamp} interactionProps={interactionProps} />);
+        }
+
         if (scoreData) {
             const coverGradients: Record<string, string> = {
                 sunset: 'from-orange-400 via-pink-500 to-purple-600',
@@ -3276,9 +3287,80 @@ const MessageItem = React.memo(({
         );
     }
 
+    // --- Collaboration File Card (协同工作 · 文件/可安装作品) ---
+    if (m.type === 'collaboration_file') {
+        const fileName = String(m.metadata?.fileName || m.content || '未命名文件');
+        const mimeType = String(m.metadata?.mimeType || 'application/octet-stream');
+        const rawSize = Number(m.metadata?.fileSize || 0);
+        const fileSize = rawSize >= 1024 * 1024
+            ? `${(rawSize / (1024 * 1024)).toFixed(rawSize >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+            : rawSize >= 1024 ? `${Math.max(1, Math.round(rawSize / 1024))} KB` : `${rawSize || 0} B`;
+        const extension = String(m.metadata?.format || fileName.split('.').pop() || 'FILE').toUpperCase().slice(0, 8);
+        const isPdf = extension === 'PDF' || mimeType.includes('pdf');
+        const isWord = ['DOC', 'DOCX'].includes(extension) || mimeType.includes('wordprocessingml');
+        const isInstallable = m.metadata?.collaborationAttachmentKind === 'installable' || mimeType.includes('vnd.sullyos.installable');
+        const displayExtension = isInstallable ? '作品' : extension;
+        const accentClass = isInstallable
+            ? 'bg-violet-50 text-violet-600 border-violet-100'
+            : isPdf
+            ? 'bg-rose-50 text-rose-600 border-rose-100'
+            : isWord ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-100 text-slate-600 border-slate-200';
+        const badgeClass = isInstallable ? 'bg-violet-600' : isPdf ? 'bg-rose-600' : isWord ? 'bg-blue-600' : 'bg-slate-600';
+        const openFile = async (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation();
+            if (selectionMode) { onToggleSelect(m.id); return; }
+            if (!onOpenCollaborationFile || openingCollaborationFile) return;
+            await onOpenCollaborationFile(m);
+        };
+        return commonLayout(
+            <button
+                type="button"
+                onClick={openFile}
+                disabled={openingCollaborationFile && !selectionMode}
+                className="sully-collaboration-file group w-[min(276px,72vw)] overflow-hidden rounded-[18px] border border-slate-200/90 bg-white text-left shadow-[0_8px_24px_rgba(15,23,42,0.08)] transition-[transform,box-shadow,opacity] duration-150 active:scale-[0.985] disabled:opacity-70"
+                aria-label={`打开文件 ${fileName}`}
+            >
+                <span className="flex min-w-0 items-center gap-3.5 px-3.5 py-3.5">
+                    <span className={`sully-collaboration-file-icon relative grid h-12 w-11 shrink-0 place-items-center rounded-[13px] border ${accentClass}`}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true">
+                            <path d="M7 3.75h6.75L18.5 8.5v11.75H7z" />
+                            <path d="M13.5 3.75V8.5h5" />
+                        </svg>
+                        <span className={`absolute -bottom-1 rounded-[5px] px-1.5 py-[1px] text-[7px] font-black tracking-[0.08em] text-white ${badgeClass}`}>{displayExtension}</span>
+                    </span>
+                    <span className="sully-collaboration-file-meta min-w-0 flex-1">
+                        <span className="sully-collaboration-file-name block max-h-[2.7em] overflow-hidden break-words text-[13px] font-semibold leading-[1.35] text-slate-800">{fileName}</span>
+                        <span className="sully-collaboration-file-detail mt-1.5 block text-[10px] font-medium tracking-wide text-slate-400">{displayExtension} · {fileSize}</span>
+                    </span>
+                    <span className="sully-collaboration-file-action grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 transition-colors group-hover:text-slate-700">
+                        {openingCollaborationFile ? (
+                            <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px] animate-spin" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity=".22"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                        ) : isInstallable ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg>
+                        )}
+                    </span>
+                </span>
+                <span className="block border-t border-slate-100 px-3.5 py-2 text-[9px] font-semibold tracking-[0.12em] text-slate-400">协同工作 · {isInstallable ? '可安装作品' : '原始文件'}</span>
+            </button>
+        );
+    }
+
     // --- Dynamic Style Generation for Bubble ---
-    const radius = styleConfig.borderRadius;
-    const borderObj: React.CSSProperties = { borderRadius: `${radius}px` };
+    const cornerRadii = resolveBubbleCornerRadii(styleConfig);
+    const borderObj: React.CSSProperties = {
+        borderTopLeftRadius: `${cornerRadii.topLeft}px`,
+        borderTopRightRadius: `${cornerRadii.topRight}px`,
+        borderBottomRightRadius: `${cornerRadii.bottomRight}px`,
+        borderBottomLeftRadius: `${cornerRadii.bottomLeft}px`,
+    };
+    const hideBubbleTail = shouldHideBubbleTail(styleConfig.tailMode, isLastInGroup);
+    const bubbleGroupClasses = [
+        isFirstInGroup ? 'sully-bubble-group-first' : '',
+        isLastInGroup ? 'sully-bubble-group-last' : '',
+        hideBubbleTail ? 'sully-bubble-tail-hidden' : 'sully-bubble-tail-visible',
+    ].filter(Boolean).join(' ');
 
     // Container style (BackgroundColor + Opacity) with bubble variant
     const containerStyle: React.CSSProperties = {

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin, FilmScript } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin, FilmScript, Star } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
@@ -875,6 +875,28 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <LinkSimple className="w-6 h-6" weight="bold" />
                               </div>
                               <span className="text-xs font-bold">记忆链接</span>
+                            </button>
+
+                            {/* 协同工作：打开协作文档窗口 */}
+                            <button
+                              onClick={() => onPanelAction('collaboration')}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
+                                <ShareNetwork className="w-6 h-6" weight="bold" />
+                              </div>
+                              <span className="text-xs font-bold">协同工作</span>
+                            </button>
+
+                            {/* 语音收藏：打开收藏夹 */}
+                            <button
+                              onClick={() => onPanelAction('voice-favorites')}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
+                                <Star className="w-6 h-6" weight="fill" />
+                              </div>
+                              <span className="text-xs font-bold">语音收藏</span>
                             </button>
                           </div>
 
