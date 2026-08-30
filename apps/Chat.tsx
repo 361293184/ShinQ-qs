@@ -4457,7 +4457,8 @@ const Chat: React.FC = () => {
                     onInstallArtifact={async (artifact, targetCharacterId) => {
                         // 安装可安装作品：转成 worldbook，落库并挂载到角色
                         try {
-                            const { installableToWorldbooks, upsertMountedWorldbooks } = await import('../features/collaboration/makers');
+                            const { installableToWorldbooks } = await import('../features/collaboration/makers');
+                            const { upsertMountedWorldbooks } = await import('../utils/worldbook');
                             const books = installableToWorldbooks(artifact);
                             for (const book of books) await addWorldbook(book);
                             await updateCharacter(char.id, current => ({

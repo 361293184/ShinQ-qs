@@ -15,6 +15,7 @@ import { stripCompanionChatStyleResidue } from '../utils/companionThemeIsolation
 import { SULLY_DEFAULT_AVATAR_URL, shouldMigrateSullyAvatar } from '../utils/sullyAvatar';
 import { exportStoryTheaterAppearanceSetting, restoreStoryTheaterAppearanceSetting } from '../utils/storyTheaterBackup';
 import { createV2ArrayFieldWriter, writeV2Backup, assembleV2Backup, type BackupManifest, type ZipFileWriter, type ZipFileReader } from '../utils/backupFormat';
+import { inspectCsyBackup, prepareCsyMigration, type CsyMigrationReport } from '../utils/csyMigration';
 import { externalizeVoiceMessageBlobs, restoreVoiceMessageBlobs, shouldIncludeVoiceRelatedAssetInBackup } from '../utils/voiceMessageBackup';
 import { ensureCompanionVoiceAssetsForBackup, isCompanionVoiceAssetId } from '../utils/companionVoiceAssets';
 import { collectCharacterCompanionVoiceAssetIds } from '../utils/companionPresets';
@@ -430,6 +431,9 @@ interface OSContextType {
   // System
   exportSystem: (mode: 'text_only' | 'media_only' | 'full') => Promise<Blob>;
   importSystem: (fileOrJson: File | string) => Promise<void>; // Accept File or String
+  // CSY-OS 备份迁移
+  previewCsySystem: (fileOrJson: File | string) => Promise<CsyMigrationReport>;
+  importCsySystem: (fileOrJson: File | string) => Promise<void>;
   resetSystem: () => Promise<void>;
   sysOperation: { status: 'idle' | 'processing', message: string, progress: number }; // Progress state
 
@@ -4712,7 +4716,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
   };
 
-  const importSystem = async (fileOrJson: File | string): Promise<void> => {
+  const importSystem = async (fileOrJson: File | string, options?: { source?: 'csy' }): Promise<void> => {
       const sourceName = typeof fileOrJson === 'string' ? 'json' : fileOrJson.name;
       const sourceSize = typeof fileOrJson === 'string'
           ? (typeof Blob !== 'undefined' ? new Blob([fileOrJson]).size : fileOrJson.length)
@@ -4744,6 +4748,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           return lines.join('\n');
       };
 
+      let csyReport: CsyMigrationReport | undefined;
       const showImportProgress = (
           phase: string,
           headline: string,
@@ -4828,6 +4833,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       jsonStr = '';
                   }
               }
+          }
+
+          // CSY-OS 迁移：先把 CSY-OS 的 data.json 转换成 SullyOS 结构再走主导入流程
+          if (options?.source === 'csy') {
+              if (zip?.file('manifest.json')) {
+                  throw new Error('选择的文件是 SullyOS 备份，不需要走 CSY-OS 迁移入口。');
+              }
+              showImportProgress('converting', '正在转换 CSY-OS 数据...', 32, { current: '转换向量记忆与角色配置' });
+              const prepared = prepareCsyMigration(data);
+              data = prepared.data;
+              csyReport = prepared.report;
           }
 
           // 必须发生在 restoreAssetsInPlace / DB.importFullData 之前：不受支持的第三方
@@ -5289,6 +5305,30 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
   };
 
+  // 预览 CSY-OS 备份：读取并检查是否合法，返回迁移报告摘要（角色数/记忆数等）。
+  const previewCsySystem = async (fileOrJson: File | string): Promise<CsyMigrationReport> => {
+      let raw: unknown;
+      if (typeof fileOrJson === 'string') {
+          raw = JSON.parse(fileOrJson);
+      } else if (!fileOrJson.name.toLowerCase().endsWith('.zip')) {
+          raw = JSON.parse(await fileOrJson.text());
+      } else {
+          const JSZip = await loadJSZip();
+          const zip = await JSZip.loadAsync(fileOrJson);
+          if (zip.file('manifest.json')) {
+              throw new Error('这是一份 SullyOS 分片备份，不是 CSY-OS 的 data.json 备份。');
+          }
+          const dataFile = zip.file('data.json');
+          if (!dataFile) throw new Error('CSY-OS 备份损坏：缺少 data.json。');
+          raw = JSON.parse(await dataFile.async('string'));
+      }
+      return inspectCsyBackup(raw);
+  };
+
+  // 导入 CSY-OS 备份（走 CSY 迁移管线）。
+  const importCsySystem = (fileOrJson: File | string): Promise<void> =>
+      importSystem(fileOrJson, { source: 'csy' });
+
   const resetSystem = async () => { try { await DB.deleteDB(); localStorage.clear(); window.location.reload(); } catch (e) { console.error(e); addToast('重置失败，请手动清除浏览器数据', 'error'); } };
   const openApp = (appId: AppID) => setActiveApp(appId);
   const closeApp = () => setActiveApp(AppID.Launcher);
@@ -5422,6 +5462,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     listCloudBackups,
     exportSystem,
     importSystem,
+    previewCsySystem,
+    importCsySystem,
     resetSystem,
     sysOperation,
     systemLogs,
