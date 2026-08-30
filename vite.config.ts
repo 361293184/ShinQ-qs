@@ -1,6 +1,8 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
 
 // 构建时抓 git 分支 + short commit + UTC+8 构建时间，注入到版本信息显示。
@@ -13,6 +15,26 @@ import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
 //   - VITE_SHOW_BUILD_BADGE=1 强制显示（在 master 本地调试用）
 const RELEASE_BRANCHES = new Set(['main', 'master']);
 const UTC8_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+// 构建完成后把版本信息写到 dist/version.json，供「检查更新」拉取线上最新版本对比。
+function emitVersionJson(gitInfo: { branch: string; commit: string }, buildTime: string): Plugin {
+  return {
+    name: 'emit-version-json',
+    apply: 'build',
+    writeBundle() {
+      const payload = {
+        branch: gitInfo.branch,
+        commit: gitInfo.commit,
+        label: `${gitInfo.branch}@${gitInfo.commit}`,
+        time: buildTime,
+      };
+      const outDir = 'dist';
+      const file = resolve(outDir, 'version.json');
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8');
+    },
+  };
+}
 
 function formatBuildTimeUtc8(date = new Date()): string {
   const utc8Date = new Date(date.getTime() + UTC8_OFFSET_MS);
@@ -64,6 +86,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    emitVersionJson(gitInfo, buildTime),
     {
       name: 'bake-voice-middleware',
       configureServer(server) {
