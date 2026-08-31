@@ -626,6 +626,7 @@ export const useChatAI = ({
                     thinkingChain: { enabled: !!(evalChar as any).showThinkingChain, customPrompt: (evalChar as any).thinkingChainCustomPrompt },
                     visionApiConfig: deps.apiConfig.visionApi,
                     novelReader: deps.novelReaderRef?.current || null,
+                    offlineConfig: (evalChar as any).offlineConfig,
                     mcdMiniSnap: mcdMiniOpen ? mcdMiniSnap : undefined,
                     luckinMiniSnap: luckinMiniOpen ? luckinMiniSnap : undefined,
                 });
@@ -978,6 +979,7 @@ export const useChatAI = ({
                 luckinMiniSnap: luckinMiniOpen ? luckinMiniSnap : undefined,
                 luckinChat: luckinChatOn ? luckinChatRef?.current : undefined,
                 novelReader: novelReaderRef?.current || null,
+                offlineConfig: (char as any).offlineConfig,
                 timelyByWorker: instantChatRoute,
                 recallEntryPoint: 'chat_app',
             }));

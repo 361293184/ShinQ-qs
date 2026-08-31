@@ -12,7 +12,7 @@
  * 等价。新增 caller（runProactive）只是补齐了过去缺的字段。
  */
 
-import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
+import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig, OfflineConfig } from '../types';
 import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { renderLocalContextGuidance } from './memoryPalace/recallRouter';
@@ -22,6 +22,7 @@ import { renderConversationEngagementGuidance } from './memoryPalace/conversatio
 import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
 import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { buildHtmlPrompt } from './htmlPrompt';
+import { buildOfflineMainBlock } from './offlineMode/offlinePrompts';
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
 import type { McdMiniAppSnapshot } from './mcdToolBridge';
@@ -89,6 +90,8 @@ export interface BuildChatPayloadInput {
     translationConfig?: TranslationConfig | { enabled: boolean; sourceLang: string; targetLang: string };
     htmlMode?: { enabled: boolean; customPrompt?: string };
     thinkingChain?: { enabled: boolean; customPrompt?: string };
+    /** 私聊线下模式配置：开启时注入 buildOfflineMainBlock（旁白/台词格式 + 文风 + 人称 + 篇幅） */
+    offlineConfig?: OfflineConfig;
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
     mcdMiniSnap?: McdMiniAppSnapshot;
@@ -332,7 +335,10 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     const sourceLang = normalizeTranslationLangLabel(translationConfig?.sourceLang);
     const targetLang = normalizeTranslationLangLabel(translationConfig?.targetLang);
     const bilingualActive = !!(translationConfig?.enabled && sourceLang && targetLang);
-    if (bilingualActive && translationConfig) {
+    const offlineActive = !!input.offlineConfig?.enabled;
+    // 线下模式走线下专用的双语兼容指令（在 buildOfflineMainBlock 内注入），这里跳过标准双语，
+    // 否则「每句 <翻译>」和「台词行首引号」两个格式指令打架。
+    if (bilingualActive && translationConfig && !offlineActive) {
         systemPrompt += `\n\n[CRITICAL: 双语输出模式 - 必须严格遵守]
 你的每句话都必须用以下XML标签格式输出双语内容：
 <翻译>
@@ -358,8 +364,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 </翻译>`;
     }
 
-    // ── 5. HTML 卡片模式 ─────────────────────────────────
-    const htmlActive = !!htmlMode?.enabled;
+    // ── 5. HTML 卡片模式（线下模式开启时跳过：二者都是输出格式，避免模型格式打架） ──
+    const htmlActive = !!htmlMode?.enabled && !offlineActive;
     if (htmlActive) {
         systemPrompt += `\n\n${buildHtmlPrompt(htmlMode?.customPrompt)}`;
     }
@@ -373,6 +379,15 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         if (extra) {
             systemPrompt += `\n\n## 用户对内心独白的额外要求\n${extra}`;
         }
+    }
+
+    // ── 6.5 线下模式：格式块（覆盖「聊天对话」类指令，放在思考链之后、历史之前） ──
+    if (offlineActive) {
+        const userName = (userProfile?.name && userProfile.name.trim()) || '用户';
+        systemPrompt += `\n\n${buildOfflineMainBlock({
+            char, userName, cfg: input.offlineConfig,
+            bilingual: bilingualActive ? { active: true, sourceLang, targetLang } : undefined,
+        })}`;
     }
 
     // ── 7. 历史消息构造 ───────────────────────────────────
