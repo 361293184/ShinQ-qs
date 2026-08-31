@@ -54,6 +54,7 @@ import { normalizeAssistantActionFormatting } from './assistantActionFormat';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { isBlobRef } from './blobRef';
+import { isOfflineEnabled } from './offlineMode/offlineSettings';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -551,8 +552,15 @@ export async function applyAssistantPostProcessing(
     // 统一落库入口：ctx.messageTimestamp（若有）盖到每条消息上，保证同一轮拆出的
     // 正文 / 表情 / 卡片 / 系统提示时间戳一致；没传则维持 DB.saveMessage 默认（写库当刻）。
     // 全函数落库一律走这里，别直接调 DB.saveMessage——漏一处就会出现气泡时间戳互相打架。
-    const persistMessage: typeof DB.saveMessage = (msg) =>
-        DB.saveMessage(messageTimestamp != null ? { ...msg, timestamp: messageTimestamp } : msg);
+    // 线下模式下保存的 assistant 文本消息统一打上 offline 标记，前端据此走「旁白斜体居中 + 台词气泡」的离线渲染。
+    const offlineModeOn = isOfflineEnabled(char.offlineConfig);
+    const persistMessage: typeof DB.saveMessage = (msg) => {
+        const stamped = messageTimestamp != null ? { ...msg, timestamp: messageTimestamp } : msg;
+        if (offlineModeOn && msg.role === 'assistant' && msg.type === 'text') {
+            return DB.saveMessage({ ...stamped, offline: true });
+        }
+        return DB.saveMessage(stamped);
+    };
     const {
         setMessages,
         addToast,
