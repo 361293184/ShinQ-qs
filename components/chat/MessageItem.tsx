@@ -26,6 +26,21 @@ import QixiEventCardView from './QixiEventCard';
 import TokenImg from '../os/TokenImg';
 import { ThinkingChainStyleId, resolveThinkingChainStyle, PsycheDecor } from './thinkingChainStyle';
 
+// 渲染层剥离"发照片触发段"：角色文本里 `图片- 描述`/`图片：描述` 这类动作段只用于触发生图，
+// 不显示给用户（生图触发读的是消息原始 content，不受此处影响）。仅剥离发照片动作，不影响正常文字与 HTML 卡片。
+function stripImageGenMarkers(text: string): string {
+    if (!text) return text;
+    return text
+        // 独占一行的触发（图片- xxx / 图片：xxx / （图片- xxx）），整行删除（可带行内修饰如 ~、*）
+        .replace(/^[ \t]*[*~]?[（(]?图片\s*[-－—:：]\s*[^\n）)]*[）)]?[*~]?[ \t]*$/gm, '')
+        // 行内夹带且用破折号分隔的触发（如 "给你看这个~图片- 海边"），仅删该段、保正文
+        .replace(/图片\s*[-－—][^\n，。！？!?；;]*/g, '')
+        // 行首引导语后紧跟破折号触发的整行（如 "来，图片- xxx"）
+        .replace(/^[ \t]*(来|看|给你|你瞧|给你看|发你)[，,]?\s*图片[-－—][^\n]*$/gm, '')
+        // 清理剥离后残留的行尾波浪号
+        .replace(/\s*[~～]+[ \t]*$/gm, '');
+}
+
 export const ThinkingChainBlock: React.FC<{
     chain: string;
     styleId?: ThinkingChainStyleId;
@@ -3239,7 +3254,7 @@ const MessageItem = React.memo(({
                         {/* 关闭按钮（右上角，半透明风格） */}
                         <button
                             type="button"
-                            className="fixed top-4 right-4 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all"
+                            className="fixed top-16 right-4 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 active:scale-95 transition-all"
                             onClick={() => setPreviewSrc(null)}
                             aria-label="关闭"
                         >
@@ -3516,7 +3531,9 @@ const MessageItem = React.memo(({
     const langBContent = hasBilingual ? stripJunk(rawContent.substring(bilingualIdx + '%%BILINGUAL%%'.length)) : '';
 
     // Display: "选" language by default, "译" language when toggled
-    const displayContent = (isShowingTarget && langBContent) ? langBContent : langAContent;
+    // 角色文本统一剥离发照片触发段（`图片- xxx`），该段只用于生图触发、不作为台词显示（用户文本不受影响）
+    const rawShown = (isShowingTarget && langBContent) ? langBContent : langAContent;
+    const displayContent = isUser ? rawShown : stripImageGenMarkers(rawShown);
     const showTranslateButton = translationEnabled && hasBilingual && langBContent;
 
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
