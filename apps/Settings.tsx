@@ -21,7 +21,7 @@ import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PlugsCon
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
 import { ProactiveChat } from '../utils/proactiveChat';
-import { loadUserImageSettings, saveUserImageSettings, loadCharImageSettings } from '../utils/imageGen';
+import { loadCharImageSettings } from '../utils/imageGen';
 import { InstantPushSettingsModal } from '../components/settings/InstantPushSettingsModal';
 import { PushVapidSettingsModal } from '../components/settings/PushVapidSettingsModal';
 import PushSubscriptionPanel from '../components/settings/PushSubscriptionPanel';
@@ -669,19 +669,11 @@ const Settings: React.FC = () => {
   const [imageGenTestResult, setImageGenTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showImageGenModelModal, setShowImageGenModelModal] = useState(false);
   const [imageGenModelFilter, setImageGenModelFilter] = useState('');
-  // 生图模式开关
-  const [localImageGenCharEnabled, setLocalImageGenCharEnabled] = useState(apiConfig.imageGenCharEnabled !== false);
-  const [localImageGenUserEnabled, setLocalImageGenUserEnabled] = useState(!!apiConfig.imageGenUserEnabled);
-  const [localImageGenJointEnabled, setLocalImageGenJointEnabled] = useState(!!apiConfig.imageGenJointEnabled);
-  // 主动发照片（只有"角色生图"开着时才会真正起作用）
+  // 角色主动发照片（用户/合照生图与锁脸在生图面板「你」标签统一配置，settings 不再重复）
   const [localImageGenProactiveEnabled, setLocalImageGenProactiveEnabled] = useState(!!apiConfig.imageGenProactiveEnabled);
   const [localImageGenProactiveRate, setLocalImageGenProactiveRate] = useState<'conservative' | 'moderate' | 'bold'>(
     apiConfig.imageGenProactiveRate || 'moderate'
   );
-  // 用户锁脸 / 外观（全局，从 localStorage 初始化）
-  const [localUserLockImage, setLocalUserLockImage] = useState(() => loadUserImageSettings().lockImage || '');
-  const [localUserAppearance, setLocalUserAppearance] = useState(() => loadUserImageSettings().description || '');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // CSY 迁移
   const [csyImporting, setCsyImporting] = useState(false);
   const [csyPreviewDone, setCsyPreviewDone] = useState(false);
@@ -1277,14 +1269,9 @@ const Settings: React.FC = () => {
       imageGenApiKey: localImageGenKey,
       imageGenBaseUrl: localImageGenBaseUrl,
       imageGenModel: localImageGenModel,
-      imageGenCharEnabled: localImageGenCharEnabled,
-      imageGenUserEnabled: localImageGenUserEnabled,
-      imageGenJointEnabled: localImageGenJointEnabled,
       imageGenProactiveEnabled: localImageGenProactiveEnabled,
       imageGenProactiveRate: localImageGenProactiveRate,
     });
-    // 同时落本地用户锁脸/外观
-    saveUserImageSettings({ lockImage: localUserLockImage, description: localUserAppearance });
     setImageGenStatusMsg('已保存');
     setTimeout(() => setImageGenStatusMsg(''), 2000);
   };
@@ -3471,63 +3458,23 @@ const Settings: React.FC = () => {
 
                 {/* ===== 生图模式开关（角色 / 用户 / 合照）===== */}
                 <div className="mt-4 pt-3 border-t border-slate-100">
-                    <label className="text-[10px] text-slate-400 font-bold block mb-2 tracking-wider">生图模式</label>
+                    <label className="text-[10px] text-slate-400 font-bold block mb-2 tracking-wider">角色主动生图</label>
                     <div className="space-y-2">
-                        {/* 角色生图 */}
-                        <button
-                            type="button"
-                            onClick={() => setLocalImageGenCharEnabled(!localImageGenCharEnabled)}
-                            className="flex items-center gap-3 w-full"
-                        >
-                            <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${localImageGenCharEnabled ? 'bg-indigo-400' : 'bg-slate-300'}`}>
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenCharEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
-                            </div>
-                            <span className="text-[11px] font-bold text-slate-600">角色生图</span>
-                            <span className="text-[10px] text-slate-400">AI 描述场景 → 画角色照片</span>
-                        </button>
-
-                        {/* 用户生图 */}
-                        <button
-                            type="button"
-                            onClick={() => setLocalImageGenUserEnabled(!localImageGenUserEnabled)}
-                            className="flex items-center gap-3 w-full"
-                        >
-                            <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${localImageGenUserEnabled ? 'bg-rose-400' : 'bg-slate-300'}`}>
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenUserEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
-                            </div>
-                            <span className="text-[11px] font-bold text-slate-600">用户生图</span>
-                            <span className="text-[10px] text-slate-400">AI 描述场景 → 用你的脸画照片</span>
-                        </button>
-
-                        {/* 合照 */}
-                        <button
-                            type="button"
-                            onClick={() => setLocalImageGenJointEnabled(!localImageGenJointEnabled)}
-                            className="flex items-center gap-3 w-full"
-                        >
-                            <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${localImageGenJointEnabled ? 'bg-amber-400' : 'bg-slate-300'}`}>
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenJointEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
-                            </div>
-                            <span className="text-[11px] font-bold text-slate-600">合照</span>
-                            <span className="text-[10px] text-slate-400">自动合成角色+你的外貌</span>
-                        </button>
-
                         {/* 角色主动发照片 */}
                         <div className="space-y-2 mt-1 pt-2 border-t border-slate-100">
                             <button
                                 type="button"
                                 onClick={() => setLocalImageGenProactiveEnabled(!localImageGenProactiveEnabled)}
                                 className="flex items-center gap-3 w-full"
-                                disabled={!localImageGenCharEnabled}
                             >
-                                <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${localImageGenProactiveEnabled && localImageGenCharEnabled ? 'bg-violet-400' : 'bg-slate-300'}`}>
-                                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenProactiveEnabled && localImageGenCharEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
+                                <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${localImageGenProactiveEnabled ? 'bg-violet-400' : 'bg-slate-300'}`}>
+                                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenProactiveEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
                                 </div>
-                                <span className={`text-[11px] font-bold ${localImageGenCharEnabled ? 'text-slate-600' : 'text-slate-400'}`}>允许角色主动发照片</span>
+                                <span className={`text-[11px] font-bold ${localImageGenProactiveEnabled ? 'text-violet-600' : 'text-slate-500'}`}>允许角色主动发照片</span>
                                 <span className="text-[10px] text-slate-400">让TA 有感而发时主动发图给你</span>
                             </button>
                             {/* 频率档位（仅在开启时可点）*/}
-                            {localImageGenProactiveEnabled && localImageGenCharEnabled && (
+                            {localImageGenProactiveEnabled && (
                                 <div className="ml-12 mt-1 grid grid-cols-3 gap-1.5">
                                     {([
                                         { v: 'conservative', label: '保守', desc: '强烈信号' },
@@ -3552,58 +3499,8 @@ const Settings: React.FC = () => {
                                     })}
                                 </div>
                             )}
-                            {(!localImageGenCharEnabled) && (
-                                <p className="ml-12 text-[9px] text-slate-400 leading-relaxed">
-                                    需先开启「角色生图」才能启用此功能
-                                </p>
-                            )}
                         </div>
                     </div>
-                </div>
-
-                {/* ===== 用户锁脸 + 外观描述 ===== */}
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                    <label className="text-[10px] text-slate-400 font-bold block mb-2 tracking-wider">你的锁脸 & 外观</label>
-                    <div className="flex items-center gap-2 mb-2">
-                        {localUserLockImage ? (
-                            <div className="relative group flex-shrink-0">
-                                <img src={localUserLockImage} className="w-12 h-12 rounded-xl object-cover border border-rose-200" alt="用户锁脸" />
-                                <button
-                                    type="button"
-                                    onClick={() => setLocalUserLockImage('')}
-                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-400 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="w-12 h-12 rounded-xl bg-rose-50 border border-dashed border-rose-200 flex items-center justify-center flex-shrink-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-rose-300">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                                </svg>
-                            </div>
-                        )}
-                        <div className="flex flex-col gap-1.5 flex-1">
-                            <button
-                                type="button"
-                                onClick={() => fileInputRef.current?.click()}
-                                className="text-[11px] font-bold text-rose-500 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg px-2.5 py-1.5 transition-all active:scale-95 text-left"
-                            >
-                                {localUserLockImage ? '更换锁脸照片' : '上传锁脸照片'}
-                            </button>
-                            <span className="text-[9px] text-slate-400 leading-tight">
-                                你的脸部照片，用户生图和合照时会固定你的长相
-                            </span>
-                        </div>
-                    </div>
-                    <textarea
-                        value={localUserAppearance}
-                        onChange={e => setLocalUserAppearance(e.target.value)}
-                        placeholder='描述你的外貌，比如"黑长发戴眼镜的女生，穿白衬衫"'
-                        className="w-full h-14 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-700 focus:outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100 transition-all resize-none"
-                        maxLength={300}
-                    />
-                    <span className="text-[9px] text-slate-400 mt-0.5 block">{localUserAppearance.length}/300</span>
                 </div>
 
                 {/* ===== 生图预设管理 — 多个 API 预设快速切换 ===== */}
@@ -5330,21 +5227,6 @@ const Settings: React.FC = () => {
         addToast={addToast}
         realtimeConfig={realtimeConfig}
         onOpenVapid={() => { setShowAmsg2Modal(false); setShowVapidModal(true); }}
-      />
-
-      {/* 隐藏：用户锁脸上传 */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => setLocalUserLockImage(reader.result as string);
-          reader.readAsDataURL(file);
-        }}
       />
 
     </div>

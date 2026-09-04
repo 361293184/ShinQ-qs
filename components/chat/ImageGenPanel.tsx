@@ -4,6 +4,7 @@ import { generateImage as generateImageApi, loadUserImageSettings, saveUserImage
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
 const STYLE_PRESETS = [
+  { id: 'none', label: '不使用预设', prompt: '' },
   { id: 'anime', label: '动漫', prompt: 'anime style, cel shading, vibrant colors' },
   { id: 'realistic', label: '写实', prompt: 'photorealistic, hyperdetailed, 8k, cinematic lighting' },
   { id: 'watercolor', label: '水彩', prompt: 'watercolor painting, soft edges, artistic' },
@@ -70,7 +71,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   // ---- 通用状态 ----
   const [sceneDesc, setSceneDesc] = useState('');
   const [stylePreset, setStylePreset] = useState<string>(() => {
-    try { return localStorage.getItem(STYLE_PRESET_KEY) || 'anime'; } catch { return 'anime'; }
+    try { return localStorage.getItem(STYLE_PRESET_KEY) || 'none'; } catch { return 'none'; }
   });
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusText, setStatusText] = useState('');

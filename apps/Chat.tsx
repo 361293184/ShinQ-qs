@@ -1960,12 +1960,9 @@ const Chat: React.FC = () => {
         if (!sceneDesc) return;
         sceneDesc = sceneDesc.slice(0, 500); // 防超长
 
-        // 决定生图模式：根据三个开关 + 消息内容关键词
+        // 决定生图模式：纯关键词判定（角色/用户/合照生图默认全开，不再受 Settings 三开关限制）
         // 整个 batch 的文本拼接起来判断（用户/合照触发词）
         const fullBatchText = batch.map(b => typeof b.content === 'string' ? b.content : '').join(' ');
-        const charEnabled = apiConfig.imageGenCharEnabled !== false; // 默认开（兼容旧配置）
-        const userEnabled = !!apiConfig.imageGenUserEnabled;
-        const jointEnabled = !!apiConfig.imageGenJointEnabled;
 
         let mode: 'char' | 'user' | 'joint' = 'char';
 
@@ -1976,12 +1973,10 @@ const Chat: React.FC = () => {
         // 「用户生图」触发词
         const userKeywords = /图片[-－—:：]\s*[我咱][^合]|自拍|给我拍[张照]|我的照片|（图片[-－—:：]\s*[我咱][^合]/;
 
-        if (jointEnabled && (jointDirect.test(fullBatchText) || meetingCtx.test(fullBatchText))) {
+        if (jointDirect.test(fullBatchText) || meetingCtx.test(fullBatchText)) {
             mode = 'joint';
-        } else if (userEnabled && userKeywords.test(fullBatchText)) {
+        } else if (userKeywords.test(fullBatchText)) {
             mode = 'user';
-        } else if (!charEnabled) {
-            return; // 角色生图没开,且不触发用户/合照 → 啥也不干
         }
 
         console.log(`[ImageGen Auto] mode=${mode} scene:`, sceneDesc.slice(0, 80));
@@ -4384,11 +4379,7 @@ const Chat: React.FC = () => {
                             subBaseUrl={apiConfig.subBaseUrl}
                             subApiKey={apiConfig.subApiKey}
                             subModel={apiConfig.subModel}
-                            availableModes={[
-                                'char',
-                                apiConfig.imageGenUserEnabled ? 'user' : null,
-                                apiConfig.imageGenJointEnabled ? 'joint' : null,
-                            ].filter(Boolean) as ('char' | 'user' | 'joint')[]}
+                            availableModes={['char', 'user', 'joint']}
                         />
                     </div>
                 </>
