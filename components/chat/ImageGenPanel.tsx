@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { generateImage as generateImageApi, loadUserImageSettings, saveUserImageSettings, loadCustomStyles, saveCustomStyles, type CustomStyle } from '../../utils/imageGen';
+import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
@@ -132,12 +133,13 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   }, [userDesc, userLockImage, sceneDesc]);
 
   // ---- 角色锁脸上传（上传成功立即自动保存，避免切 tab / 关面板丢失） ----
-  const handleCharLockUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 锁脸只作生图参考，无需高清——先 processImage 压缩成小 dataURL 再存 localStorage，
+  // 避免手机原图 base64 超 localStorage 配额导致静默保存失败（保存后重开丢失）。
+  const handleCharLockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+    try {
+      const dataUrl = await processImage(file, { maxWidth: 512, quality: 0.8 });
       setCharLockImage(dataUrl);
       // 上传即保存，关闭/切换后依然在
       try {
@@ -146,23 +148,20 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           lockImage: dataUrl,
           updatedAt: Date.now(),
         }));
-      } catch {}
-    };
-    reader.readAsDataURL(file);
+      } catch { console.warn('角色锁脸保存失败，图片可能过大'); }
+    } catch (err) { console.warn('角色锁脸图片处理失败', err); }
   };
 
   // ---- 用户锁脸上传（上传成功立即自动保存） ----
-  const handleUserLockUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUserLockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+    try {
+      const dataUrl = await processImage(file, { maxWidth: 512, quality: 0.8 });
       setUserLockImage(dataUrl);
       // 上传即保存
       saveUserImageSettings({ description: userDesc, lockImage: dataUrl });
-    };
-    reader.readAsDataURL(file);
+    } catch (err) { console.warn('用户锁脸图片处理失败', err); }
   };
 
   // ---- 拍照风格快捷填充场景 ----
