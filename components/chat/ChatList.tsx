@@ -3,6 +3,7 @@ import { CaretLeft } from '@phosphor-icons/react';
 import type { CharacterProfile } from '../../types';
 import { useOS } from '../../context/OSContext';
 import { useBlobRefUrl } from '../../utils/blobRef';
+import TokenImg from '../os/TokenImg';
 import { DB } from '../../utils/db';
 
 interface ChatListProps {
@@ -205,7 +206,7 @@ const ChatList: React.FC<ChatListProps> = memo(function ChatListInner({
                                 >
                                     <div className="relative shrink-0">
                                         {c.avatar ? (
-                                            <img src={c.avatar} alt="" className="w-12 h-12 rounded-2xl object-cover" />
+                                            <TokenImg value={c.avatar} alt="" className="w-12 h-12 rounded-2xl object-cover" />
                                         ) : (
                                             <div className="w-12 h-12 rounded-2xl bg-slate-200 flex items-center justify-center text-slate-400 font-bold">
                                                 {(c.name || '?').slice(0, 1)}

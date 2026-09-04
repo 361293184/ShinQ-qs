@@ -14,7 +14,7 @@ import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { trackEvent } from '../../utils/analytics';
-import { dataUrlToBlob } from '../../utils/blobRef';
+import { dataUrlToBlob, useBlobRefUrl } from '../../utils/blobRef';
 import { fetchBlobForShare, shareOrDownloadBlob } from '../../utils/shareExport';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
@@ -23,6 +23,7 @@ import LuckinCheckoutCard from './LuckinCheckoutCard';
 import LocationMapThumb from './LocationMapThumb';
 import GameReplayCard from '../games/GameReplayCard';
 import QixiEventCardView from './QixiEventCard';
+import TokenImg from '../os/TokenImg';
 import { ThinkingChainStyleId, resolveThinkingChainStyle, PsycheDecor } from './thinkingChainStyle';
 
 export const ThinkingChainBlock: React.FC<{
@@ -900,7 +901,7 @@ const LifeSimResetCardView: React.FC<{ card: any }> = ({ card }) => {
                 }}
             >
                 {parsed.charAvatar ? (
-                    <img src={parsed.charAvatar} className="w-8 h-8 object-cover shrink-0" style={{ borderRadius: 2, border: '2px solid rgba(255,255,255,0.25)' }} />
+                    <TokenImg value={parsed.charAvatar} className="w-8 h-8 object-cover shrink-0" style={{ borderRadius: 2, border: '2px solid rgba(255,255,255,0.25)' }} alt="" />
                 ) : (
                     <div className="w-8 h-8 flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ borderRadius: 2, background: 'linear-gradient(135deg, #b86c3d, #d39b62)' }}>
                         {parsed.charName?.[0] || '?'}
@@ -1108,6 +1109,10 @@ const MessageItem = React.memo(({
     const replyReadyRef = useRef(false);
 
     const styleConfig = isUser ? activeTheme.user : activeTheme.ai;
+    // 头像可能是 `blobref:<id>` 本地存储令牌，必须先经 useBlobRefUrl 解析成 objectURL，
+    // 直接塞给 <img src> 会报 ERR_UNKNOWN_URL_SCHEME（与 Chat 顶栏 TokenImg 同一套解析）。
+    const resolvedCharAvatar = useBlobRefUrl(charAvatar);
+    const resolvedUserAvatar = useBlobRefUrl(userAvatar);
     const [showVoiceText, setShowVoiceText] = useState(false);
     // 点击聊天气泡里的图片 → 全屏浅色弹层放大查看；null 表示未打开
     const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -1249,7 +1254,7 @@ const MessageItem = React.memo(({
     // Render Avatar with potential decoration/frame
     // Removed mb-5 from here, handled via absolute positioning in parent
     const renderAvatar = (
-        src: string,
+        src: string | undefined,
         options?: { visible?: boolean; className?: string },
     ) => {
         const visible = options?.visible ?? shouldShowAvatar;
@@ -1330,7 +1335,7 @@ const MessageItem = React.memo(({
                                 {/* Header — date stamp + char avatar */}
                                 <div className="px-4 pt-3 pb-2.5 flex items-center gap-2.5" style={{ borderBottom: '1px dashed rgba(200,160,100,0.3)', background: 'linear-gradient(135deg, rgba(245,210,150,0.25), rgba(240,195,130,0.15))' }}>
                                     {scoreData.charAvatar ? (
-                                        <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(220,180,110,0.5)' }} />
+                                        <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(220,180,110,0.5)' }} alt="" />
                                     ) : (
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #d4a55a, #b8843a)' }}>{scoreData.charName?.[0] || '?'}</div>
                                     )}
@@ -1397,7 +1402,7 @@ const MessageItem = React.memo(({
                                 {/* Header */}
                                 <div className="px-4 pt-3 pb-2 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(200,185,190,0.2)', background: 'linear-gradient(135deg, rgba(200,185,190,0.2), rgba(190,175,195,0.15))' }}>
                                     {scoreData.charAvatar ? (
-                                        <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
+                                        <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} alt="" />
                                     ) : (
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>{scoreData.charName?.[0] || '?'}</div>
                                     )}
@@ -1463,7 +1468,7 @@ const MessageItem = React.memo(({
                     <div className="w-full px-5 my-3" {...interactionProps}>
                         <div className="rounded-3xl bg-gradient-to-br from-slate-50 to-slate-100/80 border border-slate-200/50 p-4 shadow-sm">
                             <div className="flex items-center gap-3">
-                                <img src={memoAvatar} alt={memoTitle} className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200/80" loading="lazy" decoding="async" />
+                                <TokenImg value={memoAvatar} alt={memoTitle} className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200/80" loading="lazy" decoding="async" />
                                 <div className="min-w-0 flex-1">
                                     <div className="text-sm font-medium text-slate-600 truncate">和 {memoTitle} 通了电话</div>
                                     <div className="text-xs text-slate-400 mt-0.5">{durationText} · {turnCount}轮对话</div>
@@ -1587,7 +1592,7 @@ const MessageItem = React.memo(({
                 {/* 白框布局钩子：组首额外挂一份默认隐藏的头像；显示它即可做"每轮一次、头像在气泡上方"。 */}
                 {isFirstInGroup && !isModuleCard && (
                     <div className={`sully-chat-turn-avatar-slot hidden absolute top-0 z-0 ${isUser ? 'right-3' : (selectionMode ? 'left-14' : 'left-3')}`}>
-                        {renderAvatar(isUser ? userAvatar : charAvatar, {
+                        {renderAvatar(isUser ? resolvedUserAvatar : resolvedCharAvatar, {
                             visible: true,
                             className: 'sully-chat-turn-avatar',
                         })}
@@ -1597,7 +1602,7 @@ const MessageItem = React.memo(({
                 {/* HTML / 音乐卡片是独立模块，不继承普通消息外壳的角色头像。卡片内部自己的头像不受影响。 */}
                 {!isUser && !isModuleCard && (
                     <div className={`sully-chat-message-avatar-slot absolute bottom-0 z-0 ${selectionMode ? 'left-14' : 'left-3'} transition-[left] duration-300`}>
-                        {renderAvatar(charAvatar, { className: 'sully-chat-message-avatar' })}
+                        {renderAvatar(resolvedCharAvatar, { className: 'sully-chat-message-avatar' })}
                     </div>
                 )}
 
@@ -1657,7 +1662,7 @@ const MessageItem = React.memo(({
                 {/* 用户侧若存在导入/历史模块卡，也保持同一条"卡片不带消息外侧头像"规则。 */}
                 {isUser && !isModuleCard && (
                     <div className={`sully-chat-message-avatar-slot absolute right-3 bottom-0 z-0 transition-[left] duration-300`}>
-                        {renderAvatar(userAvatar, { className: 'sully-chat-message-avatar' })}
+                        {renderAvatar(resolvedUserAvatar, { className: 'sully-chat-message-avatar' })}
                     </div>
                 )}
             </div>
@@ -1731,14 +1736,14 @@ const MessageItem = React.memo(({
                             }} />
                         {/* 居中：用户头像 · ♥ · 角色头像 */}
                         <div className="relative flex items-center justify-center gap-2">
-                            {renderAvatar(userAvatar, '你', '#ffb5cf')}
+                            {renderAvatar(resolvedUserAvatar, '你', '#ffb5cf')}
                             <svg width="16" height="15" viewBox="0 0 24 22" fill="none"
                                 className="animate-pulse"
                                 style={{ color: '#ff7fae', filter: 'drop-shadow(0 0 5px rgba(255,127,174,0.55))' }}>
                                 <path d="M12 21s-8-5.3-8-11.5C4 6 6.5 3.5 9.5 3.5c1.6 0 3 .8 2.5 2.2C11.5 4.3 12.9 3.5 14.5 3.5 17.5 3.5 20 6 20 9.5 20 15.7 12 21 12 21z"
                                     fill="currentColor" />
                             </svg>
-                            {renderAvatar(charAvatar, charName, '#c3b2ff')}
+                            {renderAvatar(resolvedCharAvatar, charName, '#c3b2ff')}
                         </div>
                         {/* 标签 */}
                         <div className="relative mt-1.5 text-center text-[9px] tracking-[0.3em] uppercase font-semibold"
@@ -2918,7 +2923,7 @@ const MessageItem = React.memo(({
                 </div>
                 <div className="p-3">
                     <div className="flex items-center gap-2 mb-2">
-                        <img src={post.authorAvatar} className="w-4 h-4 rounded-full" />
+                        <TokenImg value={post.authorAvatar} className="w-4 h-4 rounded-full" alt="" />
                         <span className="text-[10px] text-slate-500">{post.authorName}</span>
                     </div>
                     <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{post.content}</p>
@@ -2948,7 +2953,7 @@ const MessageItem = React.memo(({
                     {/* Header bar */}
                     <div className="px-4 pt-3 pb-2 flex items-center gap-2.5" style={{ borderBottom: '1px solid rgba(200,185,190,0.2)', background: 'linear-gradient(135deg, rgba(200,185,190,0.2), rgba(190,175,195,0.15))' }}>
                         {scoreData.charAvatar ? (
-                            <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
+                            <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} alt="" />
                         ) : (
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>{scoreData.charName?.[0] || '?'}</div>
                         )}
@@ -3009,7 +3014,7 @@ const MessageItem = React.memo(({
                     {/* Header */}
                     <div className="px-4 pt-3 pb-2.5 flex items-center gap-2.5" style={{ background: 'linear-gradient(135deg, rgba(251,191,110,0.25), rgba(249,168,96,0.15))', borderBottom: '1px solid rgba(251,191,110,0.2)' }}>
                         {scoreData.charAvatar ? (
-                            <img src={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(251,191,110,0.4)' }} />
+                            <TokenImg value={scoreData.charAvatar} className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" style={{ boxShadow: '0 0 0 2px rgba(251,191,110,0.4)' }} alt="" />
                         ) : (
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>{scoreData.charName?.[0] || '?'}</div>
                         )}
@@ -3649,7 +3654,7 @@ const MessageItem = React.memo(({
                                     key={i}
                                     className={`relative flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 mt-1 ${i === 0 ? 'mt-2' : 'mt-1.5'}`}
                                 >
-                                    {renderAvatar(isUser ? userAvatar : charAvatar, { visible: true, className: isUser ? 'sully-offline-avatar-user' : 'sully-offline-avatar-ai' })}
+                                    {renderAvatar(isUser ? resolvedUserAvatar : resolvedCharAvatar, { visible: true, className: isUser ? 'sully-offline-avatar-user' : 'sully-offline-avatar-ai' })}
                                     <div
                                         className={`relative z-10 max-w-[72%] px-4 py-2.5 text-[15px] leading-relaxed break-all select-text ${bubbleVariant === 'flat' || bubbleVariant === 'outline' || bubbleVariant === 'wechat' ? '' : 'shadow-sm'} ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'}`}
                                         style={containerStyle}

@@ -18,6 +18,7 @@ import { useOS } from '../context/OSContext';
 import { TechoDayData, TechoHabit, TechoSettings, TechoTodoItem, TechoTimelineItem, TechoChallenge, CharacterProfile } from '../types';
 import { RealtimeContextManager, WeatherData } from '../utils/realtimeContext';
 import { getDayFestival, prefetchFestivals } from '../utils/calendarFestivals';
+import { useBlobRefUrl } from '../utils/blobRef';
 import {
     todayStr, dateStr, addDays, weekKey, greeting, weekdayCN, uid, parseDate,
     weatherIcon, getDay, saveDay, getHabits, saveHabits, getSettings, saveSettings,
@@ -1435,10 +1436,12 @@ function Section(props: { title: string; theme: any; children: React.ReactNode }
     );
 }
 
-/** 角色头像：URL/data:image 显示图片，其他当作 emoji 文字。 */
+/** 角色头像：URL/data:image/blobref 显示图片，其他当作 emoji 文字。 */
 function CharAvatar(props: { avatar: string; name: string; size?: number }) {
     const { avatar, name, size = 40 } = props;
-    const isUrl = avatar && (avatar.startsWith('http') || avatar.startsWith('data:image'));
+    // 头像可能是 blobref:<id> 本地令牌，须经 useBlobRefUrl 解析成可用 URL，否则破图/显示占位。
+    const resolved = useBlobRefUrl(avatar || undefined);
+    const isUrl = !!resolved || (!!avatar && (avatar.startsWith('http') || avatar.startsWith('data:image')));
     return (
         <span
             className="rounded-full overflow-hidden bg-black/10 flex items-center justify-center shrink-0"
@@ -1446,7 +1449,7 @@ function CharAvatar(props: { avatar: string; name: string; size?: number }) {
             aria-label={name}
         >
             {isUrl ? (
-                <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                <img src={resolved || avatar} alt={name} className="w-full h-full object-cover" />
             ) : (
                 <span style={{ fontSize: Math.round(size * 0.55) }}>{avatar || '👤'}</span>
             )}

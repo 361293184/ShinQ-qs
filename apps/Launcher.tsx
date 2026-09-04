@@ -316,6 +316,8 @@ const DesktopAnniversaryWidget = React.memo(({
     onOpenSettings: () => void;
 }) => {
     const { theme } = useOS();
+    // bgImage 可能是 blobref:<id> 本地令牌，CSS url() 不识别须先解析成 objectURL，否则报 ERR_UNKNOWN_URL_SCHEME。
+    const resolvedBgImage = useBlobRefUrl(bgImage);
     const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
     const days = calcCompanionDays(char?.relationshipStartDate);
     return (
@@ -341,13 +343,13 @@ const DesktopAnniversaryWidget = React.memo(({
         >
             {bgImage && (
                 <>
-                    <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${bgImage})` }} />
+                    <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${resolvedBgImage || bgImage})` }} />
                     <div className="absolute inset-0" style={{ background: paper ? 'rgba(224,221,215,0.45)' : acnh ? 'rgba(247,243,223,0.45)' : 'rgba(255,255,255,0.18)' }} />
                 </>
             )}
             <div className="absolute inset-0 px-3">
                 {char?.avatar ? (
-                    <img src={char.avatar} alt="" className="absolute top-3 left-1/2 -translate-x-1/2 w-9 h-9 rounded-full object-cover"
+                    <TokenImg value={char.avatar} alt="" className="absolute top-3 left-1/2 -translate-x-1/2 w-9 h-9 rounded-full object-cover"
                         style={{ background: paper ? 'rgba(120,131,105,0.10)' : 'rgba(255,255,255,0.1)', border: paper ? '1px solid rgba(91,72,51,0.12)' : '1px solid rgba(255,255,255,0.16)' }} />
                 ) : (
                     <div className="absolute top-3 left-1/2 -translate-x-1/2 w-9 h-9 rounded-full flex items-center justify-center"
@@ -762,6 +764,8 @@ const Launcher: React.FC = () => {
 
   // 右下角图片：从本地相册选图（复用 processImage + updateTheme）
   const dsqWidgetInputRef = useRef<HTMLInputElement>(null);
+  // 底图可能是 blobref 令牌（外观 App 上传路径），CSS url() 不识别，预览需先解析成 objectURL。
+  const resolvedDsqBg = useBlobRefUrl(theme.launcherWidgets?.['dsq']);
   const handleDsqWidgetUpload = useCallback(async (file: File) => {
       try {
           const dataUrl = await processImage(file, { maxWidth: 600, quality: 0.9 });
@@ -1392,7 +1396,7 @@ const Launcher: React.FC = () => {
                                   <div className="flex items-center gap-3">
                                       <div
                                           className="w-14 h-14 rounded-xl shrink-0 bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-[10px] text-slate-400"
-                                          style={theme.launcherWidgets?.['dsq'] ? { backgroundImage: `url(${theme.launcherWidgets['dsq']})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+                                          style={theme.launcherWidgets?.['dsq'] ? { backgroundImage: `url(${resolvedDsqBg || theme.launcherWidgets['dsq']})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
                                       >{!theme.launcherWidgets?.['dsq'] && '无'}</div>
                                       <button
                                           onClick={() => dsqWidgetInputRef.current?.click()}
