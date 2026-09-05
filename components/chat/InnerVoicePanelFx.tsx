@@ -2,64 +2,133 @@
  * 角色心声 · 读心面板装饰层
  *
  * 两个零 props 的纯视觉组件，专供 Chat.tsx 读心面板使用：
- * - PetalHalo   外围花瓣光环：白卡保持近圆角矩形可读，外围露出不规则花瓣形淡粉光环（blob 圆角 + 缓慢呼吸）。
- * - HeartFloats 卡内杏金爱心粒子：5-7 颗半透明线形小爱心自底部上浮淡出，循环但低饱和、不扰人。
+ * - PetalHalo   外围花瓣叶：白卡四周点缀一片片独立的小花叶（不再是连续 blob 圆环），
+ *               沿白卡边缘均匀分布、错相位呼吸，粉彩低饱和。
+ * - HeartFloats 卡内杏金爱心粒子：6 颗线形小爱心，自底部上浮淡出，错相位循环、克制。
  *
- * 所有 keyframes 均以 .ivp- 前缀私有，不污染全局；尊重 prefers-reduced-motion。
- * 注意：这两个元素若含 transform 动画，绝不能加到外层"负责居中"的 div 上（历史 bug），
- * 它们各自是独立定位元素，与居中 transform / 白卡 fade-in 不共享元素。
+ * 所有 keyframes 以 .ivp- 前缀私有，不污染全局；尊重 prefers-reduced-motion。
+ * 注意：含 transform 的动画元素绝不能放到外层"负责居中"的 div 上（历史 bug），
+ * 它们各自独立定位，与居中 transform / 白卡 fade-in 不共享元素。
  */
 import React from 'react';
 
-// ── 花瓣光环 ───────────────────────────────────────────────────────────────
+// ── 花瓣叶 ──────────────────────────────────────────────────────────────────
+// 一片花叶的 SVG path（尖椭圆 + 一段小 V 凹口，像花瓣/叶子轮廓）
+const PETAL_PATH =
+    'M16 3 C 22 6, 26 12, 24 19 C 22 24, 18 28, 14 27 C 8 26, 4 21, 3 14 C 2 8, 7 3, 16 3 Z M16 3 L 14 27';
+
+interface PetalSpec { side: 'tl' | 't' | 'tr' | 'r' | 'br' | 'b' | 'bl' | 'l'; size: number; delay: number; rot: number }
+
+// 沿白卡四周：左上、上、右上、右、右下、下、左下、左 各 1 片，共 8 片错相位
+const PETALS: PetalSpec[] = [
+    { side: 'tl', size: 42, delay: 0.0, rot: -28 },
+    { side: 't',  size: 36, delay: 1.4, rot:   0 },
+    { side: 'tr', size: 44, delay: 0.7, rot:  28 },
+    { side: 'r',  size: 38, delay: 2.1, rot:  62 },
+    { side: 'br', size: 44, delay: 1.1, rot: 118 },
+    { side: 'b',  size: 34, delay: 2.6, rot: 180 },
+    { side: 'bl', size: 42, delay: 1.8, rot: -118 },
+    { side: 'l',  size: 36, delay: 0.4, rot: -62 },
+];
+
+// 把 "side" 翻译成 absolute 定位坐标（白卡四周贴外沿）
+const sideToStyle = (side: PetalSpec['side'], size: number, rot: number): React.CSSProperties => {
+    const base: React.CSSProperties = {
+        position: 'absolute',
+        width: size,
+        height: size,
+        transform: `rotate(${rot}deg)`,
+        transformOrigin: '50% 50%',
+        pointerEvents: 'none',
+    };
+    switch (side) {
+        case 'tl': return { ...base, top: -size * 0.78,  left: -size * 0.35 };
+        case 't':  return { ...base, top: -size * 0.95,  left: '50%', marginLeft: -size / 2 };
+        case 'tr': return { ...base, top: -size * 0.78,  right: -size * 0.35 };
+        case 'r':  return { ...base, top: '50%', marginTop: -size / 2, right: -size * 0.95 };
+        case 'br': return { ...base, bottom: -size * 0.78, right: -size * 0.35 };
+        case 'b':  return { ...base, bottom: -size * 0.95, left: '50%', marginLeft: -size / 2 };
+        case 'bl': return { ...base, bottom: -size * 0.78, left: -size * 0.35 };
+        case 'l':  return { ...base, top: '50%', marginTop: -size / 2, left: -size * 0.95 };
+    }
+};
+
 export const PetalHalo: React.FC = () => (
     <>
         <style>{`
-            .ivp-halo {
+            .ivp-petal-layer {
                 position: absolute;
-                inset: -13px;
+                inset: -28px;
                 z-index: 0;
                 pointer-events: none;
-                border-radius: 46% 54% 48% 52% / 52% 46% 54% 48%;
-                background:
-                    radial-gradient(120% 120% at 22% 18%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0) 46%),
-                    linear-gradient(150deg, #F8ECEC 0%, #F3DEDE 48%, #EFD6D7 100%);
-                box-shadow:
-                    0 10px 32px -10px rgba(183,121,130,0.22),
-                    inset 0 0 0 1px rgba(198,146,154,0.22);
-                animation: ivp-halo-breathe 3.6s ease-in-out infinite;
             }
-            @keyframes ivp-halo-breathe {
-                0%, 100% { transform: scale(1); opacity: 0.92; }
-                50%      { transform: scale(1.022); opacity: 1; }
+            .ivp-petal {
+                color: #D89AA4;
+                opacity: 0.85;
+                animation: ivp-petal-breathe 4.2s ease-in-out infinite;
+                animation-delay: var(--delay, 0s);
+                filter: drop-shadow(0 4px 6px rgba(186,118,128,0.16));
+                will-change: transform, opacity;
+            }
+            .ivp-petal svg {
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+            @keyframes ivp-petal-breathe {
+                0%, 100% { opacity: 0.78; }
+                50%      { opacity: 1; }
+            }
+            /* 错相位：在每片静态 rotate 之上叠加一段 translate 漂移（轻微上下） */
+            .ivp-petal-inner {
+                animation: ivp-petal-drift var(--drift, 5.4s) ease-in-out infinite;
+                animation-delay: calc(var(--delay, 0s) + 0.6s);
+                width: 100%;
+                height: 100%;
+            }
+            @keyframes ivp-petal-drift {
+                0%, 100% { translate: 0 0; }
+                50%      { translate: 0 -2px; }
             }
             @media (prefers-reduced-motion: reduce) {
-                .ivp-halo { animation: none; opacity: 0.9; }
+                .ivp-petal, .ivp-petal-inner { animation: none; opacity: 0.85; }
             }
         `}</style>
-        <div className="ivp-halo" aria-hidden />
+        <div className="ivp-petal-layer" aria-hidden>
+            {PETALS.map((p, i) => (
+                <div
+                    key={i}
+                    className="ivp-petal"
+                    style={{ ...sideToStyle(p.side, p.size, p.rot), ['--delay' as string]: `${p.delay}s` }}
+                >
+                    <div className="ivp-petal-inner">
+                        <svg viewBox="0 0 30 30" fill="rgba(243,222,222,0.9)" stroke="rgba(216,154,164,0.55)" strokeWidth="1" strokeLinejoin="round">
+                            <path d={PETAL_PATH} />
+                        </svg>
+                    </div>
+                </div>
+            ))}
+        </div>
     </>
 );
 
-// ── 杏金线形爱心粒子 ───────────────────────────────────────────────────────
+// ── 杏金线形爱心粒子（更明显） ─────────────────────────────────────────────
 interface HeartSpec {
     left: string;
     size: number;
     delay: number;
     duration: number;
-    drift: number;   // 轻微横向漂移（px）
-    peak: number;    // 峰值透明度 0..1
+    drift: number;
+    peak: number;
 }
 
-// 静态数组：固定分布，避免每次 render 随机导致抖动。5-7 颗、低饱和、错峰。
 const HEARTS: HeartSpec[] = [
-    { left: '14%',  size: 13, delay: 0.3, duration: 6.4, drift: 6,  peak: 0.5 },
-    { left: '30%',  size: 10, delay: 1.8, duration: 7.1, drift: -8, peak: 0.42 },
-    { left: '47%',  size: 15, delay: 0.9, duration: 6.9, drift: 4,  peak: 0.55 },
-    { left: '63%',  size: 11, delay: 2.6, duration: 7.6, drift: -5, peak: 0.46 },
-    { left: '76%',  size: 13, delay: 1.2, duration: 6.6, drift: 7,  peak: 0.5 },
-    { left: '88%',  size: 9,  delay: 3.2, duration: 7.9, drift: -4, peak: 0.4 },
-    { left: '55%',  size: 10, delay: 4.0, duration: 6.2, drift: 6,  peak: 0.45 },
+    { left: '16%', size: 20, delay: 0.2, duration: 6.6, drift: 6,  peak: 0.7 },
+    { left: '32%', size: 16, delay: 1.6, duration: 7.2, drift: -7, peak: 0.6 },
+    { left: '48%', size: 22, delay: 0.8, duration: 7.0, drift: 4,  peak: 0.78 },
+    { left: '66%', size: 18, delay: 2.4, duration: 7.5, drift: -5, peak: 0.68 },
+    { left: '78%', size: 17, delay: 1.1, duration: 6.8, drift: 7,  peak: 0.66 },
+    { left: '58%', size: 19, delay: 3.0, duration: 7.3, drift: -4, peak: 0.72 },
 ];
 
 const HEART_PATH =
@@ -71,27 +140,26 @@ export const HeartFloats: React.FC = () => (
             .ivp-heart-layer {
                 position: absolute;
                 inset: 0;
-                /* 画在文字之下、白底之上：白卡自身是 stacking context（relative z-10），
-                   层内 -1 即落在背景与内容之间，爱心最含蓄、不压文字 */
                 z-index: -1;
                 overflow: hidden;
                 pointer-events: none;
             }
             .ivp-heart {
                 position: absolute;
-                bottom: -12px;
+                bottom: -14px;
                 display: block;
                 opacity: 0;
-                color: #C8935B;
+                color: #C68F4D;
                 animation: ivp-heart-rise var(--dur, 6.5s) linear var(--delay, 0s) infinite;
                 will-change: transform, opacity;
+                filter: drop-shadow(0 1px 2px rgba(160,108,52,0.18));
             }
             @keyframes ivp-heart-rise {
-                0%   { transform: translate(0, 10px) scale(0.55); opacity: 0; }
-                12%  { opacity: var(--peak, 0.5); }
-                55%  { transform: translate(var(--drift, 6px), -70px) scale(0.92); opacity: calc(var(--peak, 0.5) * 0.72); }
-                78%  { opacity: calc(var(--peak, 0.5) * 0.38); }
-                100% { transform: translate(0, -185px) scale(0.98); opacity: 0; }
+                0%   { transform: translate(0, 12px) scale(0.55); opacity: 0; }
+                12%  { opacity: var(--peak, 0.7); }
+                55%  { transform: translate(var(--drift, 6px), -78px) scale(0.95); opacity: calc(var(--peak, 0.7) * 0.78); }
+                80%  { opacity: calc(var(--peak, 0.7) * 0.42); }
+                100% { transform: translate(0, -200px) scale(1.02); opacity: 0; }
             }
             @media (prefers-reduced-motion: reduce) {
                 .ivp-heart { animation: none; display: none; }
@@ -104,7 +172,7 @@ export const HeartFloats: React.FC = () => (
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth={1.3}
+                    strokeWidth={1.5}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     className="ivp-heart"
