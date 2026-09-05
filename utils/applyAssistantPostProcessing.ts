@@ -55,6 +55,7 @@ import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { isBlobRef } from './blobRef';
 import { isOfflineEnabled } from './offlineMode/offlineSettings';
+import { extractInnerVoice } from './innerVoice';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -743,6 +744,34 @@ export async function applyAssistantPostProcessing(
             return merged;
         };
 
+        // ── inner_voice（角色心声）剥离：随台词同一次输出的隐藏块，剥出来自存，
+        //    台词继续走正常分块渲染；心声挂到本条渲染最后落库的一条文本消息上。
+        //    renderAndPersist 覆盖无二轮单轮 / lead-in 正文 A / 二轮结果 B 全部正文路径，
+        //    所以剥一次在这里即可全链路生效。剥离异常被 extractInnerVoice 内部静默降级。
+        const voicePeel = extractInnerVoice(rawContent || '');
+        const contentSource = voicePeel.clean;
+        const voiceForThisRender = voicePeel.innerVoice;
+        let lastSavedMsgId: number | null = null;
+        // persistMessage 返回 saveMessage 的新 id：track 本条渲染「最后落库」的消息
+        // （文本 / 表情 / 降级文本都算——回复以表情收尾时宿主就是那条表情消息，
+        //  UI 取"最新一条角色消息"的 metadata.innerVoice 正好命中）。
+        const persistTracked = async (msg: any): Promise<void> => {
+            const savedId = await persistMessage(msg);
+            if (savedId && typeof savedId === 'number') lastSavedMsgId = savedId;
+        };
+        // 挂在最后落库的一条消息上：本条渲染收尾前把 innerVoice 并进该消息 metadata。
+        // 成功后同步刷新一次消息列表，让 UI 立即拿到 innerVoice（头像入口靠 metadata 点亮，
+        // 不刷则要等下一次 reloadMessages 才会亮）。
+        const attachInnerVoiceIfAny = async (): Promise<void> => {
+            if (!voiceForThisRender || lastSavedMsgId == null) return;
+            try {
+                await DB.updateMessageMetadata(lastSavedMsgId, (prev: any) => ({ ...(prev || {}), innerVoice: voiceForThisRender }));
+                await setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } catch (e) {
+                console.error('[innerVoice] 挂载失败', e);
+            }
+        };
+
         // 表情按模型写的位置原地插发。名字在表情库里找不到时落一条降级文本气泡，不静默丢：
         // 后台主动消息会把每个 [[SEND_EMOJI]] 切成独立一条 push，找不到就是整条 0 气泡，而
         // 系统横幅和未读数照常 +1 —— 用户点进去空空如也。名字对不上有两条常见来路：模型自己
@@ -752,10 +781,10 @@ export async function applyAssistantPostProcessing(
             await typingPause(Math.random() * 500 + 300);
             const foundEmoji = resolveEmojiForSend(name, emojis, ctx.categories);
             if (foundEmoji) {
-                await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
+                await persistTracked({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
             } else {
                 console.warn('[emoji] 表情库里没有这个名字，落降级文本气泡', { name, charId: char.id });
-                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: `[表情：${name}]`, metadata: takeMeta(mcdInheritMeta) } as any);
+                await persistTracked({ charId: char.id, role: 'assistant', type: 'text', content: `[表情：${name}]`, metadata: takeMeta(mcdInheritMeta) } as any);
             }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         };
@@ -792,10 +821,10 @@ export async function applyAssistantPostProcessing(
 
         // Quote/Reply 目标 (双语路径用)
         let aiReplyTarget: { id: number, content: string, name: string } | undefined;
-        const firstQuoteMatch = rawContent.match(QUOTE_RE_DOUBLE) || rawContent.match(QUOTE_RE_SINGLE) || rawContent.match(REPLY_RE_CN) || rawContent.match(QUOTE_RE_NL);
+        const firstQuoteMatch = contentSource.match(QUOTE_RE_DOUBLE) || contentSource.match(QUOTE_RE_SINGLE) || contentSource.match(REPLY_RE_CN) || contentSource.match(QUOTE_RE_NL);
         if (firstQuoteMatch) aiReplyTarget = resolveQuoteTarget(firstQuoteMatch[1]);
 
-        let content = ChatParser.sanitize(rawContent, { keepCitations: true });
+        let content = ChatParser.sanitize(contentSource, { keepCitations: true });
         content = content.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, '').trim();
         if (!content) return;
 
@@ -821,7 +850,7 @@ export async function applyAssistantPostProcessing(
                         if (!chunk) continue;
                         const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                         await typingPause(Math.min(Math.max(chunk.length * 50, 500), 2000));
-                        await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                        await persistTracked({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
                         setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                         globalMsgIndex++;
                     }
@@ -847,7 +876,7 @@ export async function applyAssistantPostProcessing(
                         : (originalText || translatedText);
                     const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                     await typingPause(Math.min(Math.max(biContent.length * 30, 400), 2000));
-                    await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                    await persistTracked({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
                     setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                     globalMsgIndex++;
                 }
@@ -896,7 +925,7 @@ export async function applyAssistantPostProcessing(
                         if (ChatParser.hasDisplayContent(chunk)) {
                             const cleanChunk = ChatParser.sanitize(chunk);
                             if (cleanChunk) {
-                                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                                await persistTracked({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
                                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                                 globalMsgIndex++;
                                 chunkSaved = true;
@@ -907,6 +936,8 @@ export async function applyAssistantPostProcessing(
                 }
             }
         }
+        // 本条渲染收尾：把 inner_voice 挂到最后一条文本气泡上（无心声/无文本则静默跳过）
+        await attachInnerVoiceIfAny();
     };
 
     // 「执行功能前的本轮正文 A」: 在二轮重生开始前先把 A 渲染成气泡, 这样用户看到的顺序是

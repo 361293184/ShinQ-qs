@@ -3177,6 +3177,8 @@ export interface CharacterProfile {
    * `<recallmsg text="真实心声" reason="内心独白">表面话</recallmsg>`，用户点开灰字可看真实心声。
    */
   recallOutputEnabled?: boolean;
+  /** 角色心声（inner_voice）开关，默认开。开启后每条回复随台词同一次输出 `<inner_voice>` 隐藏块，入库剥离存 metadata。 */
+  innerVoiceEnabled?: boolean;
   emotionConfig?: {
     enabled: boolean;
     api?: {
@@ -3985,6 +3987,21 @@ export interface GameSession {
 }
 
 export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay';
+
+/** 角色心声 —— 台词没说出口的内心，随台词同一次输出、入库前剥离，仅存于 metadata 不渲染不入上下文。 */
+export interface InnerVoiceLayer {
+    /** 六类心事；'心声' = 纯文本降级兜底类型 */
+    type: '真心话' | '吐槽' | '小动作' | '预谋' | '回忆' | '关系' | '心声';
+    /** ≤30 字 */
+    text: string;
+}
+
+export interface InnerVoice {
+    /** 层数不限；解析侧安全阀 >12 层判异常整块丢弃 */
+    layers: InnerVoiceLayer[];
+    /** 生成时间戳 */
+    at: number;
+}
 
 export interface Message {
     id: number;

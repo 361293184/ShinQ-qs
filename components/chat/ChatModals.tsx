@@ -116,6 +116,9 @@ interface ChatModalsProps {
     onSetRecallCaughtChance?: (v: number) => void;
     recallOutputEnabled?: boolean;
     onToggleRecallOutput?: () => void;
+    // 角色心声（inner_voice）
+    innerVoiceEnabled?: boolean;
+    onToggleInnerVoice?: () => void;
     // Schedule
     scheduleData?: DailySchedule | null;
     isScheduleGenerating?: boolean;
@@ -257,6 +260,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
     recallCaughtChance, onSetRecallCaughtChance, recallOutputEnabled, onToggleRecallOutput,
+    innerVoiceEnabled, onToggleInnerVoice,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
     onScheduleStyleChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
@@ -604,49 +608,21 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          )}
                      </div>
 
-                     {/* 撤回设置（角色他撤回 + 抓包玩法）已隐藏：只保留用户撤回，如需恢复把 false 改成 true */}
-                     {false && (
-                         <div className="pt-2 border-t border-slate-100">
-                             <div className="flex justify-between items-center cursor-pointer" onClick={onToggleRecallOutput}>
-                                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">角色可撤回（心声）</label>
-                                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${recallOutputEnabled ? 'bg-violet-400' : 'bg-slate-200'}`}>
-                                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${recallOutputEnabled ? 'translate-x-4' : ''}`}></div>
-                                             </div>
-                                         </div>
-                                         <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                                             开启后角色可撤回自己的话，并留一段真实心声。你点开灰字「撕开胶带」能看到他撤回时真正的想法。
-                                         </p>
-                                         {recallOutputEnabled && (
-                                             <div className="mt-3 pt-3 border-t border-slate-100">
-                                                 {(() => {
-                                                     // 防御：chance 必须是 0..1 数字，对象参与 *100 可能触发 hostile valueOf 抛错
-                                                     // 用 Number() 显式转换避免 TS 在死代码块里收窄失效
-                                                     const rawChance = recallCaughtChance;
-                                                     const safeChance = Number.isFinite(rawChance) ? Math.min(1, Math.max(0, Number(rawChance))) : 0.4;
-                                                     const chancePct = Math.round(safeChance * 100);
-                                                     return (
-                                                         <>
-                                                             <label className="text-[10px] font-bold text-slate-400 mb-1.5 block">
-                                                                 抓包概率：<span className="text-violet-500">{chancePct}%</span>
-                                                             </label>
-                                                             <input
-                                                                 type="range" min="0" max="100" step="5"
-                                                                 value={chancePct}
-                                                                 onChange={e => onSetRecallCaughtChance?.(parseInt(e.target.value, 10) / 100)}
-                                                                 className="w-full h-2 bg-slate-200 rounded-full appearance-none accent-violet-500"
-                                                             />
-                                                         </>
-                                                     );
-                                                 })()}
-                                                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                                                     你撤回消息时，角色「碰巧看到原文」的概率。40% = 偶尔被抓包，100% = 每次都被看穿。
-                                                 </p>
-                                             </div>
-                                         )}
-                                     </div>
-                                 )}
+                     {/* 角色心声（inner_voice）：每条回复随台词同一次输出一段「没说出口的心里话」，
+                         点最新一条角色消息的头像可读；旧「撤回心声」玩法已废弃并由本开关取代。 */}
+                     <div className="pt-2 border-t border-slate-100">
+                            <div className="flex justify-between items-center cursor-pointer" onClick={onToggleInnerVoice}>
+                                            <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">角色心声</label>
+                                            <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${innerVoiceEnabled !== false ? 'bg-amber-200' : 'bg-slate-200'}`}>
+                                                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${innerVoiceEnabled !== false ? 'translate-x-4' : ''}`}></div>
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                            开启后，角色每句话都藏着一层没说出口的内心。点最新一条角色消息的头像，可看到她此刻的心里话；「戳破她」能把它转发进聊天。
+                                        </p>
+                                    </div>
 
-                                 {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
+                                {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
 
                          <div className="pt-2 border-t border-slate-100">
                              <button onClick={() => setModalType('history-manager')} className="w-full py-3 bg-slate-50 text-slate-600 font-bold rounded-2xl border border-slate-200 active:scale-95 transition-transform flex items-center justify-center gap-2">

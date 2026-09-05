@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Message, ChatTheme, OfflineConfig } from '../../types';
+import { Message, ChatTheme, OfflineConfig, InnerVoiceLayer } from '../../types';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
 import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
@@ -418,6 +418,44 @@ const ForwardCard: React.FC<{
                 </div>
             )}
         </>
+    );
+};
+
+// ─── 角色心声转发卡片：用户「戳破她」时把角色没说出口的心里话转回聊天。
+// 消息 type 沿用 chat_forward，content 为 JSON { kind:'inner_voice', charName, at, layers }；
+// 只在 UI 上渲染成低饱和细线的小卡，正文即角色心声原文（她读到就知道是自己的心里话）。
+const InnerVoiceForwardCard: React.FC<{
+    fw: { charName?: string; at?: number; layers?: InnerVoiceLayer[]; text?: string };
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+}> = ({ fw, commonLayout }) => {
+    const layers = fw.layers || [];
+    const timeLabel = (() => {
+        if (!fw.at) return '';
+        const d = new Date(fw.at);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    })();
+    const charLabel = fw.charName || '角色';
+    return commonLayout(
+        <div className="w-64 rounded-2xl overflow-hidden shadow-sm border border-[#EDE6D6] bg-[#FDFAF3] select-none">
+            <div className="flex items-center justify-between px-3.5 pt-2.5 pb-2 border-b border-[#F0EADD]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" className="w-3.5 h-3.5 shrink-0 text-[#8A6A32]/70"><path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3H9m0 0a3 3 0 0 1 6 0m-6 0H7.5M9 12h6m-6 3h3" /></svg>
+                    <span className="text-[10px] font-bold text-[#8A6A32]/80 truncate">转发 · 心声（{charLabel}）</span>
+                </div>
+                {timeLabel && <span className="text-[9px] text-slate-400/80 shrink-0 ml-2">{timeLabel}</span>}
+            </div>
+            <div className="px-3.5 py-2.5 space-y-1.5">
+                {layers.length > 0 ? layers.map((l, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                        <span className="shrink-0 mt-[3px] text-[9px] font-medium text-[#A89B7F] tracking-wide leading-tight">{l.type}</span>
+                        <span className="text-[11.5px] leading-relaxed text-[#3A3A38] italic">{l.text}</span>
+                    </div>
+                )) : (
+                    <div className="text-[11.5px] italic leading-relaxed text-slate-400">（心声原文未记录）</div>
+                )}
+            </div>
+        </div>
     );
 };
 
@@ -1056,6 +1094,10 @@ interface MessageItemProps {
     };
     /** 线下模式配置：offline 消息按行级解析渲染旁白/台词（缺省走默认样式） */
     offlineConfig?: OfflineConfig;
+    /** 角色心声：该条消息是当前对话「最新一条角色消息」且带 innerVoice —— 头像可点，轻呼吸暗示。 */
+    innerVoiceHost?: boolean;
+    /** 点头像 → 打开读心面板（仅 innerVoiceHost 时触发；由 Chat.tsx 以稳定引用传入）。 */
+    onOpenInnerVoice?: (m: Message) => void;
 }
 
 const MessageItem = React.memo(({
@@ -1103,6 +1145,8 @@ const MessageItem = React.memo(({
     onRetryImageGen,
     thinkingChainOptions,
     offlineConfig,
+    innerVoiceHost = false,
+    onOpenInnerVoice,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
@@ -1617,7 +1661,19 @@ const MessageItem = React.memo(({
                 {/* HTML / 音乐卡片是独立模块，不继承普通消息外壳的角色头像。卡片内部自己的头像不受影响。 */}
                 {!isUser && !isModuleCard && (
                     <div className={`sully-chat-message-avatar-slot absolute bottom-0 z-0 ${selectionMode ? 'left-14' : 'left-3'} transition-[left] duration-300`}>
-                        {renderAvatar(resolvedCharAvatar, { className: 'sully-chat-message-avatar' })}
+                        {innerVoiceHost && !selectionMode && onOpenInnerVoice ? (
+                            // 角色心声入口：仅「最新一条角色消息且带 innerVoice」可点。呼吸细圈为唯一视觉暗示，零打扰。
+                            <button
+                                type="button"
+                                aria-label={`查看${charName || '她'}此刻的心声`}
+                                onClick={(e) => { e.stopPropagation(); onOpenInnerVoice(m); }}
+                                className="relative block p-0 border-0 bg-transparent cursor-pointer outline-none"
+                            >
+                                {renderAvatar(resolvedCharAvatar, { visible: true, className: 'sully-chat-message-avatar' })}
+                                <span aria-hidden className="absolute inset-0 rounded-full border pointer-events-none animate-pulse"
+                                    style={{ borderColor: 'rgba(138,106,50,0.28)' }} />
+                            </button>
+                        ) : renderAvatar(resolvedCharAvatar, { className: 'sully-chat-message-avatar' })}
                     </div>
                 )}
 
@@ -1690,6 +1746,10 @@ const MessageItem = React.memo(({
         let forwardData: any = null;
         try { forwardData = JSON.parse(m.content); } catch {}
         if (forwardData) {
+            // 「戳破她」心声转发卡：角色第一人称心声原文转回聊天，语义包装见 content 前缀
+            if (forwardData.kind === 'inner_voice') {
+                return <InnerVoiceForwardCard fw={forwardData} commonLayout={commonLayout} />;
+            }
             return <ForwardCard forwardData={forwardData} commonLayout={commonLayout} interactionProps={interactionProps} selectionMode={selectionMode} />;
         }
     }
@@ -3997,7 +4057,9 @@ const MessageItem = React.memo(({
            prev.suppressEntranceAnimation === next.suppressEntranceAnimation &&
            prev.voiceData?.url === next.voiceData?.url &&
            prev.voiceLoading === next.voiceLoading &&
-           prev.isVoicePlaying === next.isVoicePlaying;
+           prev.isVoicePlaying === next.isVoicePlaying &&
+           prev.innerVoiceHost === next.innerVoiceHost &&
+           prev.onOpenInnerVoice === next.onOpenInnerVoice;
 });
 
 export default MessageItem;

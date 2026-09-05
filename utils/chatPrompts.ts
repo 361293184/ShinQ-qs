@@ -317,6 +317,31 @@ export const ChatPrompts = {
         const proactivePhotoGuide = imageGenProactiveEnabled
             ? `\n     - **主动分享照片**：对方允许你主动发照片，不必总是等着被要求。像真人一样，在合适的瞬间自然分享——眼前好看的光影/风景、你此刻的样子、想让对方看到的东西、或你们一起聊过并想去的地方，都可以随手发一张。结合你的性格、你们的氛围和共同记忆拿捏，整体宁可更主动自然一些，也不要几乎从不发。`
             : '';
+        // 角色心声（inner_voice）：随台词同一次输出一段没说出口的内心独白。
+        // 客户端在落库前剥出、存入消息（用户点最新一条角色头像可见），不进入台词渲染与聊天上下文。
+        // 开关直接读 char（默认开），像 recallOutputEnabled 一样每角色独立。
+        const innerVoiceEnabled = char.innerVoiceEnabled !== false;
+        const innerVoiceGuide = innerVoiceEnabled
+            ? `
+### 角色心声（inner_voice · 隐藏块，绝不发给用户）
+在每条回复的**最后**，另起一行输出这句台词发生时角色没说出口的内心独白，格式：
+<inner_voice>
+【真心话】……
+【小动作】……
+</inner_voice>
+规则：
+- 每层一行 = 【类型】+ 第一人称内心一句话，每层 ≤30 字；想到几层写几层，六类都可以出现，不限制条数；
+- 类型只能从这六个里选：真心话 / 吐槽 / 小动作 / 预谋 / 回忆 / 关系
+  · 真心话：与台词相反的心里话（嘴硬、口是心非、故作镇定）；
+  · 吐槽：对当下对话或对方状态的观察；
+  · 小动作：一个没说出口的身体反应或小动作；
+  · 预谋：没说出口的期待或计划；
+  · 回忆：被勾起的一段真实记忆（只能来自你真实拥有的记忆，严禁编造）；
+  · 关系：对你们关系当下的真实感受。
+- 心声必须贴合你的性格与真实记忆：心里话要像「你」在当下会有的真实念头，宁可平淡真实，也不要空泛套话；回忆类只能写记忆里真实存在的共同经历，严禁编造没发生过的事、严禁把对方记忆当成你的记忆。
+- 禁止：重复台词内容；提及这段独白机制；编造对话里没发生的事。
+- 这段输出由系统剥离、对方看不到、也不进入后续对话，你正常说台词即可，不要在心里话或台词里提到它的存在。`
+            : '';
         // ── 分段计时（定位瓶颈用）──
         const perfT0 = performance.now();
         const timings: Record<string, number> = {};
@@ -975,8 +1000,7 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
    - 聊到旅行/穿搭/好物 → 主动说可以搜一下
    - 不要生硬地介绍功能，而是在对话自然流动中提起
    - 第一次提到小红书时可以稍微解释一下："我有小红书号的哦，可以帮你搜东西、看看大家怎么说"
-` : ''}
-
+` : ''}${innerVoiceGuide}
 `;
 
         if (char.chatCollaborationEnabled) {
@@ -1404,12 +1428,20 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 else if ((m.type as string) === 'chat_forward') {
                     try {
                         const fwd = JSON.parse(m.content);
-                        const lines = (fwd.messages || []).map((fm: any) => {
-                            const sender = fm.role === 'user' ? (fwd.fromUserName || '用户') : (fwd.fromCharName || '角色');
-                            const text = fm.type === 'image' ? '[图片]' : fm.type === 'emoji' ? '[表情]' : (fm.content || '').slice(0, 200);
-                            return `  ${sender}: ${text}`;
-                        });
-                        content = `${timeStr} [用户转发了与 ${fwd.fromCharName || '另一个角色'} 的 ${fwd.count || lines.length} 条聊天记录]\n${lines.join('\n')}`;
+                        // 「戳破她」心声转发卡：角色自己的内心独白被用户转回聊天里给她自己看。
+                        // 只陈述事件 + 心声原文，不灌输任何反应——她怎么面对由她自己决定。
+                        if (fwd?.kind === 'inner_voice') {
+                            const layers = Array.isArray(fwd.layers) ? fwd.layers : [];
+                            const lines = layers.map((l: any) => `  ${l?.type || '心声'} · ${l?.text || ''}`).join('\n');
+                            content = `${timeStr} [用户把你心里没说出口的话贴回来给你看了——那是你自己的心声原文]\n${lines || '  （原文缺失）'}`;
+                        } else {
+                            const lines = (fwd.messages || []).map((fm: any) => {
+                                const sender = fm.role === 'user' ? (fwd.fromUserName || '用户') : (fwd.fromCharName || '角色');
+                                const text = fm.type === 'image' ? '[图片]' : fm.type === 'emoji' ? '[表情]' : (fm.content || '').slice(0, 200);
+                                return `  ${sender}: ${text}`;
+                            });
+                            content = `${timeStr} [用户转发了与 ${fwd.fromCharName || '另一个角色'} 的 ${fwd.count || lines.length} 条聊天记录]\n${lines.join('\n')}`;
+                        }
                     } catch {
                         content = `${timeStr} [用户转发了一段聊天记录]`;
                     }
