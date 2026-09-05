@@ -28,9 +28,9 @@ const LEFTOVER_TAG_RE = /<\/?inner_voice>/g;
 /** 行首 【标签】 */
 const LAYER_TAG_RE = /^【([^】]+)】(.*)$/u;
 /** 单层超长截断 */
-const MAX_LAYER_TEXT = 30;
+const MAX_LAYER_TEXT = 48;
 /** 整块总长截断 */
-const MAX_BLOCK_TEXT = 200;
+const MAX_BLOCK_TEXT = 260;
 /** 异常刷层安全阀 */
 const MAX_LAYERS = 12;
 

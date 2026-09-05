@@ -60,18 +60,18 @@ describe('extractInnerVoice 心声解析剥离', () => {
         expect(empty.clean).toBe('你好');
     });
 
-    it('超长截断：单层 >30 字截断，整块总长 ≤200 字', () => {
+    it('超长截断：单层 >48 字截断，整块总长 ≤260 字', () => {
         const longLine = '啊'.repeat(60);
         const { innerVoice } = extractInnerVoice(`<inner_voice>【真心话】${longLine}</inner_voice>`);
-        expect(innerVoice!.layers[0].text).toHaveLength(30);
+        expect(innerVoice!.layers[0].text).toHaveLength(48);
 
-        // 多层累积超 200 字（但层数 ≤12 不触发刷层阀）→ 在边界处停住，不超 200
+        // 多层累积超 260 字（但层数 ≤12 不触发刷层阀）→ 在边界处停住，不超 260
         let raw = '<inner_voice>\n';
         for (let i = 0; i < 10; i++) raw += `【吐槽】${'字'.repeat(30)}\n`;
         raw += '</inner_voice>';
         const many = extractInnerVoice(raw);
         const total = many.innerVoice!.layers.reduce((s, l) => s + l.text.length, 0);
-        expect(total).toBeLessThanOrEqual(200);
+        expect(total).toBeLessThanOrEqual(260);
     });
 
     it('>12 层判异常刷层 → 整块静默丢弃（视为无心声）', () => {
