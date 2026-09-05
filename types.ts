@@ -318,6 +318,9 @@ export interface APIConfig {
   subBaseUrl?: string;
   subApiKey?: string;
   subModel?: string;
+  // 副 API 流式开关（可选）。部分长生成（番外）在手机上非流式易被中间网关按空闲回收；
+  // 开启后番外走 stream:true（仅在接口支持流式时生效，与主 API 的 stream 开关同理）。
+  subStream?: boolean;
   // 生图 API（角色生图面板）：缺省时用主 API（baseUrl/apiKey/model）。
   imageGenApiKey?: string;
   imageGenBaseUrl?: string;

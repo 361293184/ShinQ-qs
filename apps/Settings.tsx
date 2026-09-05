@@ -471,6 +471,8 @@ const Settings: React.FC = () => {
   const [localSubKey, setLocalSubKey] = useState(apiConfig.subApiKey || '');
   const [localSubUrl, setLocalSubUrl] = useState(apiConfig.subBaseUrl || '');
   const [localSubModel, setLocalSubModel] = useState(apiConfig.subModel || 'gpt-4o-mini');
+  const [localSubStream, setLocalSubStream] = useState<boolean>(apiConfig.subStream === true);
+  const [showSubAdvanced, setShowSubAdvanced] = useState(false); // 副 API 高级（流式）折叠
   const [subModelList, setSubModelList] = useState<string[]>([]);
   const [subFetchingModels, setSubFetchingModels] = useState(false);
   const [subTesting, setSubTesting] = useState(false);
@@ -1010,6 +1012,7 @@ const Settings: React.FC = () => {
       subApiKey: localSubKey,
       subBaseUrl: localSubUrl,
       subModel: localSubModel,
+      subStream: localSubStream || undefined,
     });
     setSubStatusMsg('已保存');
     setTimeout(() => setSubStatusMsg(''), 2000);
@@ -2857,6 +2860,39 @@ const Settings: React.FC = () => {
                                 >
                                     📋 已缓存 {subModelList.length} 个模型，点此重新选择
                                 </button>
+                            )}
+                        </div>
+                        {/* 高级（流式）— 默认折叠，灰色低调 */}
+                        <div className="pt-0.5">
+                            <button
+                                type="button"
+                                onClick={() => setShowSubAdvanced(v => !v)}
+                                className="text-[10px] text-slate-300 hover:text-slate-400 transition-colors flex items-center gap-1 pl-0.5 active:scale-95"
+                            >
+                                <span>高级（不建议修改）</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-2.5 h-2.5 transition-transform ${showSubAdvanced ? 'rotate-180' : ''}`}>
+                                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                            {showSubAdvanced && (
+                                <div className="mt-2 pl-2 border-l-2 border-slate-100 space-y-2 py-1.5">
+                                    <p className="text-[10px] text-slate-300 leading-relaxed">
+                                        默认即可。若番外/长任务在手机上容易失败，可打开流式（需你的中转站支持 stream；不支持时不影响）。
+                                    </p>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="text-[10px] text-slate-400">流式输出 (Stream)</span>
+                                            <p className="text-[9px] text-slate-300 mt-0.5">长生成更稳；接口不支持时自动回退</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setLocalSubStream(v => !v)}
+                                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${localSubStream ? 'bg-amber-400' : 'bg-slate-200'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localSubStream ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                        </button>
+                                    </div>
+                                </div>
                             )}
                         </div>
                         <button

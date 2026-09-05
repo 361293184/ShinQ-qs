@@ -105,6 +105,8 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
         baseUrl: apiConfig.subBaseUrl,
         apiKey: apiConfig.subApiKey,
         model: apiConfig.subModel,
+        // 副 API 流式开关：开启后番外走 stream（长生成在手机上更稳）
+        stream: apiConfig.subStream === true,
     };
 
     const handleGenerate = async () => {

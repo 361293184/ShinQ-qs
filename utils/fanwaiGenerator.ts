@@ -15,7 +15,7 @@
  */
 
 import { CharacterProfile, UserProfile, FanwaiStory } from '../types';
-import { safeResponseJson, extractContent } from './safeApi';
+import { safeResponseJson, extractContent, safeFetchJson } from './safeApi';
 import { expandWorldbookMacros, formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections, WorldbookScanMessage, ResolvedWorldbookEntry } from './worldbook';
 import { normalizeUserImpression } from './impression';
 import { resolveHtmlType, FanwaiHtmlType, FanwaiGenMode, detectExplicitQuantity, extractFloorCount } from './fanwai/formatDetector';
@@ -26,6 +26,8 @@ export interface SubApiConfig {
     baseUrl?: string;
     apiKey?: string;
     model?: string;
+    /** 流式开关：开启后走 stream:true（接口需支持流式；长生成在手机上更稳）。 */
+    stream?: boolean;
 }
 
 /** 文风预设。id 会被存进 FanwaiStory.style，用于拾光卡片渐变与展示。 */
@@ -621,27 +623,49 @@ export async function callFanwaiLLM(
     subApi: SubApiConfig,
     opts?: CallFanwaiOptions,
 ): Promise<string | null> {
-    const { baseUrl, apiKey, model } = subApi || {};
+    const { baseUrl, apiKey, model, stream } = subApi || {};
     if (!baseUrl || !apiKey || !model) {
         console.error('[Fanwai] no_sub_api');
         return null;
     }
+    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
     try {
-        const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({
-                model,
-                messages: [{ role: 'user', content: prompt }],
-                temperature: opts?.temperature ?? 0.85,
-            }),
-            __sullyMeta: opts?.meta || { appName: '番外', purpose: '番外生成' },
-        } as RequestInit);
-        if (!response.ok) {
-            console.error('[Fanwai] API error:', response.status);
-            throw new Error(`API ${response.status}`);
+        let data: any;
+        if (stream) {
+            // 流式路径：走 safeFetchJson 的统一 SSE 拼接（readBodyWithStreaming 会把流
+            // 自动合成为完整 completion JSON）。接口不支持流式时 readBodyWithStreaming
+            // 会退化为整包 JSON，与 fetch 同结果——流式开关对老接口也安全。
+            data = await safeFetchJson(
+                url,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    body: JSON.stringify({
+                        model,
+                        messages: [{ role: 'user', content: prompt }],
+                        temperature: opts?.temperature ?? 0.85,
+                        stream: true,
+                    }),
+                } as RequestInit,
+                0, 0, opts?.meta || { appName: '番外', purpose: '番外生成' },
+            );
+        } else {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                body: JSON.stringify({
+                    model,
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: opts?.temperature ?? 0.85,
+                }),
+                __sullyMeta: opts?.meta || { appName: '番外', purpose: '番外生成' },
+            } as RequestInit);
+            if (!response.ok) {
+                console.error('[Fanwai] API error:', response.status);
+                throw new Error(`API ${response.status}`);
+            }
+            data = await safeResponseJson(response);
         }
-        const data = await safeResponseJson(response);
         const content = extractContent(data);
         if (!content || !content.trim()) {
             console.error('[Fanwai] Generation empty.');
