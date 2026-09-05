@@ -12,6 +12,9 @@ export interface ImageGenOptions {
   prompt: string;
   /** 锁脸参考图 dataURL（可选） */
   lockImageDataUrl?: string | null;
+  /** 多张锁脸参考图 dataURL（可选）：合照时同时锁角色和用户的长相。
+   *  按顺序对应 prompt 里描述的第一个人、第二个人；不传时退回单图 lockImageDataUrl。 */
+  lockImageDataUrls?: (string | null | undefined)[];
   /** 出图尺寸，默认 1024x1792（9:16 竖版） */
   size?: string;
   /** 信号控制器 */
@@ -31,7 +34,7 @@ export interface ImageGenResult {
  * 固定竖版 9:16（1024x1792）；带锁脸参考图时把 base64 塞进 reference_images / image 字段。
  */
 export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResult> {
-  const { baseUrl, apiKey, model, prompt, lockImageDataUrl, size, signal, timeoutMs = 300000 } = opts;
+  const { baseUrl, apiKey, model, prompt, lockImageDataUrl, lockImageDataUrls, size, signal, timeoutMs = 300000 } = opts;
   const base = baseUrl.replace(/\/+$/, '');
   const outSize = size || '1024x1792';
 
@@ -42,10 +45,14 @@ export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResu
     ? (() => { const c = new AbortController(); signal.addEventListener('abort', () => c.abort()); return c.signal; })()
     : ctrl.signal;
 
-  // 参考图统一转成纯 base64（去掉 data: 前缀），塞进兼容字段
-  const refPureB64 = lockImageDataUrl
-    ? lockImageDataUrl.replace(/^data:image\/\w+;base64,/, '')
-    : null;
+  // 参考图统一转成纯 base64（去掉 data: 前缀），塞进兼容字段。
+  // 优先用多图数组（合照锁脸：按顺序对应 prompt 里的第一个人/第二个人），否则退回单图。
+  const refsPureB64 = (lockImageDataUrls && lockImageDataUrls.length > 0
+    ? lockImageDataUrls
+    : lockImageDataUrl ? [lockImageDataUrl] : []
+  )
+    .filter((d): d is string => !!d)
+    .map(d => d.replace(/^data:image\/\w+;base64,/, ''));
 
   const body: Record<string, unknown> = {
     model,
@@ -57,9 +64,10 @@ export async function generateImage(opts: ImageGenOptions): Promise<ImageGenResu
   // 标准字段 image 必须是数组（参考 OpenAI 兼容规范 / gpt-image-1/2）。
   // 部分国产中转还认 reference_images 字段，一并带上以兼容老聚合服务。
   // 注意：image 数组里只放纯 base64 字符串，不要带 data:image/png;base64, 前缀。
-  if (refPureB64) {
-    body.image = [refPureB64];
-    body.reference_images = [refPureB64];
+  // 多张参考图（合照双锁脸）直接放进数组——OpenAI 兼容规范 image 本身就是多图数组。
+  if (refsPureB64.length > 0) {
+    body.image = refsPureB64;
+    body.reference_images = refsPureB64;
   }
 
   try {

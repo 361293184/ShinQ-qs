@@ -1667,6 +1667,7 @@ const Chat: React.FC = () => {
         // 三种模式的 prompt / lockImage 不同
         let prompt: string;
         let lockImage: string | null = null;
+        let lockImageDataUrls: (string | null)[] | undefined; // 合照双锁脸：0=角色、1=用户
         let statusText: string;
         let successToast: string;
         let metadataExtra: Record<string, any> = {};
@@ -1690,14 +1691,15 @@ const Chat: React.FC = () => {
             // 健壮版：空描述时用"参考图中的人物"代替，有锁脸优先
             const _userPart = (userDesc && userDesc.trim()) || (userLockImage ? 'the exact person shown in the reference photo' : 'a person');
             const _charPart = (charDesc && charDesc.trim()) || (charLockImage ? 'the exact character shown in the reference photo' : 'a character');
-            const _jointParts = ['two people together in the photo', _userPart, 'and', _charPart];
+            const _jointParts = ['two people together in the photo', 'the first person is the character in the first reference image, the second person is the person in the second reference image', _userPart, 'and', _charPart];
             if (userLockImage) _jointParts.push(lockFaceHint);
             if (charLockImage) _jointParts.push(lockFaceHint);
             if (sceneDesc && sceneDesc.trim()) _jointParts.push(sceneDesc.trim());
             _jointParts.push('couple photo, intimate and natural pose');
             _jointParts.push('masterpiece, best quality, highly detailed');
             prompt = _jointParts.filter(Boolean).join(', ');
-            lockImage = charLockImage || userLockImage || null; // API 只支持一张参考图，优先角色锁脸
+            lockImage = charLockImage || userLockImage || null; // 兼容旧字段
+            lockImageDataUrls = [charLockImage, userLockImage]; // 两张都传：0=角色、1=用户
             statusText = 'AI 正在画合照，可能要 30~60 秒...';
             successToast = '已生成合照';
             metadataExtra = { imageGenMode: 'joint', usedLockFace: !!(charLockImage || userLockImage) };
@@ -1744,6 +1746,46 @@ const Chat: React.FC = () => {
             } : m), placeholder];
         });
 
+        // ---- 第 2 步：副 API 结合最近聊天上下文精修 prompt（可选）----
+        // 该链路（角色主动发图 / 让角色发图）默认读上下文：让副 API 润色生图描述。
+        // 若副 API 未配置 / 上下文为空 / 调用失败 → 静默回退原始 prompt，不影响占位卡。
+        let refinedBySub = false;
+        if (apiConfig.subBaseUrl && apiConfig.subApiKey && apiConfig.subModel) {
+            try {
+                const recentCtx = messages.slice(-10).map(m => {
+                    const sender = m.role === 'user' ? userProfile.name : char.name;
+                    return `${sender}: ${(typeof m.content === 'string' ? m.content : '').substring(0, 120)}`;
+                }).join('\n');
+                if (recentCtx.trim()) {
+                    const subCtrl = new AbortController();
+                    const subTimer = setTimeout(() => subCtrl.abort(), 20000);
+                    try {
+                        const subRes = await fetch(`${apiConfig.subBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.subApiKey}` },
+                            body: JSON.stringify({
+                                model: apiConfig.subModel,
+                                messages: [
+                                    { role: 'system', content: 'You are a prompt engineer. Generate a single detailed English image generation prompt based on the input. Describe scene, appearance, lighting, mood, composition. Output ONLY the prompt, nothing else.' },
+                                    { role: 'user', content: `Mode: ${mode}\nCharacter: ${char.name}\nCharDesc: ${charDesc}\nUserDesc: ${userDesc}\nScene: ${sceneDesc || 'portrait'}\nLock: ${lockImage ? 'must keep the face/appearance of the reference photo' : 'no reference photo'}\nRecent chat context:\n${recentCtx}\n\nBase draft prompt:\n${prompt}` },
+                                ],
+                                max_tokens: 300,
+                                temperature: 0.7,
+                            }),
+                        });
+                        clearTimeout(subTimer);
+                        if (subRes.ok) {
+                            const subData = await subRes.json();
+                            const refined = subData?.choices?.[0]?.message?.content;
+                            if (refined && refined.trim()) { prompt = refined.trim(); refinedBySub = true; }
+                        }
+                    } catch { clearTimeout(subTimer); }
+                }
+            } catch { /* 副 API 精修失败：继续用原始 prompt */ }
+        }
+        if (refinedBySub) metadataExtra = { ...metadataExtra, refinedBySubApi: true };
+
+        // ---- 第 3 步：调生图 API ----
         try {
             const result = await generateImageApi({
                 baseUrl: apiConfig.imageGenBaseUrl,
@@ -1751,6 +1793,7 @@ const Chat: React.FC = () => {
                 model: apiConfig.imageGenModel,
                 prompt,
                 lockImageDataUrl: lockImage || null,
+                lockImageDataUrls,
                 size: '1024x1792', // 固定 9:16 竖版
                 timeoutMs: 300000,
             });

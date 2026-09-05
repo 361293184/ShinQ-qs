@@ -71,6 +71,8 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // ---- 通用状态 ----
   const [sceneDesc, setSceneDesc] = useState('');
+  // 合照：是否用副 API 结合聊天上下文 + 场景描述优化 prompt（默认关，即默认不读上下文、不调副 API）
+  const [useContextForJoint, setUseContextForJoint] = useState(false);
   const [stylePreset, setStylePreset] = useState<string>(() => {
     try { return localStorage.getItem(STYLE_PRESET_KEY) || 'none'; } catch { return 'none'; }
   });
@@ -176,7 +178,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   const allStyles = useMemo(() => [...STYLE_PRESETS, ...customStyles], [customStyles]);
 
   // ---- 构造三种模式的 prompt（健壮版） ----
-  const buildPrompt = (m: GenMode): { prompt: string; lockImage: string | null; caption: string } => {
+  const buildPrompt = (m: GenMode): { prompt: string; lockImages: (string | null)[]; caption: string } => {
     const style = allStyles.find(s => s.id === stylePreset);
     const styleText = style ? style.prompt : '';
     const scene = sceneDesc.trim();
@@ -199,7 +201,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
       parts.push('masterpiece, best quality, highly detailed');
       return {
         prompt: parts.filter(Boolean).join(', '),
-        lockImage: charLockImage,
+        lockImages: [charLockImage],
         caption: `${charName} 的照片`,
       };
     }
@@ -212,13 +214,13 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
       parts.push('masterpiece, best quality, highly detailed');
       return {
         prompt: parts.filter(Boolean).join(', '),
-        lockImage: userLockImage,
+        lockImages: [userLockImage],
         caption: '你的照片',
       };
     }
 
-    // joint: 双人合照
-    const parts = ['two people together in the photo'];
+    // joint: 双人合照（两张锁脸都传：参考图[0]=角色、[1]=用户，prompt 注明身份对应）
+    const parts = ['two people together in the photo', 'the first person is the character in the first reference image, the second person is the person in the second reference image'];
     parts.push(userPart);
     parts.push('and');
     parts.push(charPart);
@@ -230,7 +232,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     parts.push('masterpiece, best quality, highly detailed');
     return {
       prompt: parts.filter(Boolean).join(', '),
-      lockImage: charLockImage || userLockImage, // API 只传一张参考图
+      lockImages: [charLockImage, userLockImage], // 两张都传：0=角色、1=用户
       caption: `和 ${charName} 的合照`,
     };
   };
@@ -256,15 +258,16 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
       return;
     }
 
-    const { prompt: basePrompt, lockImage: finalLockImage, caption } = buildPrompt(mode);
+    const { prompt: basePrompt, lockImages: finalLockImages, caption } = buildPrompt(mode);
 
     setIsGenerating(true);
     setStatusText('正在生成照片...');
 
     try {
       // sub API 优化 prompt（可选）
+      // 手动生图：char/user 一律不调副 API；仅合照(joint)由「结合聊天上下文」开关控制（默认关=不读上下文、不调副 API）
       let finalPrompt = basePrompt;
-      if (subBaseUrl && subApiKey && subModel && chatContext) {
+      if (mode === 'joint' && useContextForJoint && subBaseUrl && subApiKey && subModel && chatContext) {
         try {
           const subBody = {
             model: subModel,
@@ -297,7 +300,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         apiKey: imageGenApiKey,
         model: imageGenModel,
         prompt: finalPrompt,
-        lockImageDataUrl: finalLockImage,
+        lockImageDataUrls: finalLockImages,
         size: '1024x1792', // 固定 9:16 竖版
         signal: controller.signal,
         timeoutMs: 300000,
@@ -670,6 +673,24 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
         {mode === 'joint' && (
           <div className="space-y-3">
+            {/* 合照：结合聊天上下文优化 prompt 的开关（默认关=不读上下文、不调副 API） */}
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/60 border border-rose-100">
+              <div className="flex-1 pr-3">
+                <div className="text-xs font-bold text-slate-600">结合聊天上下文优化</div>
+                <div className="text-[10px] text-slate-400 leading-snug mt-0.5">
+                  开启后由副 API 参考最近聊天与场景描述精修生图描述；关闭则仅按上方填写内容直接生图
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={useContextForJoint}
+                onClick={() => setUseContextForJoint(v => !v)}
+                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${useContextForJoint ? 'bg-rose-500' : 'bg-slate-300'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${useContextForJoint ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1.5 block">
                 {charName} 的锁脸（生成时使用）
