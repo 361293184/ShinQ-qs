@@ -4493,8 +4493,10 @@ const Chat: React.FC = () => {
             {char && innerVoiceMsg?.metadata?.innerVoice && char.innerVoiceEnabled !== false && (
                 <>
                     <div className="fixed inset-0 z-[88] bg-black/35 backdrop-blur-[1px]" onClick={closeInnerVoice} />
-                    <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,340px)] max-h-[78vh] flex flex-col animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-white rounded-3xl shadow-[0_24px_60px_-12px_rgba(15,23,42,0.25)] overflow-hidden flex flex-col max-h-[78vh] border border-slate-200/60">
+                    <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,340px)] max-h-[78vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        {/* animate-fade-in 放内层：外层 transform 负责居中，动画自带 transform 若同元素会覆盖居中，
+                            导致先偏右下再跳中央（fadeIn 关键帧首帧 scale/translateY 覆盖 -translate-1/2）。 */}
+                        <div className="bg-white rounded-3xl shadow-[0_24px_60px_-12px_rgba(15,23,42,0.25)] overflow-hidden flex flex-col max-h-[78vh] border border-slate-200/60 animate-fade-in">
                             {/* 头部：头像 + 名字 · 心声 + 收起 */}
                             <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
                                 <div className="relative shrink-0">
