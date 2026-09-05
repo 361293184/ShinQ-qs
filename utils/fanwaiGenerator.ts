@@ -18,7 +18,7 @@ import { CharacterProfile, UserProfile, FanwaiStory } from '../types';
 import { safeResponseJson, extractContent } from './safeApi';
 import { expandWorldbookMacros, formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections, WorldbookScanMessage, ResolvedWorldbookEntry } from './worldbook';
 import { normalizeUserImpression } from './impression';
-import { detectHtmlFormat, FanwaiHtmlType, detectExplicitQuantity, extractFloorCount } from './fanwai/formatDetector';
+import { resolveHtmlType, FanwaiHtmlType, FanwaiGenMode, detectExplicitQuantity, extractFloorCount } from './fanwai/formatDetector';
 import { buildTemplate } from './fanwai/htmlTemplates';
 
 /** 副 API 配置（对应 types.ts APIConfig 的 subBaseUrl / subApiKey / subModel）。 */
@@ -233,7 +233,7 @@ function buildFanwaiContext(
                     book: b,
                     content: expandWorldbookMacros(b.content || '', char.name, uname),
                     position: b.position ?? 1,
-                    order: Number.isFinite(b.order) ? b.order : 100,
+                    order: Number.isFinite(b.order) ? Number(b.order) : 100,
                 }))
                 .filter(e => e.content.trim())
                 .sort((a, b) => a.order - b.order);
@@ -330,12 +330,15 @@ export function buildFanwaiPrompt(
         randomMode?: boolean;
         /** HTML 模板骨架（已注入头像的完整 HTML 字符串）。由 generateFanwai 命中格式时准备。 */
         htmlTemplate?: string;
+        /** 生成模式（文字番外 / HTML番外）。text 强制纯文字；html 出 HTML（命中内置模板用模板，否则 AI 自由）；不传兼容旧行为。 */
+        mode?: FanwaiGenMode;
     },
 ): string {
     const uname = user?.name || '对方';
 
-    // 番外 HTML 格式：若指令含"小手机/论坛/状态栏"等关键词，则切换成 HTML 输出（默认仍纯文字）。
-    const htmlType = detectHtmlFormat(opts.worldSetting);
+    // 番外 HTML 格式：按生成模式决定（文字番外 → 纯文字；HTML番外 → 命中内置模板用模板 / 否则 AI 自由生成）。
+    // 仅控制「文字 vs HTML」这一维；字数/楼层等其余指令检测照常，AI 仍会读到完整 worldSetting。
+    const htmlType = resolveHtmlType(opts.worldSetting, opts.mode);
     // HTML 输出约束块（命中格式时替换「### 输出格式」段），模板骨架拼入其中。
     // 论坛体额外提取楼层数注入 prompt，让 AI 明确要生成到第几楼。
     const floorCount = htmlType === 'forum' ? extractFloorCount(opts.worldSetting) : undefined;
@@ -553,6 +556,8 @@ export async function generateFanwai(
         recentMessages?: { role: string; content: string }[];
         /** 随机模式：文风/字数/视角全交由 AI 决定。 */
         randomMode?: boolean;
+        /** 生成模式（文字番外 / HTML番外）。text 强制纯文字；html 出 HTML；不传兼容旧行为。 */
+        mode?: FanwaiGenMode;
     },
     subApi: SubApiConfig,
 ): Promise<FanwaiGenResult> {
@@ -562,8 +567,9 @@ export async function generateFanwai(
     }
 
     const preset = FANWAI_STYLE_PRESETS.find(p => p.id === opts.styleId) || FANWAI_STYLE_PRESETS[0];
-    // 检测指令里的 HTML 格式（默认纯文字）。命中则准备模板骨架（注入头像 data URL）。
-    const htmlType = detectHtmlFormat(opts.worldSetting);
+    // 按生成模式决定 HTML 类型：text → 纯文字；html → 命中内置模板用模板，否则 AI 自由生成。
+    // 命中模板才准备骨架（注入头像 data URL）；custom（AI 自由）无需骨架。
+    const htmlType = resolveHtmlType(opts.worldSetting, opts.mode);
     const htmlTemplate = htmlType ? await buildFanwaiHtmlTemplate(htmlType, char, user) : undefined;
     const prompt = buildFanwaiPrompt(char, user, {
         styleName: preset.name,
@@ -577,6 +583,7 @@ export async function generateFanwai(
         recentMessages: cleanRecentMessages(opts.recentMessages),
         randomMode: opts.randomMode,
         htmlTemplate,
+        mode: opts.mode,
     });
 
     try {

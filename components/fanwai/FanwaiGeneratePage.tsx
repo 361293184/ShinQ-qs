@@ -15,7 +15,7 @@ import {
 } from '../../utils/fanwaiGenerator';
 import { DB } from '../../utils/db';
 import TokenImg from '../os/TokenImg';
-import { detectHtmlFormat, hasFormatKeyword, HTML_TYPE_LABELS, FanwaiHtmlType, detectExplicitQuantity, extractHtmlSize } from '../../utils/fanwai/formatDetector';
+import { FanwaiHtmlType, FanwaiGenMode, detectBuiltinHtmlType, HTML_TYPE_LABELS, detectExplicitQuantity, extractHtmlSize } from '../../utils/fanwai/formatDetector';
 
 interface FanwaiGeneratePageProps {
     char: CharacterProfile | undefined;
@@ -27,6 +27,8 @@ interface FanwaiGeneratePageProps {
 }
 
 interface SavedForm {
+    /** 生成模式：text = 文字番外（默认）；html = HTML番外 */
+    genMode?: FanwaiGenMode;
     style?: string;
     styleCustomDesc?: string;
     wordCountPreset?: number;
@@ -36,6 +38,12 @@ interface SavedForm {
     worldSetting?: string;
 }
 
+/** 生成模式两段 pill 选项 */
+const GEN_MODE_TABS: { id: FanwaiGenMode; label: string; desc: string }[] = [
+    { id: 'text', label: '文字番外', desc: '小说排版' },
+    { id: 'html', label: 'HTML番外', desc: '交互界面' },
+];
+
 const DEFAULT_WORD_PRESET = 1000;
 const MIN_CUSTOM_WORDS = 100;
 const MAX_CUSTOM_WORDS = 20000;
@@ -44,6 +52,8 @@ const MAX_CUSTOM_WORDS = 20000;
 const INPUT_BASE = 'w-full rounded-xl border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#1F1F1F] placeholder:text-[#9A9A9A] outline-none focus:border-[#1F1F1F] focus:ring-2 focus:ring-[#1F1F1F]/10 transition-colors';
 
 export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addToast, onClose, onCollect }: FanwaiGeneratePageProps) {
+    // 生成模式：文字番外（默认）/ HTML番外。显式控制输出形态，不再靠关键词猜。
+    const [genMode, setGenMode] = useState<FanwaiGenMode>('text');
     const [style, setStyle] = useState<string>('healing');
     const [styleCustomDesc, setStyleCustomDesc] = useState<string>('');
     const [wordCountPreset, setWordCountPreset] = useState<number>(DEFAULT_WORD_PRESET);
@@ -69,6 +79,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             const raw = localStorage.getItem(FANWAI_FORM_LS_KEY);
             if (!raw) return;
             const saved = JSON.parse(raw) as SavedForm;
+            if (saved.genMode === 'text' || saved.genMode === 'html') setGenMode(saved.genMode);
             if (saved.style && FANWAI_STYLE_PRESETS.some(p => p.id === saved.style)) setStyle(saved.style);
             if (typeof saved.styleCustomDesc === 'string') setStyleCustomDesc(saved.styleCustomDesc);
             if (typeof saved.wordCountPreset === 'number' && (FANWAI_WORD_COUNTS as readonly number[]).includes(saved.wordCountPreset)) {
@@ -84,9 +95,9 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
     }, []);
 
     useEffect(() => {
-        const saved: SavedForm = { style, styleCustomDesc, wordCountPreset, wordCountIsCustom, customWordCount, pov, worldSetting };
+        const saved: SavedForm = { genMode, style, styleCustomDesc, wordCountPreset, wordCountIsCustom, customWordCount, pov, worldSetting };
         try { localStorage.setItem(FANWAI_FORM_LS_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
-    }, [style, styleCustomDesc, wordCountPreset, wordCountIsCustom, customWordCount, pov, worldSetting]);
+    }, [genMode, style, styleCustomDesc, wordCountPreset, wordCountIsCustom, customWordCount, pov, worldSetting]);
 
     const wordCount = wordCountIsCustom ? customWordCount : wordCountPreset;
 
@@ -128,7 +139,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
 
         const result = await generateFanwai(
             char, userProfile,
-            { styleId: randomMode ? 'random' : style, styleCustomDesc: styleCustomDesc.trim() || undefined, wordCount, wordCountIsCustom, pov, worldSetting, recentMessages, randomMode },
+            { styleId: randomMode ? 'random' : style, styleCustomDesc: styleCustomDesc.trim() || undefined, wordCount, wordCountIsCustom, pov, worldSetting, recentMessages, randomMode, mode: genMode },
             subApi,
         );
         setGenerating(false);
@@ -247,6 +258,40 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                         <span className="text-[#D4D4D4] text-base leading-none">✦</span>
                     </div>
                 )}
+
+                {/* 生成模式：文字番外 / HTML番外（显式切换，不再靠关键词猜） */}
+                <section className="mb-4">
+                    <h2 className="flex items-center gap-1.5 text-xs font-bold text-[#1F1F1F] mb-2">
+                        <span className="inline-block h-3 w-0.5 rounded-full bg-[#D4D4D4]" />
+                        生成模式
+                    </h2>
+                    <div className="flex gap-1.5">
+                        {GEN_MODE_TABS.map(t => {
+                            const active = genMode === t.id;
+                            return (
+                                <button
+                                    key={t.id}
+                                    onClick={() => setGenMode(t.id)}
+                                    className={`flex-1 rounded-xl px-2 py-2 transition-all cursor-pointer text-left ${
+                                        active
+                                            ? 'bg-[#1F1F1F] text-white shadow-sm shadow-[#1F1F1F]/20'
+                                            : 'bg-white/80 text-[#666666] hover:bg-white border border-[#E5E5E5]'
+                                    }`}
+                                >
+                                    <span className="block text-xs font-bold leading-tight">{t.label}</span>
+                                    <span className={`block text-[10px] font-normal mt-0.5 leading-tight ${active ? 'text-white/85' : 'text-[#9A9A9A]'}`}>
+                                        {t.desc}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-[#9A9A9A] leading-relaxed">
+                        {genMode === 'text'
+                            ? '按小说排版输出纯文字，世界设定里的"手机/论坛/状态栏"等词按剧情内容理解，不会生成 HTML'
+                            : '生成可交互的 HTML 界面；世界设定提到小手机/论坛/状态栏时套用对应版式，否则由 AI 按指令自由设计'}
+                    </p>
+                </section>
 
                 {/* 文风 */}
                 <section className="mb-4">
@@ -391,11 +436,18 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                         className={`${INPUT_BASE} resize-none leading-relaxed`}
                     />
                     <p className="mt-1 text-[10px] text-[#9A9A9A]">贴指令即可，AI 忠实执行并用足笔力。留空则自由发挥</p>
-                    {hasFormatKeyword(worldSetting) && (
-                        <p className="mt-1.5 text-[10px] text-[#4F7CFF] font-medium">
-                            📱 检测到格式指令，将以【{HTML_TYPE_LABELS[detectHtmlFormat(worldSetting)!]}】
-                            {detectHtmlFormat(worldSetting) === 'custom' ? '（AI 按指令自由生成，可交互）' : ''} 格式生成
-                        </p>
+                    {/* 格式提示只属于 HTML 模式：命中内置版式给出提示；文字模式一律不显示（强制纯文字） */}
+                    {genMode === 'html' && (
+                        (() => {
+                            const builtin = detectBuiltinHtmlType(worldSetting);
+                            return (
+                                <p className="mt-1.5 text-[10px] text-[#4F7CFF] font-medium">
+                                    {builtin
+                                        ? `📱 世界设定命中【${HTML_TYPE_LABELS[builtin]}】版式，将按该模板生成`
+                                        : '✨ 未指定具体版式，将按世界设定由 AI 自由生成 HTML 界面'}
+                                </p>
+                            );
+                        })()
                     )}
                 </section>
             </div>
@@ -459,7 +511,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             {/* 生成结果预览（书籍排版） */}
             {generated && (
                 <div className="fixed inset-0 z-[75] flex flex-col bg-white overflow-hidden">
-                    <header className="flex items-center justify-between px-4 pt-1 pb-2 shrink-0 sticky top-0 z-20 bg-[#1F1F1F]" style={{ paddingTop: 'calc(var(--chrome-top) + 1.25rem - 1.25cm)' }}>
+                    <header className="flex items-center justify-between px-4 shrink-0 sticky top-0 z-20 bg-[#1F1F1F]" style={{ paddingTop: 'var(--chrome-top)', minHeight: 'calc(var(--chrome-top) + 6rem)' }}>
                         <div className="w-14 flex justify-start">
                             <button
                                 onClick={() => setGenerated('')}
@@ -480,7 +532,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                                 const customSize = isCustom ? extractHtmlSize(worldSetting) : undefined;
                                 const customH = customSize?.height;
                                 return (
-                                    <div className="mx-auto max-w-md" style={customH ? { height: customH, display: 'flex', flexDirection: 'column' } : { height: 'calc(100vh - 7.4rem)', display: 'flex', flexDirection: 'column' }}>
+                                    <div className="mx-auto max-w-md" style={customH ? { height: customH, display: 'flex', flexDirection: 'column' } : { height: '100%', display: 'flex', flexDirection: 'column' }}>
                                         {/* HTML 番外：沙盒 iframe 预览。内置模板禁脚本；custom 放开脚本支持交互 */}
                                         <iframe
                                             title={`${generatedHtmlType || 'custom'} 番外预览`}

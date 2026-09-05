@@ -6,6 +6,9 @@
 
 export type FanwaiHtmlType = 'phone' | 'forum' | 'statusbar' | 'custom';
 
+/** 番外「生成模式」：text = 纯文字（忽略一切格式词）；html = 出 HTML（命中内置模板用模板，否则 AI 自由生成）。 */
+export type FanwaiGenMode = 'text' | 'html';
+
 /** 关键词 → 模板类型。按方案三套预置模板 + custom（AI 自由）。 */
 const KEYWORDS: { type: FanwaiHtmlType; words: string[] }[] = [
     {
@@ -49,6 +52,22 @@ const CUSTOM_HTML_WORDS = [
 ];
 
 /**
+ * 只检测内置三模板（phone/forum/statusbar），不含 custom 意图词。
+ * 供「显式 HTML 模式」用：明确提到内置格式词才用预置模板，否则交给 AI 自由生成。
+ */
+export function detectBuiltinHtmlType(worldSetting?: string): Exclude<FanwaiHtmlType, 'custom'> | undefined {
+    const text = (worldSetting || '').trim();
+    if (!text) return undefined;
+    for (const k of KEYWORDS) {
+        for (const w of k.words) {
+            const idx = text.indexOf(w);
+            if (idx >= 0 && !isNegated(text, idx, w.length)) return k.type as Exclude<FanwaiHtmlType, 'custom'>;
+        }
+    }
+    return undefined;
+}
+
+/**
  * 纯关键词检测：在指令文本里匹配格式关键词，返回命中的模板类型。
  * 匹配顺序：先内置三格式（phone/forum/statusbar），再 custom HTML 意图词。
  * 多格式冲突时返回第一个命中；无命中返回 undefined（纯文字番外）。
@@ -59,12 +78,8 @@ export function detectHtmlFormat(worldSetting?: string): FanwaiHtmlType | undefi
     if (!text) return undefined;
     // 内置格式优先（它们通常更明确，如"论坛"/"小手机"）。
     // 否定表述（如"不需要状态栏"）跳过该格式，避免误触发。
-    for (const k of KEYWORDS) {
-        for (const w of k.words) {
-            const idx = text.indexOf(w);
-            if (idx >= 0 && !isNegated(text, idx, w.length)) return k.type;
-        }
-    }
+    const builtin = detectBuiltinHtmlType(worldSetting);
+    if (builtin) return builtin;
     // 无内置格式但含 HTML 意图 → custom（AI 按指令自由生成 HTML）
     const lower = text.toLowerCase();
     for (const w of CUSTOM_HTML_WORDS) {
@@ -72,6 +87,28 @@ export function detectHtmlFormat(worldSetting?: string): FanwaiHtmlType | undefi
         if (idx >= 0 && !isNegated(lower, idx, w.length)) return 'custom';
     }
     return undefined;
+}
+
+/**
+ * 按「生成模式」决定番外输出 HTML 类型（文字/HTML 分开方案的核心入口）。
+ *
+ * - mode === 'text'  → undefined：强制纯文字。无论世界设定写了什么格式词都忽略
+ *   （场景里提到"手机短信/论坛"只是剧情内容，不是要 HTML 格式）。
+ * - mode === 'html'  → 已确定出 HTML：命中内置三模板（小手机/论坛/状态栏）用对应
+ *   模板；没命中直接 custom（HTML 形态开放，交给 AI 按世界设定自由生成，不再靠
+ *   "html/卡片/界面"等意图词猜）。
+ * - 不传 mode → 兼容旧行为：走 detectHtmlFormat（关键词命中才 HTML，否则纯文字）。
+ *
+ * 只影响「文字 vs HTML」这一维；字数/楼层数/文风等其他指令检测全部照常生效，
+ * AI 在 HTML 模式下仍会读到完整的世界设定指令。
+ */
+export function resolveHtmlType(
+    worldSetting?: string,
+    mode?: FanwaiGenMode,
+): FanwaiHtmlType | undefined {
+    if (mode === 'text') return undefined;
+    if (mode === 'html') return detectBuiltinHtmlType(worldSetting) ?? 'custom';
+    return detectHtmlFormat(worldSetting);
 }
 
 /** 是否有任意格式关键词命中（供生成页提示用）。 */
