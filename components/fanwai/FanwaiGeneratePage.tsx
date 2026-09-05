@@ -511,7 +511,7 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             {/* 生成结果预览（书籍排版） */}
             {generated && (
                 <div className="fixed inset-0 z-[75] flex flex-col bg-white overflow-hidden">
-                    <header className="flex items-center justify-between px-4 shrink-0 sticky top-0 z-20 bg-[#1F1F1F]" style={{ paddingTop: 'var(--chrome-top)', minHeight: 'calc(var(--chrome-top) + 6rem)' }}>
+                    <header className="flex items-center justify-between px-4 shrink-0 sticky top-0 z-20 bg-[#1F1F1F]" style={{ paddingTop: 'calc(var(--chrome-top) / 2)', minHeight: 'calc(var(--chrome-top) / 2 + 4rem)' }}>
                         <div className="w-14 flex justify-start">
                             <button
                                 onClick={() => setGenerated('')}
