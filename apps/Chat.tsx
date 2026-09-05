@@ -48,6 +48,7 @@ import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
+import { PetalHalo, HeartFloats } from '../components/chat/InnerVoicePanelFx';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
@@ -4494,9 +4495,13 @@ const Chat: React.FC = () => {
                 <>
                     <div className="fixed inset-0 z-[88] bg-black/35 backdrop-blur-[1px]" onClick={closeInnerVoice} />
                     <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,340px)] max-h-[78vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        {/* 外围花瓣光环（粉）：白卡 z-10 盖在光环之上，只露出周围花瓣形淡彩边缘 */}
+                        <PetalHalo />
                         {/* animate-fade-in 放内层：外层 transform 负责居中，动画自带 transform 若同元素会覆盖居中，
                             导致先偏右下再跳中央（fadeIn 关键帧首帧 scale/translateY 覆盖 -translate-1/2）。 */}
-                        <div className="bg-white rounded-3xl shadow-[0_24px_60px_-12px_rgba(15,23,42,0.25)] overflow-hidden flex flex-col max-h-[78vh] border border-slate-200/60 animate-fade-in">
+                        <div className="bg-white rounded-3xl shadow-[0_24px_60px_-12px_rgba(15,23,42,0.25)] overflow-hidden flex flex-col max-h-[78vh] border border-slate-200/60 animate-fade-in relative z-10">
+                            {/* 卡内杏金爱心粒子（克制呼吸）：透明细线、pointer-events-none，不拦截滚动/按钮 */}
+                            <HeartFloats />
                             {/* 头部：头像 + 名字 · 心声 + 收起 */}
                             <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
                                 <div className="relative shrink-0">
