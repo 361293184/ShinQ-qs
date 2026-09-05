@@ -148,6 +148,13 @@ export const detectChatModeTransition = (messages: readonly Message[]): ChatMode
  */
 export interface PromptBuildOptions {
     forFirePack?: boolean;
+    /**
+     * 角色「允许主动发照片」开关（Settings 里的 imageGenProactiveEnabled）。
+     * 开启时在 Chat App Rules 末尾注入「主动分享照片」倾向，鼓励角色像真人一样
+     * 在合适时机（自拍/眼前场景/想给 ta 看的东西/合照）主动发真实照片，
+     * 而不是只在被要求时才发。缺省 / 未开启 → 不注入，行为同旧版。
+     */
+    imageGenProactiveEnabled?: boolean;
     /** 主 API 从完整数据库历史识别出的「刚从哪种模式回到 ChatApp」。 */
     returningFromMode?: ChatModeTransition;
     /**
@@ -304,6 +311,12 @@ export const ChatPrompts = {
         // 即时对话：这一轮交给 worker 生成，时钟和真实世界块由它在 fire 时刻补。
         // 本地私有的易变段照常烤进去（worker 拿不到，而这一刻它们是新鲜的）。
         const timelyByWorker = promptOptions?.timelyByWorker === true;
+        // 角色「允许主动发照片」开关：开启后在 Chat App Rules 末尾注入主动分享照片倾向
+        const imageGenProactiveEnabled = promptOptions?.imageGenProactiveEnabled === true;
+        // 主动分享照片的倾向文案（仅开启时非空；插入到 Chat App Rules 的「发送照片」规则后）
+        const proactivePhotoGuide = imageGenProactiveEnabled
+            ? `\n     - **主动分享照片**：对方允许你主动发照片，不必总是等着被要求。像真人一样，在合适的瞬间自然分享——眼前好看的光影/风景、你此刻的样子、想让对方看到的东西、或你们一起聊过并想去的地方，都可以随手发一张。结合你的性格、你们的氛围和共同记忆拿捏，整体宁可更主动自然一些，也不要几乎从不发。`
+            : '';
         // ── 分段计时（定位瓶颈用）──
         const perfT0 = performance.now();
         const timings: Record<string, number> = {};
@@ -691,7 +704,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
      - **发不发、发多频繁，全凭你当下判断**：结合此刻的对话氛围、你的性格，以及你们之间共同经历过的记忆来自然拿捏——比如恰好聊到你们一起提过的事、或你想起他曾说过想看什么。该分享时分享，没得分享也不用硬凑，别为了"发图而发图"。
      - 什么时候发、发什么（自己的自拍 / 眼前的场景 / 你们的合照）由你判断；对方要求合照时在描述里写清双人画面（如：图片- 你和我并肩站在夕阳下的海边）。
      - 画面描述要具体（人物、动作、穿着、场景、光线）；标记必须独占一行、一次只发一张，不要连续刷屏；严肃或悲伤的对话里不要突然发自拍。
-     - 真人照片永远用这个方法，绝对不要用 HTML 卡片模拟照片。
+     - 真人照片永远用这个方法，绝对不要用 HTML 卡片模拟照片。${proactivePhotoGuide}
    - 回戳用户: \`[[ACTION:POKE]]\`
    - 转账: 必须使用且只使用 \`[[ACTION:TRANSFER|to=user|amount=100]]\`（to 固定写 user，金额只写数字）；不要写成 \`[系统: 你向某人转账 100]\` 等系统日志文本。
    - **处理用户转账**: 当历史里出现 \`[[记录:TRANSFER|to=char|...|status=待处理]]\`（用户转给你、还没处理）时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。

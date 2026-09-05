@@ -611,6 +611,7 @@ export const useChatAI = ({
                     contextLimit: Math.max(1, contextMsgs.length),
                     recallEntryPoint: 'emotion_eval',
                     realtimeConfig: deps.realtimeConfig,
+                    imageGenProactiveEnabled: !!(deps.apiConfig as any)?.imageGenProactiveEnabled,
                     innerState: deps.evolvedNarrative || undefined,
                     musicSnapshot: {
                         current: deps.music.current,
@@ -942,6 +943,7 @@ export const useChatAI = ({
                 recentMsgsHint: currentMsgs,
                 contextLimit: limit,
                 realtimeConfig,
+                imageGenProactiveEnabled: !!(apiConfig as any)?.imageGenProactiveEnabled,
                 innerState: skipEmotionInjection ? undefined : (evolvedNarrative || undefined),
                 userListeningContext: (() => {
                     if (music.current && music.playing && music.lyric.length > 0) {

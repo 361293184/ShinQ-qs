@@ -168,10 +168,10 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // ---- 拍照风格快捷填充场景 ----
   const quickScenePresets = [
-    { label: '☕ 咖啡馆', text: '在温馨的咖啡馆里，阳光透过窗户洒在脸上' },
-    { label: '🌸 樱花', text: '樱花树下，花瓣飘落，春日暖阳' },
-    { label: '🌊 海边', text: '傍晚的海边，金色的夕阳，海浪轻轻拍打沙滩' },
-    { label: '🏙️ 城市', text: '繁华的城市夜景，霓虹灯光映照' },
+    { label: '咖啡馆', text: '在温馨的咖啡馆里，阳光透过窗户洒在脸上' },
+    { label: '樱花', text: '樱花树下，花瓣飘落，春日暖阳' },
+    { label: '海边', text: '傍晚的海边，金色的夕阳，海浪轻轻拍打沙滩' },
+    { label: '城市', text: '繁华的城市夜景，霓虹灯光映照' },
   ];
 
   // 合并内置 + 自定义风格，用于查找当前选中的 prompt
@@ -331,7 +331,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
     label: string,
   ) => (
     <div className="flex items-center gap-3">
-      <label className="w-16 h-16 rounded-xl bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-rose-300 hover:bg-rose-50 transition-all flex-shrink-0 overflow-hidden">
+      <label className="w-16 h-16 rounded-xl bg-white border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-rose-300 hover:bg-rose-50/50 transition-all flex-shrink-0 overflow-hidden">
         {image ? (
           <img src={image} alt="参考图" className="w-full h-full object-cover rounded-xl" />
         ) : (
@@ -348,7 +348,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {image && (
           <button
             onClick={onClear}
-            className="text-[10px] text-rose-400 hover:text-rose-500 font-bold text-left"
+            className="text-[10px] text-slate-400 hover:text-rose-400 font-bold text-left"
           >
             清除参考图
           </button>
@@ -375,7 +375,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
       }}
       onBlur={(e) => onSave((e.target as HTMLTextAreaElement).value)}
       placeholder={placeholder}
-      className="w-full h-20 rounded-xl p-3 text-sm bg-slate-50 border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+      className="w-full h-20 rounded-xl p-3 text-sm bg-white border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-colors"
     />
   );
 
@@ -396,7 +396,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
       {/* ===== Header with Tabs ===== */}
       <div className="px-4 pt-3 pb-0 border-b border-slate-100">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-bold text-slate-700">AI 生图</h3>
+          <h3 className="text-base font-bold text-slate-800 tracking-wide">AI 生图</h3>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 active:scale-95 transition-all"
@@ -424,7 +424,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                   ? 'bg-white text-slate-700 shadow-sm'
                   : !isModeAvailable(t.id)
                   ? 'text-slate-300 cursor-not-allowed'
-                  : 'text-slate-400 hover:text-slate-500'
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
               {t.label}
@@ -441,7 +441,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {/* ---- 角色描述（char / joint 模式） ---- */}
         {(mode === 'char' || mode === 'joint') && (
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+            <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
               {charName} 的外观描述
             </label>
             {renderDescTextarea(charDesc, setCharDesc, (v) => saveCharSettings(v, undefined), `描述 ${charName} 的外貌特征...`)}
@@ -452,7 +452,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {/* ---- 用户描述（user / joint 模式） ---- */}
         {(mode === 'user' || mode === 'joint') && (
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+            <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
               你的外观描述
             </label>
             {renderDescTextarea(userDesc, setUserDesc, (v) => saveUserSettings(v, undefined), '描述你的外貌特征...')}
@@ -462,7 +462,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
         {/* ---- 场景描述（全部模式） ---- */}
         <div>
-          <label className="text-xs font-bold text-slate-500 mb-1.5 block">场景描述</label>
+          <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">场景描述</label>
           <input
             value={sceneDesc}
             onChange={(e) => {
@@ -481,7 +481,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
               else { saveCharSettings(undefined, undefined, v); saveUserSettings(undefined, undefined, v); }
             }}
             placeholder="例如：在咖啡馆喝咖啡，阳光洒在脸上"
-            className="w-full rounded-xl p-3 text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+            className="w-full rounded-xl p-3 text-sm bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-colors"
           />
           {/* 快捷场景 */}
           <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -495,7 +495,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                   else if (mode === 'user') saveUserSettings(undefined, undefined, s.text);
                   else { saveCharSettings(undefined, undefined, s.text); saveUserSettings(undefined, undefined, s.text); }
                 }}
-                className="text-[10px] px-2 py-1 rounded-lg bg-slate-50 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-all active:scale-95"
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-white text-slate-500 border border-slate-200 hover:text-rose-400 hover:border-rose-200 transition-all active:scale-95"
               >
                 {s.label}
               </button>
@@ -506,11 +506,11 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {/* ---- 风格预设（下拉 + 自定义） ---- */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold text-slate-500">风格预设</label>
+            <label className="text-[13px] font-bold text-slate-700">风格预设</label>
             <button
               type="button"
               onClick={() => { setShowAddStyle(v => !v); setNewStyleLabel(''); setNewStylePrompt(''); }}
-              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-100 active:scale-95 transition-transform"
+              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:text-slate-700 active:scale-95 transition-transform"
               title="添加自定义风格"
             >
               {showAddStyle ? '× 取消' : '+ 自定义'}
@@ -521,7 +521,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             <button
               type="button"
               onClick={() => setStyleOpen(v => !v)}
-              className="w-full rounded-xl px-2.5 py-2 text-sm bg-slate-50 border border-slate-200 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+              className="w-full rounded-xl px-2.5 py-2 text-sm bg-white border border-slate-200 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-colors"
             >
               <span className="truncate">{allStyles.find(s => s.id === stylePreset)?.label || '未选择'}</span>
               <svg
@@ -545,11 +545,11 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                     key={s.id}
                     type="button"
                     onClick={() => { setStylePreset(s.id); try { localStorage.setItem(STYLE_PRESET_KEY, s.id); } catch {} setStyleOpen(false); }}
-                    className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-rose-50 transition-colors ${s.id === stylePreset ? 'text-rose-600 bg-rose-50 font-semibold' : 'text-slate-700'}`}
+                    className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-slate-50 transition-colors ${s.id === stylePreset ? 'text-slate-700 bg-slate-100 font-semibold' : 'text-slate-700'}`}
                   >
                     <span className="truncate">{s.label}</span>
                     {s.id === stylePreset && (
-                      <svg className="w-4 h-4 text-rose-500 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg className="w-4 h-4 text-slate-400 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M5 13l4 4L19 7" />
                       </svg>
                     )}
@@ -563,11 +563,11 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                         key={s.id}
                         type="button"
                         onClick={() => { setStylePreset(s.id); try { localStorage.setItem(STYLE_PRESET_KEY, s.id); } catch {} setStyleOpen(false); }}
-                        className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-rose-50 transition-colors ${s.id === stylePreset ? 'text-rose-600 bg-rose-50 font-semibold' : 'text-slate-700'}`}
+                        className={`w-full px-2.5 py-1.5 text-sm text-left flex items-center justify-between hover:bg-slate-50 transition-colors ${s.id === stylePreset ? 'text-slate-700 bg-slate-100 font-semibold' : 'text-slate-700'}`}
                       >
                         <span className="truncate">{s.label}</span>
                         {s.id === stylePreset && (
-                          <svg className="w-4 h-4 text-rose-500 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <svg className="w-4 h-4 text-slate-400 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M5 13l4 4L19 7" />
                           </svg>
                         )}
@@ -595,7 +595,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                       setCustomStyles(next); saveCustomStyles(next);
                       if (stylePreset === cur.id) { setStylePreset('anime'); try { localStorage.setItem(STYLE_PRESET_KEY, 'anime'); } catch {} }
                     }}
-                    className="text-[10px] text-rose-500 font-bold shrink-0"
+                    className="text-[10px] text-slate-400 hover:text-rose-400 font-bold shrink-0"
                     title="删除这个自定义风格"
                   >
                     删除
@@ -607,13 +607,13 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
           {/* 添加自定义风格 弹层 */}
           {showAddStyle && (
-            <div className="mt-2 p-2.5 rounded-xl bg-rose-50/60 border border-rose-100 space-y-2">
+            <div className="mt-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
               <input
                 value={newStyleLabel}
                 onChange={(e) => setNewStyleLabel(e.target.value)}
                 placeholder="风格名（例：胶片感）"
                 maxLength={20}
-                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-200"
               />
               <textarea
                 value={newStylePrompt}
@@ -621,7 +621,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                 placeholder="英文描述词（例：film grain, faded colors, vintage tone, kodak portra 400）"
                 maxLength={300}
                 rows={2}
-                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                className="w-full rounded-lg px-2.5 py-1.5 text-xs bg-white border border-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-200"
               />
               <div className="flex items-center justify-end gap-1.5">
                 <button
@@ -643,7 +643,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                     setShowAddStyle(false);
                     setNewStyleLabel(''); setNewStylePrompt('');
                   }}
-                  className="text-[11px] font-bold px-3 py-1 rounded-md bg-rose-500 text-white disabled:opacity-50 active:scale-95 transition-transform"
+                  className="text-[11px] font-bold px-3 py-1 rounded-md bg-rose-50 text-rose-500 border border-rose-100 hover:bg-rose-100 disabled:opacity-50 active:scale-95 transition-transform"
                 >
                   添加并使用
                 </button>
@@ -655,7 +655,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {/* ---- 锁脸参考图 ---- */}
         {mode === 'char' && (
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+            <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
               {charName} 的锁脸参考图
             </label>
             {renderLockImageUploader(charLockImage, handleCharLockUpload, () => { setCharLockImage(null); saveCharSettings(undefined, null); }, charName)}
@@ -664,7 +664,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
         {mode === 'user' && (
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+            <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
               你的锁脸参考图
             </label>
             {renderLockImageUploader(userLockImage, handleUserLockUpload, () => { setUserLockImage(null); saveUserSettings(undefined, ''); }, '你')}
@@ -674,7 +674,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {mode === 'joint' && (
           <div className="space-y-3">
             {/* 合照：结合聊天上下文优化 prompt 的开关（默认关=不读上下文、不调副 API） */}
-            <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/60 border border-rose-100">
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200">
               <div className="flex-1 pr-3">
                 <div className="text-xs font-bold text-slate-600">结合聊天上下文优化</div>
                 <div className="text-[10px] text-slate-400 leading-snug mt-0.5">
@@ -686,19 +686,19 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                 role="switch"
                 aria-checked={useContextForJoint}
                 onClick={() => setUseContextForJoint(v => !v)}
-                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${useContextForJoint ? 'bg-rose-500' : 'bg-slate-300'}`}
+                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${useContextForJoint ? 'bg-rose-400' : 'bg-slate-300'}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${useContextForJoint ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+              <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
                 {charName} 的锁脸（生成时使用）
               </label>
               {renderLockImageUploader(charLockImage, handleCharLockUpload, () => { setCharLockImage(null); saveCharSettings(undefined, null); }, charName)}
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1.5 block">
+              <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">
                 你的锁脸（备选）
               </label>
               {renderLockImageUploader(userLockImage, handleUserLockUpload, () => { setUserLockImage(null); saveUserSettings(undefined, ''); }, '你')}
@@ -707,33 +707,14 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         )}
       </div>
 
-      {/* ===== 保存按钮 ===== */}
-      <div className="px-4 py-3 border-t border-slate-100">
-        <button
-          onClick={() => {
-            if (mode === 'char') saveCharSettings();
-            else if (mode === 'user') saveUserSettings();
-            else { saveCharSettings(); saveUserSettings(); }
-            setStatusText('✅ 设置已保存');
-            setTimeout(() => setStatusText(''), 1500);
-          }}
-          className="w-full py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-emerald-400 to-green-500 text-white hover:from-emerald-500 hover:to-green-600 active:scale-[0.98] transition-all shadow-sm flex items-center justify-center gap-1.5"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 23l-9-2V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
-          </svg>
-          保存{mode === 'char' ? '角色' : mode === 'user' ? '你的' : '全部'}设置
-        </button>
-      </div>
-
-      {/* ===== Footer / 生成按钮 ===== */}
-      <div className="px-4 py-3 border-t border-slate-100 space-y-2">
+      {/* ===== Footer / 生成按钮 + 小型保存入口 ===== */}
+      <div className="px-4 py-3 border-t border-slate-100 space-y-2.5">
         {statusText && (
           <div className={`text-xs text-center py-1.5 rounded-lg ${
             statusText.includes('失败') ? 'bg-red-50 text-red-500' :
-            statusText.includes('完成') || statusText.includes('已') ? 'bg-green-50 text-green-600' :
+            statusText.includes('完成') || statusText.includes('已') ? 'bg-emerald-50 text-emerald-600' :
             statusText.includes('未开启') ? 'bg-amber-50 text-amber-600' :
-            'bg-rose-50 text-rose-600'
+            'bg-slate-100 text-slate-500'
           }`}>
             {statusText}
           </div>
@@ -743,8 +724,8 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           disabled={isGenerating}
           className={`w-full py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] ${
             isGenerating
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-gradient-to-r from-rose-400 to-pink-500 text-white hover:from-rose-500 hover:to-pink-600 shadow-md shadow-rose-200'
+              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              : 'bg-rose-50 text-rose-500 border border-rose-100 hover:bg-rose-100 hover:text-rose-600'
           }`}
         >
           {isGenerating ? (
@@ -757,6 +738,26 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
             </span>
           ) : generateButtonText}
         </button>
+
+        {/* 小型保存入口：低调、不占满整行 */}
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => {
+              if (mode === 'char') saveCharSettings();
+              else if (mode === 'user') saveUserSettings();
+              else { saveCharSettings(); saveUserSettings(); }
+              setStatusText('设置已保存');
+              setTimeout(() => setStatusText(''), 1500);
+            }}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-rose-500 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-full px-3 py-1.5 active:scale-95 transition-all"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 23l-9-2V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+            </svg>
+            保存{mode === 'char' ? '角色' : mode === 'user' ? '你的' : '全部'}设置
+          </button>
+        </div>
       </div>
     </div>
   );

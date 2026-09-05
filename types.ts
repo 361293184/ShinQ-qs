@@ -326,11 +326,11 @@ export interface APIConfig {
   imageGenCharEnabled?: boolean;   // 角色生图
   imageGenUserEnabled?: boolean;   // 用户生图
   imageGenJointEnabled?: boolean;  // 合照（自动调用上下文的角色+用户锁脸和描述词）
-  // 角色「主动发照片」控制：开启后会在 system prompt 注入「主动发图规则」，让 AI
-  // 在合适的场景（例如风景/心情/纪念日）通过图片-X 触发器自发生图。
-  // 用户没启 imageGenCharEnabled 时此开关无效。
+  // 角色「主动发照片」总开关：开启后会在 system prompt 注入「主动分享照片」倾向（见
+  // chatPrompts buildSystemPromptParts），让角色像真人一样在合适的时机主动通过"图片-X"
+  // 触发器自发生图，频率按角色性格与共同记忆自然拿捏，不设固定档位。
   imageGenProactiveEnabled?: boolean;
-  // 主动发图的频率档位：conservative（罕见，强烈信号才发）/ moderate（普通，合适就发）/ bold（活跃，常发）
+  // （已停用，仅保留以兼容旧存档）曾经的频率档位；新逻辑不再读取。
   imageGenProactiveRate?: 'conservative' | 'moderate' | 'bold';
 }
 

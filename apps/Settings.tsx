@@ -669,11 +669,8 @@ const Settings: React.FC = () => {
   const [imageGenTestResult, setImageGenTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showImageGenModelModal, setShowImageGenModelModal] = useState(false);
   const [imageGenModelFilter, setImageGenModelFilter] = useState('');
-  // 角色主动发照片（用户/合照生图与锁脸在生图面板「你」标签统一配置，settings 不再重复）
+  // 角色主动发照片：只保留总开关；开启后按角色性格/共同记忆自然主动发（频率不设档位）
   const [localImageGenProactiveEnabled, setLocalImageGenProactiveEnabled] = useState(!!apiConfig.imageGenProactiveEnabled);
-  const [localImageGenProactiveRate, setLocalImageGenProactiveRate] = useState<'conservative' | 'moderate' | 'bold'>(
-    apiConfig.imageGenProactiveRate || 'moderate'
-  );
   // CSY 迁移
   const [csyImporting, setCsyImporting] = useState(false);
   const [csyPreviewDone, setCsyPreviewDone] = useState(false);
@@ -1270,7 +1267,6 @@ const Settings: React.FC = () => {
       imageGenBaseUrl: localImageGenBaseUrl,
       imageGenModel: localImageGenModel,
       imageGenProactiveEnabled: localImageGenProactiveEnabled,
-      imageGenProactiveRate: localImageGenProactiveRate,
     });
     setImageGenStatusMsg('已保存');
     setTimeout(() => setImageGenStatusMsg(''), 2000);
@@ -3461,7 +3457,7 @@ const Settings: React.FC = () => {
                     <label className="text-[10px] text-slate-400 font-bold block mb-2 tracking-wider">角色主动生图</label>
                     <div className="space-y-2">
                         {/* 角色主动发照片 */}
-                        <div className="space-y-2 mt-1 pt-2 border-t border-slate-100">
+                        <div className="mt-1 pt-2 border-t border-slate-100">
                             <button
                                 type="button"
                                 onClick={() => setLocalImageGenProactiveEnabled(!localImageGenProactiveEnabled)}
@@ -3471,34 +3467,10 @@ const Settings: React.FC = () => {
                                     <div className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 transition-all ${localImageGenProactiveEnabled ? 'left-[17px]' : 'left-[2px]'}`} />
                                 </div>
                                 <span className={`text-[11px] font-bold ${localImageGenProactiveEnabled ? 'text-violet-600' : 'text-slate-500'}`}>允许角色主动发照片</span>
-                                <span className="text-[10px] text-slate-400">让TA 有感而发时主动发图给你</span>
                             </button>
-                            {/* 频率档位（仅在开启时可点）*/}
-                            {localImageGenProactiveEnabled && (
-                                <div className="ml-12 mt-1 grid grid-cols-3 gap-1.5">
-                                    {([
-                                        { v: 'conservative', label: '保守', desc: '强烈信号' },
-                                        { v: 'moderate', label: '适中', desc: '合适就发' },
-                                        { v: 'bold', label: '大胆', desc: '经常发' },
-                                    ] as const).map(opt => {
-                                        const active = localImageGenProactiveRate === opt.v;
-                                        return (
-                                            <button
-                                                key={opt.v}
-                                                type="button"
-                                                onClick={() => setLocalImageGenProactiveRate(opt.v)}
-                                                className={`flex flex-col items-center py-2 rounded-lg transition-all active:scale-95 ${active
-                                                        ? 'bg-violet-100 border border-violet-300 text-violet-700'
-                                                        : 'bg-slate-50 border border-slate-200 text-slate-500 hover:bg-slate-100'
-                                                    }`}
-                                            >
-                                                <span className="text-[11px] font-bold">{opt.label}</span>
-                                                <span className="text-[9px] opacity-70 mt-0.5">{opt.desc}</span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                            <p className="text-[10px] text-slate-400 leading-relaxed mt-1.5">
+                                开启后角色会像真人一样，结合自己的性格与你们的共同记忆，在合适的时机主动发照片 / 自拍 / 合照给你，频率由角色自然拿捏。
+                            </p>
                         </div>
                     </div>
                 </div>

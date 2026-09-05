@@ -98,6 +98,8 @@ export interface BuildChatPayloadInput {
     luckinMiniSnap?: LuckinMiniAppSnapshot;
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
     luckinChat?: LuckinChatState;
+    /** 角色「允许主动发照片」开关（Settings 的 imageGenProactiveEnabled）：开启时 prompt 注入主动发图引导。 */
+    imageGenProactiveEnabled?: boolean;
     /**
      * 小说共读上下文：开启（有 bookTitle/passage）时在易变尾段注入"正在一起读的小说段落"，
      * 让角色能顺着当前内容一起讨论 / 用生词自然提问。
@@ -323,10 +325,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         !!isListeningTogether,
         musicCfg,
         recentTrackSwitch,
-        (input.timelyByWorker || returningFromMode) ? {
+        {
             timelyByWorker: input.timelyByWorker === true,
             returningFromMode: returningFromMode || undefined,
-        } : undefined,
+            // 角色「允许主动发照片」开关：由 Chat 主链路从 apiConfig 透传，注入主动发图引导
+            imageGenProactiveEnabled: input.imageGenProactiveEnabled === true,
+        },
     );
     let systemPrompt = parts.stable;
     let volatileTail = parts.volatileState;
