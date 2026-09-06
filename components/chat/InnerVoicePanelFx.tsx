@@ -127,30 +127,30 @@ const FLO_DEEP = { fill: '#CCD2A1', stroke: '#7F8C52' };
 
 export const ReadMindStickerSet: React.FC = () => (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-20 overflow-visible">
-        {/* 四角小花：深浅奶绿对角呼应，故意探出纸边，像随手贴的贴纸 */}
-        <StickerFlower {...FLO_DEEP} className="-top-[11px] -left-[11px]" deg={-10} size={26} />
-        <StickerFlower {...FLO_LIGHT} className="-top-[8px] -right-[8px]" deg={9} size={21} />
-        <StickerFlower {...FLO_LIGHT} className="-left-[8px] -bottom-[8px]" deg={-6} size={21} />
-        {/* 右下有折角，花内移一点贴着折角左侧 */}
-        <StickerFlower {...FLO_DEEP} className="right-3.5 -bottom-[9px]" deg={7} size={20} />
+        {/* 四角小花：大小不一（参考图节奏感），深浅奶绿对角呼应，故意探出纸边 */}
+        <StickerFlower {...FLO_DEEP} className="-top-[14px] -left-[14px]" deg={-10} size={32} />
+        <StickerFlower {...FLO_LIGHT} className="-top-[10px] -right-[10px]" deg={9} size={24} />
+        <StickerFlower {...FLO_LIGHT} className="-left-[18px] -bottom-[16px]" deg={-8} size={36} />
+        {/* 右下有折角，花小一点内移贴着折角左侧 */}
+        <StickerFlower {...FLO_DEEP} className="right-3.5 -bottom-[10px]" deg={7} size={22} />
 
-        {/* 右下深棕翻折角：双三角叠出翻页厚度（pointer-events 无关） */}
-        <span aria-hidden className="pointer-events-none absolute right-[-7px] bottom-[-7px] h-[24px] w-[24px]">
+        {/* 左中下方咖啡色细长边签：窄长条 + 底 V 缺口，靠近左侧中下 */}
+        <span
+            aria-hidden
+            className="pointer-events-none absolute left-0.5 bottom-[30%]"
+            style={{ width: 11, height: 38, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 78%, 78% 78%, 50% 100%, 22% 78%, 0 78%)' }}
+        />
+
+        {/* 右下深棕翻折角：在卡片内部（内卡右下内侧），不再伸出卡外 */}
+        <span aria-hidden className="pointer-events-none absolute right-[10px] bottom-[10px] h-[22px] w-[22px]">
             <span className="absolute inset-0" style={{ background: '#5C4A33', clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
             <span className="absolute inset-0" style={{ background: '#4E3B26', clipPath: 'polygon(0 0, 100% 100%, 0 100%)' }} />
         </span>
 
-        {/* 底部中央深棕小书旗：窄条下垂、略超卡底 */}
-        <span
-            aria-hidden
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[-12px]"
-            style={{ width: 30, height: 22, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 82%, 82% 82%, 50% 100%, 18% 82%, 0 82%)' }}
-        />
-
-        {/* 褐色小圆点散布纸面（留白处） */}
-        <span aria-hidden className="pointer-events-none absolute left-[52px] top-[14px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.55)' }} />
-        <span aria-hidden className="pointer-events-none absolute right-[64px] top-[12px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.45)' }} />
-        <span aria-hidden className="pointer-events-none absolute left-[18px] bottom-[22px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.4)' }} />
-        <span aria-hidden className="pointer-events-none absolute right-[28px] bottom-[26px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.5)' }} />
+        {/* 褐色小圆点散布纸面留白（避开新书旗与右下折角） */}
+        <span aria-hidden className="pointer-events-none absolute right-[80px] top-[16px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.55)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[28px] top-[14px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.45)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[46px] bottom-[120px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.4)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[34px] bottom-[28px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.5)' }} />
     </div>
 );
