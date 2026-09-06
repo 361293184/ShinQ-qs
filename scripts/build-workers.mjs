@@ -58,6 +58,9 @@ const WORKERS = [
   // public/ 副本给设置页「复制 Worker 代码」按钮 fetch。amsg-server 2.6.0-next.2 起
   // 全 Web Crypto，和 instant 一样免 nodejs_compat flag。
   { name: 'amsg', outName: 'amsg-worker.bundle.js' },
+  // reality-bridge = 现实桥（iPhone 快捷指令 ↔ 云收件箱 ↔ 角色回应 LLM ↔ Web Push）。
+  // 与 post-office 同为纯后端，只产 worker.bundle.js 供 wrangler/粘面板，不写 public/。
+  { name: 'reality-bridge', skipPublicOut: true },
 ];
 
 // amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the

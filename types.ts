@@ -41,6 +41,7 @@ export enum AppID {
   Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
   Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
   GameHub = 'game_hub', // 游戏大厅 — 小游戏合集（首个内置「你说我猜」综艺局）
+  RealityBridge = 'reality_bridge', // 现实桥 — iPhone 快捷指令 ↔ 云端 ↔ 角色聊天的双向数据桥
 }
 
 export interface SystemLog {
