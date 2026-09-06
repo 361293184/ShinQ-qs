@@ -131,26 +131,19 @@ export const ReadMindStickerSet: React.FC = () => (
         <StickerFlower {...FLO_DEEP} className="-top-[14px] -left-[14px]" deg={-10} size={32} />
         <StickerFlower {...FLO_LIGHT} className="-top-[10px] -right-[10px]" deg={9} size={24} />
         <StickerFlower {...FLO_LIGHT} className="-left-[18px] -bottom-[16px]" deg={-8} size={36} />
-        {/* 右下有折角，花小一点内移贴着折角左侧 */}
-        <StickerFlower {...FLO_DEEP} className="right-3.5 -bottom-[10px]" deg={7} size={22} />
+        <StickerFlower {...FLO_DEEP} className="right-3 -bottom-[10px]" deg={7} size={22} />
 
-        {/* 左中下方咖啡色细长边签：窄长条 + 底 V 缺口，靠近左侧中下 */}
+        {/* 底部靠左深棕小书旗：紧贴弹窗最下面一排，细长条 + 底 V 缺口 */}
         <span
             aria-hidden
-            className="pointer-events-none absolute left-0.5 bottom-[30%]"
-            style={{ width: 11, height: 38, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 78%, 78% 78%, 50% 100%, 22% 78%, 0 78%)' }}
+            className="pointer-events-none absolute left-[34px] bottom-[-2px]"
+            style={{ width: 12, height: 30, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 78%, 78% 78%, 50% 100%, 22% 78%, 0 78%)' }}
         />
 
-        {/* 右下深棕翻折角：在卡片内部（内卡右下内侧），不再伸出卡外 */}
-        <span aria-hidden className="pointer-events-none absolute right-[10px] bottom-[10px] h-[22px] w-[22px]">
-            <span className="absolute inset-0" style={{ background: '#5C4A33', clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
-            <span className="absolute inset-0" style={{ background: '#4E3B26', clipPath: 'polygon(0 0, 100% 100%, 0 100%)' }} />
-        </span>
-
-        {/* 褐色小圆点散布纸面留白（避开新书旗与右下折角） */}
+        {/* 褐色小圆点散布纸面留白 */}
         <span aria-hidden className="pointer-events-none absolute right-[80px] top-[16px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.55)' }} />
         <span aria-hidden className="pointer-events-none absolute right-[28px] top-[14px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.45)' }} />
         <span aria-hidden className="pointer-events-none absolute right-[46px] bottom-[120px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.4)' }} />
-        <span aria-hidden className="pointer-events-none absolute right-[34px] bottom-[28px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.5)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[34px] bottom-[26px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.5)' }} />
     </div>
 );
