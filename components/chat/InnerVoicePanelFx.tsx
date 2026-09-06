@@ -133,11 +133,11 @@ export const ReadMindStickerSet: React.FC = () => (
         <StickerFlower {...FLO_LIGHT} className="-left-[18px] -bottom-[16px]" deg={-8} size={36} />
         <StickerFlower {...FLO_DEEP} className="right-3 -bottom-[10px]" deg={7} size={22} />
 
-        {/* 底部靠左深棕小书旗：紧贴弹窗最下面一排，细长条 + 底 V 缺口 */}
+        {/* 底部靠左深棕小书旗：加大、从弹窗下沿明显探出 */}
         <span
             aria-hidden
-            className="pointer-events-none absolute left-[34px] bottom-[-2px]"
-            style={{ width: 12, height: 30, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 78%, 78% 78%, 50% 100%, 22% 78%, 0 78%)' }}
+            className="pointer-events-none absolute left-[34px] bottom-[-16px]"
+            style={{ width: 18, height: 44, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 78%, 78% 78%, 50% 100%, 22% 78%, 0 78%)' }}
         />
 
         {/* 褐色小圆点散布纸面留白 */}
