@@ -60,18 +60,29 @@ describe('extractInnerVoice 心声解析剥离', () => {
         expect(empty.clean).toBe('你好');
     });
 
-    it('超长截断：单层 >48 字截断，整块总长 ≤260 字', () => {
-        const longLine = '啊'.repeat(60);
+    it('超长软截：单层 >72 字，无标点超长句补 …（不硬切半句）', () => {
+        const longLine = '啊'.repeat(96);
         const { innerVoice } = extractInnerVoice(`<inner_voice>【真心话】${longLine}</inner_voice>`);
-        expect(innerVoice!.layers[0].text).toHaveLength(48);
+        // 96 字全无标点 → 前 72 字 + …，共 73 字符
+        expect(innerVoice!.layers[0].text).toBe('啊'.repeat(72) + '…');
+    });
 
-        // 多层累积超 260 字（但层数 ≤12 不触发刷层阀）→ 在边界处停住，不超 260
+    it('软截优先在句末标点收尾，不携带半句残字', () => {
+        // 40 无标点 + 一句带句号 + 60 无标点 → 在句号处收尾（含句号），不切残字
+        const longLine = '啊'.repeat(40) + '这句话说完整了。' + '呃'.repeat(60);
+        const { innerVoice } = extractInnerVoice(`<inner_voice>【真心话】${longLine}</inner_voice>`);
+        expect(innerVoice!.layers[0].text).toBe('啊'.repeat(40) + '这句话说完整了。');
+    });
+
+    it('多层累积超 400 字（层数 ≤12 不触发刷层阀）→ 整块硬边界不超 400', () => {
         let raw = '<inner_voice>\n';
-        for (let i = 0; i < 10; i++) raw += `【吐槽】${'字'.repeat(30)}\n`;
+        for (let i = 0; i < 10; i++) raw += `【吐槽】${'字'.repeat(50)}\n`;
         raw += '</inner_voice>';
         const many = extractInnerVoice(raw);
         const total = many.innerVoice!.layers.reduce((s, l) => s + l.text.length, 0);
-        expect(total).toBeLessThanOrEqual(260);
+        expect(total).toBeLessThanOrEqual(400);
+        // 前面几层各 50 字完整，最后一层被块边界截掉
+        expect(many.innerVoice!.layers[0].text).toBe('字'.repeat(50));
     });
 
     it('>12 层判异常刷层 → 整块静默丢弃（视为无心声）', () => {

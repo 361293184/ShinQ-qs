@@ -8,7 +8,7 @@
  *   1. 块内按行切分，行首 `【标签】` → 开新层（标签 ∈ 六类固定集；未知标签归为「心声」）；
  *   2. 无 `【】` 的纯文本行 → 归入当前层继续（层内可多行）；
  *   3. 整块无任何 `【】` → 降级为单层 `{ type: '心声', text: 整块 }`；
- *   4. 层数不设上限，安全阀：>12 层判异常整块丢弃；总文本 >200 字截断、单层 >30 字截断。
+ *   4. 层数不设上限，安全阀：>12 层判异常整块丢弃；总文本 >400 字软截、单层 >72 字软截（句子边界收尾）。
  * - 兜底：开标签未闭合 → 尝试取到末尾；无标签/空内容 → 判无心声；
  *   台词里残留的字面标签字样一并清除。
  * - 最坏情况永远是「可读的错位或静默无心声」，绝不让格式异常炸掉正常回复。
@@ -27,16 +27,35 @@ const VOICE_OPEN_RE = /<inner_voice>([\s\S]*)$/;
 const LEFTOVER_TAG_RE = /<\/?inner_voice>/g;
 /** 行首 【标签】 */
 const LAYER_TAG_RE = /^【([^】]+)】(.*)$/u;
-/** 单层超长截断 */
-const MAX_LAYER_TEXT = 48;
-/** 整块总长截断 */
-const MAX_BLOCK_TEXT = 260;
+/** 单层超长软截上限 */
+const MAX_LAYER_TEXT = 72;
+/** 整块总长软截上限 */
+const MAX_BLOCK_TEXT = 400;
 /** 异常刷层安全阀 */
 const MAX_LAYERS = 12;
 
-const clampText = (text: string, max: number): string => {
+/**
+ * 软截断：尽量在句子结束标点处收尾，不把一句话硬切半截。
+ * - 文本 ≤ max 直接返回；
+ * - 超长时取 head = 前 max 字，往回找最后一个句末标点（。！？…以及半角 .!?），
+ *   在标点后收尾（不携带半句残字）；
+ * - 若收尾点过于靠前（< max*0.6，说明这段几乎无标点或标点在开头），退化为
+ *   前 max 字 + …，保证保底长度与可读性。
+ */
+const softTruncate = (text: string, max: number): string => {
     const t = text.trim();
-    return t.length > max ? t.slice(0, max) : t;
+    if (t.length <= max) return t;
+    const head = t.slice(0, max);
+    // 从句末往前找最后一个句子结束标点（含省略号）；取最靠后的一个
+    const matches: number[] = [];
+    for (const m of head.matchAll(/[。！？….!?]/g)) {
+        matches.push((m.index ?? 0) + m[0].length);
+    }
+    const cut = matches.length > 0 ? matches[matches.length - 1] : -1;
+    if (cut >= Math.floor(max * 0.6)) {
+        return t.slice(0, cut);
+    }
+    return `${head}…`;
 };
 
 /**
@@ -74,7 +93,7 @@ export const extractInnerVoice = (raw: string): { clean: string; innerVoice: Inn
 
         // 2. 整块没有任何「行首带【标签】」的行 → 降级单层「心声」（整块直接作为文本，先截断）
         if (!/^【[^】]+】/mu.test(rawInner)) {
-            const fallbackText = clampText(rawInner.replace(/[\n\r]+/g, '').replace(LEFTOVER_TAG_RE, ''), MAX_LAYER_TEXT);
+            const fallbackText = softTruncate(rawInner.replace(/[\n\r]+/g, '').replace(LEFTOVER_TAG_RE, ''), MAX_LAYER_TEXT);
             const layers = fallbackText ? [{ type: '心声' as const, text: fallbackText }] : [];
             const clean = removeBlock(text, blockMatch?.[0] || '');
             return { clean, innerVoice: layers.length ? { layers, at: Date.now() } : null };
@@ -115,15 +134,19 @@ export const extractInnerVoice = (raw: string): { clean: string; innerVoice: Inn
             return { clean: removeBlock(text, blockMatch?.[0] || ''), innerVoice: null };
         }
 
-        // 截断 + 清洗包裹引号；累计超整块上限即停（安全阀）
+        // 软截断 + 清洗包裹引号；累计超整块上限即停（安全阀）
         let totalLen = 0;
         const normalized: { type: InnerVoice['layers'][number]['type']; text: string }[] = [];
         for (const l of filled) {
-            const t = clampText(stripWrappingQuotes(l.text), MAX_LAYER_TEXT);
-            if (!t) continue;
+            const cleaned = softTruncate(stripWrappingQuotes(l.text), MAX_LAYER_TEXT);
+            if (!cleaned) continue;
             const room = MAX_BLOCK_TEXT - totalLen;
             if (room <= 0) break;
-            const sliced = t.length > room ? t.slice(0, room) : t;
+            // 剩余空间小于软截最小保底（10 字）时直接硬取；软截无标点时会给正文补 …（room+1 长），
+            // 这里再 clamp 一次保证块总长绝不超 MAX_BLOCK_TEXT 的硬边界。
+            let sliced = room < 10 ? cleaned.slice(0, room) : softTruncate(cleaned, room);
+            if (sliced.length > room) sliced = sliced.slice(0, room);
+            if (!sliced) break;
             normalized.push({ type: l.type, text: sliced });
             totalLen += sliced.length;
         }
