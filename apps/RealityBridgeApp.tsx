@@ -10,7 +10,7 @@
  * main 下四分区 + 每分区多步创建向导，history 下 feed/commands 两子页。
  */
 import React, { useEffect, useState } from 'react';
-import { X, GearSix, Broadcast, ClipboardText, Eraser, ArrowClockwise } from '@phosphor-icons/react';
+import { X, GearSix, Broadcast, ClipboardText, Eraser, ArrowClockwise, CaretDown } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { CharacterProfile } from '../types';
 import {
@@ -65,6 +65,7 @@ const RealityBridgeApp: React.FC = () => {
     const [histSec, setHistSec] = useState<HistSec>('feed');
     const [showConfig, setShowConfig] = useState(false);
     const [expandedChar, setExpandedChar] = useState<string | null>(null);
+    const [charListOpen, setCharListOpen] = useState(false);
     const [statusInfo, setStatusInfo] = useState<{ ok?: boolean; version?: string; todayCount?: number; checking?: boolean } | null>(null);
 
     const persistSettings = (next: BridgeSettings) => { setSettings(next); saveBridgeSettings(next); };
@@ -167,18 +168,34 @@ const RealityBridgeApp: React.FC = () => {
 
                     {tab === 'main' ? (
                         <>
-                            {/* 角色接收 */}
+                            {/* 角色接收（默认收起，点击标题展开） */}
                             <section>
-                                <h2 className="text-[11px] font-bold text-[#A89B7F] uppercase tracking-wide px-1 mb-1.5 flex items-center gap-1.5"><Broadcast className="w-3.5 h-3.5" weight="fill" />角色接收</h2>
-                                <p className="text-[10px] text-[#BDB5A4] px-1 mb-2">谁开着，现实桥事件才会写进谁的会话；默认全关。</p>
-                                <CharSwitchList
-                                    characters={characters as CharacterProfile[]}
-                                    prefs={settings.perChar || {}}
-                                    expanded={expandedChar}
-                                    onToggleExpand={id => setExpandedChar(v => (v === id ? null : id))}
-                                    onToggle={(id, pref) => { const perChar = { ...(settings.perChar || {}), [id]: pref }; persistSettings({ ...settings, perChar }); if (!pref.enabled && expandedChar === id) setExpandedChar(null); }}
-                                    onToggleAutoReply={(id, pref) => { const perChar = { ...(settings.perChar || {}), [id]: pref }; persistSettings({ ...settings, perChar }); }}
-                                />
+                                <button
+                                    onClick={() => setCharListOpen(v => !v)}
+                                    aria-expanded={charListOpen}
+                                    className="w-full flex items-center gap-1.5 px-1 py-1 mb-1.5 cursor-pointer"
+                                >
+                                    <CaretDown className={`w-3 h-3 text-[#A89B7F] transition-transform ${charListOpen ? '' : '-rotate-90'}`} weight="bold" />
+                                    <span className="text-[11px] font-bold text-[#A89B7F] uppercase tracking-wide flex items-center gap-1.5">
+                                        <Broadcast className="w-3.5 h-3.5" weight="fill" />角色接收
+                                    </span>
+                                    <span className="text-[10px] font-bold text-[#6F7C54] bg-[#ECEFDF] px-1.5 py-0.5 rounded-full">
+                                        已开 {Object.values(settings.perChar || {}).filter(p => p?.enabled).length} / {characters.length}
+                                    </span>
+                                </button>
+                                {charListOpen && (
+                                    <>
+                                        <p className="text-[10px] text-[#BDB5A4] px-1 mb-2">谁开着，现实桥事件才会写进谁的会话；默认全关。</p>
+                                        <CharSwitchList
+                                            characters={characters as CharacterProfile[]}
+                                            prefs={settings.perChar || {}}
+                                            expanded={expandedChar}
+                                            onToggleExpand={id => setExpandedChar(v => (v === id ? null : id))}
+                                            onToggle={(id, pref) => { const perChar = { ...(settings.perChar || {}), [id]: pref }; persistSettings({ ...settings, perChar }); if (!pref.enabled && expandedChar === id) setExpandedChar(null); }}
+                                            onToggleAutoReply={(id, pref) => { const perChar = { ...(settings.perChar || {}), [id]: pref }; persistSettings({ ...settings, perChar }); }}
+                                        />
+                                    </>
+                                )}
                             </section>
 
                             {/* 四区分段 chips */}
