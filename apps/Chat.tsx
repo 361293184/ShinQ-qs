@@ -4548,7 +4548,7 @@ const Chat: React.FC = () => {
                             <div className="px-5 py-3.5 shrink-0 flex justify-center" style={{ borderTop: '1px solid #F1F2F4' }}>
                                 <button onClick={handlePokeInnerVoice}
                                     className="px-6 h-9 rounded-full text-[13px] font-semibold transition-all active:scale-[0.97] bg-[#FDF6E9] text-[#8A6A32] border border-[#EFE4CC] shadow-[0_2px_8px_rgba(138,106,50,0.10)] hover:bg-[#FBF0DD]">
-                                    戳破她
+                                    戳破ta
                                 </button>
                             </div>
                         </div>
