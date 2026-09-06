@@ -48,7 +48,7 @@ import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
-import { HeartFloats } from '../components/chat/InnerVoicePanelFx';
+import { HeartFloats, ReadMindStickerSet } from '../components/chat/InnerVoicePanelFx';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
@@ -4494,62 +4494,81 @@ const Chat: React.FC = () => {
             {char && innerVoiceMsg?.metadata?.innerVoice && char.innerVoiceEnabled !== false && (
                 <>
                     <div className="fixed inset-0 z-[88] bg-black/35 backdrop-blur-[1px]" onClick={closeInnerVoice} />
-                    <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,340px)] max-h-[78vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        {/* animate-fade-in 放内层：外层 transform 负责居中，动画自带 transform 若同元素会覆盖居中，
-                            导致先偏右下再跳中央（fadeIn 关键帧首帧 scale/translateY 覆盖 -translate-1/2）。 */}
-                        <div className="bg-white rounded-3xl shadow-[0_24px_60px_-12px_rgba(15,23,42,0.25)] overflow-hidden flex flex-col max-h-[78vh] border border-slate-200/60 animate-fade-in relative z-10">
-                            {/* 卡内杏金爱心粒子（克制呼吸）：透明细线、pointer-events-none，不拦截滚动/按钮 */}
-                            <HeartFloats />
-                            {/* 头部：头像 + 名字 · 心声 + 收起 */}
-                            <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
-                                <div className="relative shrink-0">
-                                    <TokenImg value={char.avatar} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200/70" />
-                                    <span aria-hidden className="absolute -inset-[3px] rounded-full border pointer-events-none" style={{ borderColor: 'rgba(138,106,50,0.2)' }} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-[15px] font-semibold text-slate-800 truncate">{char.name}</span>
-                                        <span className="text-[11px] text-slate-400 whitespace-nowrap">心声</span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-400/90 mt-0.5">仅你可见</div>
-                                </div>
-                                <button onClick={closeInnerVoice} aria-label="收起"
-                                    className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                                </button>
-                            </div>
+                    <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,356px)] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        {/*
+                            wrapper 负责容纳「探出纸边的贴纸花」：自身不 overflow-hidden；
+                            奶绿垫纸/内层卡各自圆角裁切，都不影响花的溢出可见。
+                        */}
+                        <div className="relative">
+                            {/* 便签贴纸装饰层：四角溢出小花 + 右下深棕折角 + 底部小书旗 + 褐色圆点 */}
+                            <ReadMindStickerSet />
 
-                            {/* 中部：分层心声列表（固定高，层多内部滚动） */}
-                            <div className="h-px shrink-0 bg-[#F1F2F4]" />
-                            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-1 no-scrollbar">
-                                {(() => {
-                                    const voice = innerVoiceMsg.metadata.innerVoice;
-                                    const layers = Array.isArray(voice?.layers) ? voice.layers : [];
-                                    if (layers.length === 0) {
-                                        return <div className="py-6 text-center text-xs text-slate-400 italic">她此刻没有多余的心事。</div>;
-                                    }
-                                    return (
-                                        <div>
-                                            {layers.map((l: any, i: number) => (
-                                                <div key={i} className={`py-3 ${i > 0 ? '' : ''}`}>
-                                                    {i > 0 && <div className="h-px bg-[#F1F2F4] mb-3" style={{ marginLeft: -20, marginRight: -20 }} />}
-                                                    <div className="flex items-start gap-2.5">
-                                                        <span className="shrink-0 mt-[3px] text-[10px] font-medium text-[#A89B7F] tracking-wide leading-none w-12">{l?.type || '心声'}</span>
-                                                        <span className="text-[13px] leading-relaxed text-[#3A3A38] italic">{l?.text || ''}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
+                            {/* 外圈：浅奶绿纸面 + 虚线描边（比内层便签大一圈） */}
+                            <div className="relative rounded-[26px] border-2 border-dashed border-[#C6CB9C] bg-[#E9E6D3] p-2.5 overflow-hidden shadow-[0_24px_60px_-12px_rgba(78,59,38,0.35)]">
+                                {/* 内层：米白格纹便签纸（stacking context，HeartFloats z-1 画在其背景上文字下） */}
+                                <div
+                                    className="relative z-10 flex max-h-[76vh] flex-col overflow-hidden rounded-[16px] bg-[#FCF9F2] animate-fade-in"
+                                    style={{
+                                        backgroundImage:
+                                            'repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(194,199,156,0.10) 23px, rgba(194,199,156,0.10) 24px),' +
+                                            'repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(194,199,156,0.07) 23px, rgba(194,199,156,0.07) 24px)',
+                                    }}
+                                >
+                                    {/* 卡内杏金爱心粒子（克制呼吸）：透明细线、pointer-events-none，不拦截滚动/按钮 */}
+                                    <HeartFloats />
+
+                                    {/* 头部：头像 + 名字 · 心声 + 收起 */}
+                                    <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
+                                        <div className="relative shrink-0">
+                                            <TokenImg value={char.avatar} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-[#D7DAB6]/80" />
+                                            <span aria-hidden className="absolute -inset-[3px] rounded-full border pointer-events-none" style={{ borderColor: 'rgba(127,140,82,0.25)' }} />
                                         </div>
-                                    );
-                                })()}
-                            </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-baseline gap-1.5">
+                                                <span className="text-[15px] font-semibold text-[#3A3A38] truncate">{char.name}</span>
+                                                <span className="shrink-0 rounded-[5px] border border-[#C2C79B]/80 bg-[#E4E7CB] px-1 py-px text-[9px] font-bold tracking-wide text-[#6F7C54]">心声</span>
+                                            </div>
+                                            <div className="text-[10px] text-[#A89B7F] mt-0.5">仅你可见</div>
+                                        </div>
+                                        <button onClick={closeInnerVoice} aria-label="收起"
+                                            className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[#A89B7F] hover:text-[#6F7C54] hover:bg-[#F0EFE2] transition-colors">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
 
-                            {/* 底部：戳破她 = 转发心声卡片 */}
-                            <div className="px-5 py-3.5 shrink-0 flex justify-center" style={{ borderTop: '1px solid #F1F2F4' }}>
-                                <button onClick={handlePokeInnerVoice}
-                                    className="px-6 h-9 rounded-full text-[13px] font-semibold transition-all active:scale-[0.97] bg-[#FDF6E9] text-[#8A6A32] border border-[#EFE4CC] shadow-[0_2px_8px_rgba(138,106,50,0.10)] hover:bg-[#FBF0DD]">
-                                    戳破ta
-                                </button>
+                                    {/* 中部：分层心声列表（固定高，层多内部滚动） */}
+                                    <div className="mx-5 h-px shrink-0 bg-[#EBE7D8]" />
+                                    <div className="flex-1 min-h-0 overflow-y-auto px-5 py-1 no-scrollbar">
+                                        {(() => {
+                                            const voice = innerVoiceMsg.metadata.innerVoice;
+                                            const layers = Array.isArray(voice?.layers) ? voice.layers : [];
+                                            if (layers.length === 0) {
+                                                return <div className="py-6 text-center text-xs italic text-[#A89B7F]">她此刻没有多余的心事。</div>;
+                                            }
+                                            return (
+                                                <div>
+                                                    {layers.map((l: any, i: number) => (
+                                                        <div key={i} className="py-3">
+                                                            {i > 0 && <div className="mb-3 border-t border-dashed border-[#E6E1CF]" />}
+                                                            <div className="flex items-start gap-2.5">
+                                                                <span className="shrink-0 mt-[3px] text-[10px] font-medium text-[#A89B7F] tracking-wide leading-none w-12">{l?.type || '心声'}</span>
+                                                                <span className="text-[13px] leading-relaxed text-[#3A3A38] italic">{l?.text || ''}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    {/* 底部：戳破她 = 转发心声卡片 */}
+                                    <div className="px-5 py-3.5 shrink-0 flex justify-center">
+                                        <button onClick={handlePokeInnerVoice}
+                                            className="-rotate-1 px-6 h-9 rounded-[10px] text-[13px] font-semibold transition-all active:scale-[0.97] bg-[#E4E7CB] text-[#6F7C54] border border-[#C2C79B] shadow-[0_2px_8px_rgba(127,140,82,0.16)] hover:bg-[#DCE0BC] hover:shadow-[0_3px_10px_rgba(127,140,82,0.22)]">
+                                            戳破ta
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

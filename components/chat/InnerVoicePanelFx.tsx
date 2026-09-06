@@ -92,3 +92,65 @@ export const HeartFloats: React.FC = () => (
         </div>
     </>
 );
+
+// ── 便签手账装饰贴纸组（心声读心面板用）─────────────────────────────────────
+// 零 props、纯视觉：深浅两档奶绿小花探出纸边 + 右下深棕折角 + 底部深棕小书旗 + 褐色圆点。
+// 整层 absolute inset-0 + pointer-events-none + aria-hidden，装饰不拦事件；父级容器禁止 overflow-hidden。
+
+/** 一朵 4 瓣小花贴纸（纯 SVG，深浅奶绿由调用方传入）。 */
+const StickerFlower: React.FC<{
+    fill: string;
+    stroke: string;
+    size?: number;
+    className?: string;
+    deg?: number;
+}> = ({ fill, stroke, size = 22, className = '', deg = 0 }) => (
+    <span
+        aria-hidden
+        className={`pointer-events-none absolute ${className}`}
+        style={{ width: size, height: size, transform: `rotate(${deg}deg)` }}
+    >
+        <svg viewBox="0 0 20 20" width="100%" height="100%" fill="none">
+            {/* 两对交叉椭圆出 4 瓣 */}
+            <ellipse cx="10" cy="4.9" rx="2.6" ry="4.7" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="10" cy="15.1" rx="2.6" ry="4.7" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="4.9" cy="10" rx="4.7" ry="2.6" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="15.1" cy="10" rx="4.7" ry="2.6" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <circle cx="10" cy="10" r="1.6" fill="#FCF3E2" stroke={stroke} strokeWidth="0.6" />
+        </svg>
+    </span>
+);
+
+/** 深浅两档奶绿：浅 fill #E4E7CB / stroke #A6AD77；深 fill #CCD2A1 / stroke #7F8C52。 */
+const FLO_LIGHT = { fill: '#E4E7CB', stroke: '#A6AD77' };
+const FLO_DEEP = { fill: '#CCD2A1', stroke: '#7F8C52' };
+
+export const ReadMindStickerSet: React.FC = () => (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-20 overflow-visible">
+        {/* 四角小花：深浅奶绿对角呼应，故意探出纸边，像随手贴的贴纸 */}
+        <StickerFlower {...FLO_DEEP} className="-top-[11px] -left-[11px]" deg={-10} size={26} />
+        <StickerFlower {...FLO_LIGHT} className="-top-[8px] -right-[8px]" deg={9} size={21} />
+        <StickerFlower {...FLO_LIGHT} className="-left-[8px] -bottom-[8px]" deg={-6} size={21} />
+        {/* 右下有折角，花内移一点贴着折角左侧 */}
+        <StickerFlower {...FLO_DEEP} className="right-3.5 -bottom-[9px]" deg={7} size={20} />
+
+        {/* 右下深棕翻折角：双三角叠出翻页厚度（pointer-events 无关） */}
+        <span aria-hidden className="pointer-events-none absolute right-[-7px] bottom-[-7px] h-[24px] w-[24px]">
+            <span className="absolute inset-0" style={{ background: '#5C4A33', clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
+            <span className="absolute inset-0" style={{ background: '#4E3B26', clipPath: 'polygon(0 0, 100% 100%, 0 100%)' }} />
+        </span>
+
+        {/* 底部中央深棕小书旗：窄条下垂、略超卡底 */}
+        <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[-12px]"
+            style={{ width: 30, height: 22, background: '#4E3B26', clipPath: 'polygon(0 0, 100% 0, 100% 82%, 82% 82%, 50% 100%, 18% 82%, 0 82%)' }}
+        />
+
+        {/* 褐色小圆点散布纸面（留白处） */}
+        <span aria-hidden className="pointer-events-none absolute left-[52px] top-[14px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.55)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[64px] top-[12px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.45)' }} />
+        <span aria-hidden className="pointer-events-none absolute left-[18px] bottom-[22px] h-[3px] w-[3px] rounded-full" style={{ background: 'rgba(138,112,80,0.4)' }} />
+        <span aria-hidden className="pointer-events-none absolute right-[28px] bottom-[26px] h-[4px] w-[4px] rounded-full" style={{ background: 'rgba(138,112,80,0.5)' }} />
+    </div>
+);
