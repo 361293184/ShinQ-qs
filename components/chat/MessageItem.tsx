@@ -423,7 +423,27 @@ const ForwardCard: React.FC<{
 
 // ─── 角色心声转发卡片：用户「戳破她」时把角色没说出口的心里话转回聊天。
 // 消息 type 沿用 chat_forward，content 为 JSON { kind:'inner_voice', charName, at, layers }；
-// 只在 UI 上渲染成低饱和细线的小卡，正文即角色心声原文（她读到就知道是自己的心里话）。
+// 便签手账质感小卡：牙白格纹纸面 + 右下翻折角 + 四角小花 + 奶绿贴纸标题（粉绿拼接），正文即角色心声原文。
+// 装饰均为纯 SVG / 纯 CSS，不用 emoji；四角小花/折角 pointer-events-none 不拦事件。
+
+/** 一张 4 瓣小花贴纸（纯 SVG），对角两色呼应「粉绿拼接」。 */
+const NoteFlower: React.FC<{ fill: string; stroke: string; className?: string; deg?: number; size?: number }> = ({
+    fill, stroke, className = '', deg = 0, size = 14,
+}) => (
+    <span aria-hidden className={`pointer-events-none absolute ${className}`} style={{ transform: `rotate(${deg}deg)`, transformOrigin: '50% 50%' }}>
+        <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
+            {/* 四瓣：用两对椭圆交叉出花瓣 */}
+            <ellipse cx="10" cy="5.4" rx="2.7" ry="4.4" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="10" cy="14.6" rx="2.7" ry="4.4" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="5.4" cy="10" rx="4.4" ry="2.7" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            <ellipse cx="14.6" cy="10" rx="4.4" ry="2.7" fill={fill} stroke={stroke} strokeWidth="0.7" />
+            {/* 花心小圆 */}
+            <circle cx="10" cy="10" r="1.7" fill="#FCF3E3" stroke={stroke} strokeWidth="0.7" />
+        </svg>
+    </span>
+);
+
+/** 心声转发卡片主体。 */
 const InnerVoiceForwardCard: React.FC<{
     fw: { charName?: string; at?: number; layers?: InnerVoiceLayer[]; text?: string };
     commonLayout: (content: React.ReactNode) => JSX.Element;
@@ -436,24 +456,64 @@ const InnerVoiceForwardCard: React.FC<{
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     })();
     const charLabel = fw.charName || '角色';
+    // 粉绿拼接色对（对角呼应，右下小花避开折角）
+    const noteColors = [
+        { fill: '#F4DDD2', stroke: '#DEA79A' }, // 蜜桃
+        { fill: '#E4E6D4', stroke: '#B4C198' }, // 奶绿
+    ];
     return commonLayout(
-        <div className="w-64 rounded-2xl overflow-hidden shadow-sm border border-[#EDE6D6] bg-[#FDFAF3] select-none">
-            <div className="flex items-center justify-between px-3.5 pt-2.5 pb-2 border-b border-[#F0EADD]">
-                <div className="flex items-center gap-1.5 min-w-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" className="w-3.5 h-3.5 shrink-0 text-[#8A6A32]/70"><path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3H9m0 0a3 3 0 0 1 6 0m-6 0H7.5M9 12h6m-6 3h3" /></svg>
-                    <span className="text-[10px] font-bold text-[#8A6A32]/80 truncate">转发 · 心声（{charLabel}）</span>
-                </div>
-                {timeLabel && <span className="text-[9px] text-slate-400/80 shrink-0 ml-2">{timeLabel}</span>}
+        <div
+            className="w-64 relative rounded-2xl overflow-hidden border border-[#E6D8C2] shadow-[0_2px_10px_rgba(160,120,90,0.08)] select-none"
+            style={{
+                backgroundColor: '#FAF6EE',
+                // 牙白便签格纹：24px 淡横竖线（蜜桃系极淡）
+                backgroundImage:
+                    'repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(217,192,181,0.18) 23px, rgba(217,192,181,0.18) 24px),' +
+                    'repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(217,192,181,0.14) 23px, rgba(217,192,181,0.14) 24px)',
+            }}
+        >
+            {/* 四角小花：左上/右下蜜桃，右上/左下奶绿；各自微旋转随手贴 */}
+            <NoteFlower {...noteColors[0]} className="left-1 top-1" deg={-8} />
+            <NoteFlower {...noteColors[1]} className="right-1 top-1" deg={9} />
+            <NoteFlower {...noteColors[1]} className="bottom-1 left-1" deg={-5} />
+            {/* 右下角是折角，小花内移一点放折角左侧 */}
+            <NoteFlower {...noteColors[0]} className="right-[26px] bottom-1" deg={7} />
+
+            {/* 右下翻折角：两层三角模拟翻页厚度（纸面下沿翻起一角） */}
+            <div aria-hidden className="pointer-events-none absolute right-0 bottom-0 h-[22px] w-[22px]">
+                <div className="absolute inset-0" style={{ background: '#E7D6BF', clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
+                <div className="absolute inset-0" style={{ background: '#F3E6D3', clipPath: 'polygon(0 0, 100% 100%, 0 100%)' }} />
             </div>
-            <div className="px-3.5 py-2.5 space-y-1.5">
-                {layers.length > 0 ? layers.map((l, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                        <span className="shrink-0 mt-[3px] text-[9px] font-medium text-[#A89B7F] tracking-wide leading-tight">{l.type}</span>
-                        <span className="text-[11.5px] leading-relaxed text-[#3A3A38] italic">{l.text}</span>
+
+            {/* 内容区：奶绿贴纸标题 + 虚线分隔 + 分层正文 */}
+            <div className="px-4 pt-2.5 pb-2.5">
+                <div className="flex items-start justify-between gap-2 pr-1">
+                    <div className="flex min-w-0 items-center gap-1.5 -rotate-1 rounded-md border border-[#D5D9B8]/70 bg-[#ECEDDC] px-1.5 py-0.5 shadow-[0_1px_2px_rgba(120,130,80,0.10)]">
+                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#F6D9CC]">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-2.5 w-2.5 text-[#B97E5B]"><path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3H9m0 0a3 3 0 0 1 6 0m-6 0H7.5M9 12h6m-6 3h3" /></svg>
+                        </span>
+                        <span className="truncate text-[10px] font-bold tracking-wide text-[#7A7F55]">转发 · 心声（{charLabel}）</span>
                     </div>
-                )) : (
-                    <div className="text-[11.5px] italic leading-relaxed text-slate-400">（心声原文未记录）</div>
-                )}
+                    {timeLabel && <span className="mt-1 shrink-0 text-[8.5px] font-medium text-[#B2A48E]">{timeLabel}</span>}
+                </div>
+
+                <div className="mt-1.5 border-t border-dashed border-[#E3D5C0]" />
+
+                <div className="pt-1">
+                    {layers.length > 0 ? (
+                        <div className="divide-y divide-dashed divide-[#EBE0CE]">
+                            {layers.map((l, i) => (
+                                <div key={i} className="flex items-start gap-2 py-1.5">
+                                    <span className="mt-[6px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ backgroundColor: noteColors[i % 2].stroke }} />
+                                    <span className="shrink-0 text-[9px] font-medium text-[#A89B7F] tracking-wide leading-tight">{l.type}</span>
+                                    <span className="text-[11.5px] leading-relaxed text-[#3A3A38] italic">{l.text}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="py-1.5 text-[11.5px] italic leading-relaxed text-slate-400">（心声原文未记录）</div>
+                    )}
+                </div>
             </div>
         </div>
     );
