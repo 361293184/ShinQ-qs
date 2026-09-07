@@ -82,6 +82,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   Fanwai: ({ className }) => <Feather className={className} weight="regular" />,
   Techo: ({ className }) => <CalendarBlank className={className} weight="regular" />,
   RealityBridge: ({ className }) => <ArrowsLeftRight className={className} weight="regular" />,
+  Weread: ({ className }) => <Books className={className} weight="regular" />,
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -125,6 +126,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.SpecialMoments, name: '特别时光', icon: 'SpecialMoments', color: 'pink' },
   { id: AppID.Music, name: '音乐', icon: 'Music', color: 'rose' },
   { id: AppID.CharCreatorDev, name: '捏脸·开发', icon: 'CharCreatorDev', color: 'amber' }, // 仅开发模式显示（Launcher 过滤）
+  { id: AppID.Weread, name: '微信读书', icon: 'Weread', color: 'green' },
   // { id: AppID.QQBridge, name: 'QQ 桥', icon: 'QQBridge', color: 'sky' }, // Hidden temporarily
 ];
 

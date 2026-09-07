@@ -42,6 +42,7 @@ export enum AppID {
   Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
   GameHub = 'game_hub', // 游戏大厅 — 小游戏合集（首个内置「你说我猜」综艺局）
   RealityBridge = 'reality_bridge', // 现实桥 — iPhone 快捷指令 ↔ 云端 ↔ 角色聊天的双向数据桥
+  Weread = 'weread', // 微信读书 — 真实书架/笔记/正文（个人自用）+ 角色感知开关
 }
 
 export interface SystemLog {

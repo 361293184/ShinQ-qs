@@ -10,12 +10,13 @@ const XHS_PUBLISH_HOST_CANDIDATES = [
   "https://edith.xiaohongshu.com",
   "https://www.xiaohongshu.com",
 ];
+const WEREAD_BASE = "https://weread.qq.com";
 
 function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, xi-api-key, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Xhs-Platform, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, X-CF-Method, Mcp-Session-Id, Accept, Range",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, xi-api-key, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Xhs-Platform, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-Weread-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, X-CF-Method, Mcp-Session-Id, Accept, Range",
     "Access-Control-Expose-Headers": "Mcp-Session-Id",
     "Access-Control-Max-Age": "86400",
   };
@@ -3012,6 +3013,82 @@ export default {
       }
 
       return jsonResponse({ error: "Unknown Feishu endpoint" }, { status: 404, origin });
+    }
+
+    // ========== 微信读书代理（真实书架/笔记/正文，个人自用） ==========
+    // cookie 由浏览器经 X-Weread-Cookie 头带上（与小红书 X-Xhs-Cookie 同模式），
+    // worker 只转发、不落库；上游为 weread.qq.com 网页版内部接口，字段变动可在
+    // 下方 normalizeXxx 处统一修，前端不直接依赖原始字段。
+    if (url.pathname.startsWith('/weread/')) {
+      const cookie = request.headers.get("X-Weread-Cookie");
+      if (!cookie) {
+        return jsonResponse({ error: "NO_COOKIE", message: "缺少 X-Weread-Cookie：请在微信读书 App『我』页登录/粘贴 cookie" }, { status: 401, origin });
+      }
+      const q = new URL(request.url).searchParams;
+      const action = url.pathname.replace(/^\/weread\//, "").split("/")[0] || "";
+      const upstreamHeaders = {
+        "Cookie": cookie,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Referer": "https://weread.qq.com/",
+      };
+
+      const forward = async (upstreamUrl) => {
+        let res;
+        try {
+          res = await fetch(upstreamUrl, { method: "GET", headers: upstreamHeaders });
+        } catch (e) {
+          return jsonResponse({ error: "UPSTREAM_NETWORK", message: "微信读书接口暂不可达，请稍后重试" }, { status: 502, origin });
+        }
+        const text = await res.text();
+        if (!res.ok || res.status >= 400) {
+          if (res.status === 401 || res.status === 403 || /login|未登录|请先登录/i.test(text.slice(0, 300))) {
+            return jsonResponse({ error: "COOKIE_EXPIRED", message: "微信读书登录已失效，请到『我』页重新登录/更新 cookie" }, { status: 401, origin });
+          }
+          return jsonResponse({ error: "WEREAD_ERROR", message: `微信读书接口异常（HTTP ${res.status}）` }, { status: 502, origin });
+        }
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (e) { /* 非 JSON：按空数据处理 */ }
+        return jsonResponse({ data }, { origin });
+      };
+
+      // GET /weread/shelf - 书架（在读/想读/读完 + 进度）
+      if (action === "shelf") {
+        const realVid = q.get("userVid") || getCookieValue(cookie, "wr_vid") || "";
+        return forward(`${WEREAD_BASE}/web/shelf/sync?userVid=${encodeURIComponent(realVid)}&listMode=0&mineOnly=1&synckey=0`);
+      }
+      // GET /weread/book?bookId=xxx - 书籍信息（书名/作者/简介/封面）
+      if (action === "book") {
+        const bookId = q.get("bookId") || "";
+        if (!bookId) return jsonResponse({ error: "BAD_REQUEST", message: "缺少 bookId" }, { status: 400, origin });
+        return forward(`${WEREAD_BASE}/web/book/info?bookId=${encodeURIComponent(bookId)}`);
+      }
+      // GET /weread/chapters?bookIds=xxx - 章节目录（正文阅读页用）
+      if (action === "chapters") {
+        const bookIds = q.get("bookIds") || "";
+        if (!bookIds) return jsonResponse({ error: "BAD_REQUEST", message: "缺少 bookIds" }, { status: 400, origin });
+        return forward(`${WEREAD_BASE}/web/book/chapterInfos?bookIds=${encodeURIComponent(bookIds)}&synckeys=0`);
+      }
+      // GET /weread/read?bookId=xxx&chUid=xxx - 某章正文（接口偶有不稳，前端需降级）
+      if (action === "read") {
+        const bookId = q.get("bookId") || "";
+        const chUid = q.get("chUid") || q.get("chapterUid") || "";
+        if (!bookId || !chUid) return jsonResponse({ error: "BAD_REQUEST", message: "缺少 bookId 或 chUid" }, { status: 400, origin });
+        return forward(`${WEREAD_BASE}/web/reader/${encodeURIComponent(bookId)}_${encodeURIComponent(chUid)}?reader=1&info=1`);
+      }
+      // GET /weread/notes?bookId=xxx - 划线/想法（列表）
+      if (action === "notes") {
+        const bookId = q.get("bookId") || "";
+        if (!bookId) return jsonResponse({ error: "BAD_REQUEST", message: "缺少 bookId" }, { status: 400, origin });
+        return forward(`${WEREAD_BASE}/web/book/notes?bookId=${encodeURIComponent(bookId)}&listType=1&mine=1&synckey=0`);
+      }
+      // GET /weread/search?keyword=xxx - 搜索书籍/作者
+      if (action === "search") {
+        const keyword = q.get("keyword") || "";
+        if (!keyword) return jsonResponse({ error: "BAD_REQUEST", message: "缺少 keyword" }, { status: 400, origin });
+        const maxIdx = q.get("maxIdx") || "0";
+        return forward(`${WEREAD_BASE}/web/search/global?keyword=${encodeURIComponent(keyword)}&maxIdx=${encodeURIComponent(maxIdx)}&fragmentSize=100&maxCount=10`);
+      }
+      return jsonResponse({ error: "Unknown Weread endpoint" }, { status: 404, origin });
     }
 
     // ========== 小红书代理 ==========

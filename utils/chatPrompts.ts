@@ -423,6 +423,19 @@ export const ChatPrompts = {
             }
         })();
 
+        // 1b. 微信读书「角色感知」（App『我』页开关开 + cookie 有效时才拉，最近在读+划线）。
+        //     fire_pack / timelyByWorker 一律不注入：worker 不该读 localStorage/cookie，
+        //     也没有"主动发消息"需求；动态 import 保证 worker 打包路径不会触发浏览器模块副作用。
+        const wereadPromise: Promise<string> = (async () => {
+            if (forFirePack || timelyByWorker) return '';
+            try {
+                const { buildWereadPerceptionContext } = await import('./weread/wereadPerception');
+                return await buildWereadPerceptionContext();
+            } catch {
+                return '';
+            }
+        })();
+
         // 2. 日程（被"日程注入"和"音乐氛围"两处共用，合并成一次查询）
         //    总开关关闭时跳过查询与注入，确保不额外调用任何 LLM 依赖链
         const scheduleFeatureOn = isScheduleFeatureOn(char);
@@ -543,9 +556,10 @@ ${groupLogStr}\n`;
                 return '';
             });
 
-        const [realtimeText, schedule, groupContextText, notionDiaryText, feishuDiaryText, notionNotesText, lifeRecordText] =
+        const [realtimeText, wereadText, schedule, groupContextText, notionDiaryText, feishuDiaryText, notionNotesText, lifeRecordText] =
             await Promise.all([
                 timed('realtime', realtimePromise),
+                timed('weread', wereadPromise),
                 timed('schedule', schedulePromise),
                 timed('groupCtx', groupContextPromise),
                 timed('notionDiary', notionDiaryPromise),
@@ -556,6 +570,7 @@ ${groupLogStr}\n`;
 
         // ── 拼接：易变的进 volatileState，稳定的进 baseSystemPrompt ──
         volatileState += realtimeText;
+        volatileState += wereadText; // 微信读书角色感知（开关开且已登录才有内容）
 
         // 2a. 日程注入（完整今日日程 + 当前时段 + 意识流独白，每轮都可能变）
         //     fire_pack 不烤：改由 worker 到点用 AMSG_SLOT_SCENE 现挑时段（见 amsgFireScene）。
