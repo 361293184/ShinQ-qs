@@ -36,12 +36,12 @@ export default function WereadShelf({ onOpenBook, onOpenSearch, onNeedsLogin }: 
       const list = await fetchWereadShelf({ force });
       setBooks(list);
     } catch (e: any) {
+      // 不自动跳「我」页：只在当前书架里提示，让用户自己决定是否去登录
       setError(e?.message || '加载失败');
-      if (e?.code === 'NO_COOKIE' || e?.code === 'COOKIE_EXPIRED') onNeedsLogin();
     } finally {
       setLoading(false);
     }
-  }, [onNeedsLogin]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -106,7 +106,21 @@ export default function WereadShelf({ onOpenBook, onOpenSearch, onNeedsLogin }: 
       {loading && books.length === 0 ? (
         <Spinner label="正在同步书架…" />
       ) : error ? (
-        <ErrorHint message={error} onRetry={() => load(true)} />
+        <>
+          <ErrorHint message={error} onRetry={() => load(true)} />
+          {/登录/.test(error) && (
+            <div className="px-6 -mt-8">
+              <button
+                type="button"
+                onClick={onNeedsLogin}
+                className="w-full py-2.5 rounded-full text-emerald-800 text-xs font-semibold active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: '#E7F6EE' }}
+              >
+                去『我』页登录 / 更新 Cookie
+              </button>
+            </div>
+          )}
+        </>
       ) : filtered.length === 0 ? (
         <EmptyHint title={books.length === 0 ? '书架空空的' : '这个分类还没有书'} desc={books.length === 0 ? '在微信读书里加入几本想读的，就会出现在这里' : undefined} />
       ) : (
