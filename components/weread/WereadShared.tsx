@@ -117,8 +117,24 @@ export function ErrorHint({ message, onRetry }: { message: string; onRetry?: () 
 
 export function EmptyHint({ title, desc, action }: { title: string; desc?: string; action?: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-8 gap-2">
-      <span className="text-4xl">🪴</span>
+    <div className="flex flex-col items-center justify-center py-20 text-center px-8 gap-3">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 48 48"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-14 h-14 text-emerald-500/70"
+        aria-hidden="true"
+      >
+        <path d="M24 9v28" />
+        <path d="M24 9c-3-2.5-9.5-3.5-16-1.2V37c6.5-2.3 12.5-1.3 16 1.2V9z" />
+        <path d="M24 9c3-2.5 9.5-3.5 16-1.2V37c-6.5-2.3-12.5-1.3-16 1.2V9z" />
+        <path d="M11 13.5l5 1.2M11 18l5 1.2M11 22.5l5 1.2" />
+        <path d="M37 13.5l-5 1.2M37 18l-5 1.2M37 22.5l-5 1.2" />
+      </svg>
       <p className="text-sm font-semibold text-emerald-950">{title}</p>
       {desc && <p className="text-xs text-emerald-800/50 leading-relaxed">{desc}</p>}
       {action}
