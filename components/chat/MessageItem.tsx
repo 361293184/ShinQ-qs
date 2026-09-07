@@ -3306,8 +3306,10 @@ const MessageItem = React.memo(({
             char: 'bg-violet-500/15 text-violet-600',
             user: 'bg-emerald-500/15 text-emerald-600',
             joint: 'bg-pink-500/15 text-pink-600',
+            scenery: 'bg-sky-500/15 text-sky-600',
+            object: 'bg-amber-500/15 text-amber-600',
         };
-        const modeLabels: Record<string, string> = { char: '角色', user: '你', joint: '合照' };
+        const modeLabels: Record<string, string> = { char: '角色', user: '你', joint: '合照', scenery: '风景', object: '物件' };
         return (
             <>
                 {commonLayout(

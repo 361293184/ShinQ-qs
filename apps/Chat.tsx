@@ -36,6 +36,21 @@ import { CollaborationStore } from '../features/collaboration/store';
 import type { CollaborationTransferMessage } from '../features/collaboration/types';
 const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
 import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
+import {
+    requestDirectorDirective,
+    resolveExecutionFromDirective,
+    coerceDirective,
+    buildFallbackExecution,
+    DIRECTOR_RECENT_CHAT_TURNS,
+    DIRECTOR_RECENT_TURN_CHARS,
+    DIRECTOR_MEMORY_COUNT,
+    DIRECTOR_MEMORY_CHARS,
+    DIRECTOR_REFINED_COUNT,
+    DIRECTOR_REFINED_CHARS,
+    type ImageGenDirectorInput,
+    type ImageGenExecution,
+    type ImageGenSubjectType,
+} from '../utils/imageGenDirector';
 import McdMiniApp from '../components/mcd/McdMiniApp';
 import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
 import LuckinLocationModal from '../components/luckin/LuckinLocationModal';
@@ -113,6 +128,8 @@ const Chat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     // 生图：已处理过的消息 id（去重，避免 messages 变化导致重复触发）；手动生图面板开关
     const processedMsgIdsRef = useRef<Set<number>>(new Set());
+    // 「副 API 画面导演」判定失败已提示过一次（避免每次发图都刷 toast）
+    const directorWarnedRef = useRef(false);
     const [showImageGenPanel, setShowImageGenPanel] = useState(false);
     // 角色心声：点最新一条角色消息头像 → 弹出「此刻的心里话」；null = 未打开
     const [innerVoiceMsg, setInnerVoiceMsg] = useState<Message | null>(null);
@@ -1654,7 +1671,27 @@ const Chat: React.FC = () => {
     //   - 'joint' ：合照（角色锁脸 + 双人描述融合）
     // 生成的图片作为角色的回复（role: 'assistant'）出现在气泡流中
     // 新流程：先插入半透明占位卡片 → API 成功后替换为真图 → 失败则卡片显示失败状态
-    const autoGenerateImage = async (msgId: number, sceneDesc: string, mode: 'char' | 'user' | 'joint' = 'char') => {
+    // preset：失败占位卡点「重试」时传入，直接复用已定稿的 prompt 与锁脸意图（不重新判定）
+    const pickAutoImageCopy = (type: ImageGenSubjectType, usedLockFace: boolean): { statusText: string; successToast: string } => {
+        switch (type) {
+            case 'user':
+                return { statusText: 'AI 正在画你的照片，可能要 30~60 秒...', successToast: usedLockFace ? '已按你的锁脸生成照片' : '已按你的外貌生成照片' };
+            case 'joint':
+                return { statusText: 'AI 正在画合照，可能要 30~60 秒...', successToast: '已生成合照' };
+            case 'scenery':
+                return { statusText: 'AI 正在画眼前的风景，可能要 30~60 秒...', successToast: '已生成风景图' };
+            case 'object':
+                return { statusText: 'AI 正在画，可能要 30~60 秒...', successToast: '已生成图片' };
+            default:
+                return { statusText: 'AI 正在画，可能要 30~60 秒...', successToast: usedLockFace ? '已按锁脸生成图片' : '已按角色外貌生成图片' };
+        }
+    };
+    const autoGenerateImage = async (
+        msgId: number,
+        sceneDesc: string,
+        mode: 'char' | 'user' | 'joint' = 'char',
+        preset?: { finalPrompt: string; subjectType: ImageGenSubjectType; useCharLock: boolean; useUserLock: boolean; directorUsed: boolean; },
+    ) => {
         if (!apiConfig.imageGenBaseUrl || !apiConfig.imageGenApiKey || !apiConfig.imageGenModel) {
             return;
         }
@@ -1667,57 +1704,99 @@ const Chat: React.FC = () => {
         const { description: charDesc, lockImage: charLockImage } = loadCharImageSettings(char.name || '');
         const { description: userDesc, lockImage: userLockImage } = loadUserImageSettings();
 
-        // 三种模式的 prompt / lockImage 不同
+        // ---- 画面判定：副 API 当"视觉导演"（读最近聊天 + 角色长期记忆）----
+        // 旧链路是"前端关键词三档硬判 + 模板拼 prompt + 可选润色"，不认上下文，场景图会被硬套成角色人像。
+        // 新链路：副 API 结合 最近聊天 + 角色记忆(char.memories/refinedMemories) + 角色/用户外貌与锁脸 +
+        // 本次画面描述，自主决定主体类型(char/user/joint/scenery/object)与是否锁脸，产出最终英文 prompt。
+        // 副 API 未配置 / 超时 / 解析失败 → 回退三档模板(旧行为)，保证不哑火。
         let prompt: string;
         let lockImage: string | null = null;
-        let lockImageDataUrls: (string | null)[] | undefined; // 合照双锁脸：0=角色、1=用户
+        let lockImageDataUrls: (string | null | undefined)[] | undefined; // 合照双锁脸：0=角色、1=用户
         let statusText: string;
         let successToast: string;
         let metadataExtra: Record<string, any> = {};
 
         const charShort = charDesc || (char as any).persona?.replace(/\s+/g, ' ').slice(0, 300) || char.name || 'a character';
         const userShort = userDesc || 'a person';
-        // 锁脸强化指令：有锁脸图时强制 AI 以参考图为准，避免自由发挥改变性别/外貌
-        const lockFaceHint = 'MUST keep the face, hairstyle, gender, age, ethnicity, body shape and overall look of the reference photo (do not change appearance, do not invent a new person)';
 
-        if (mode === 'user') {
-            const parts = [userShort];
-            if (userLockImage) parts.push(lockFaceHint);
-            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
-            parts.push('masterpiece, best quality, highly detailed');
-            prompt = parts.filter(Boolean).join(', ');
-            lockImage = userLockImage || null;
-            statusText = 'AI 正在画你的照片，可能要 30~60 秒...';
-            successToast = userLockImage ? '已按你的锁脸生成照片' : '已按你的外貌生成照片';
-            metadataExtra = { imageGenMode: 'user', usedLockFace: !!userLockImage };
-        } else if (mode === 'joint') {
-            // 健壮版：空描述时用"参考图中的人物"代替，有锁脸优先
-            const _userPart = (userDesc && userDesc.trim()) || (userLockImage ? 'the exact person shown in the reference photo' : 'a person');
-            const _charPart = (charDesc && charDesc.trim()) || (charLockImage ? 'the exact character shown in the reference photo' : 'a character');
-            const _jointParts = ['two people together in the photo', 'the first person is the character in the first reference image, the second person is the person in the second reference image', _userPart, 'and', _charPart];
-            if (userLockImage) _jointParts.push(lockFaceHint);
-            if (charLockImage) _jointParts.push(lockFaceHint);
-            if (sceneDesc && sceneDesc.trim()) _jointParts.push(sceneDesc.trim());
-            _jointParts.push('couple photo, intimate and natural pose');
-            _jointParts.push('masterpiece, best quality, highly detailed');
-            prompt = _jointParts.filter(Boolean).join(', ');
-            lockImage = charLockImage || userLockImage || null; // 兼容旧字段
-            lockImageDataUrls = [charLockImage, userLockImage]; // 两张都传：0=角色、1=用户
-            statusText = 'AI 正在画合照，可能要 30~60 秒...';
-            successToast = '已生成合照';
-            metadataExtra = { imageGenMode: 'joint', usedLockFace: !!(charLockImage || userLockImage) };
-        } else {
-            // 默认 char 模式
-            const parts = [charShort];
-            if (charLockImage) parts.push(lockFaceHint);
-            if (sceneDesc && sceneDesc.trim()) parts.push(sceneDesc.trim());
-            parts.push('masterpiece, best quality, highly detailed');
-            prompt = parts.filter(Boolean).join(', ');
-            lockImage = charLockImage || null;
-            statusText = 'AI 正在画，可能要 30~60 秒...';
-            successToast = charLockImage ? '已按锁脸生成图片' : '已按角色外貌生成图片';
-            metadataExtra = { imageGenMode: 'char', usedLockFace: !!charLockImage };
+        const directorInput: ImageGenDirectorInput = {
+            charName: char.name || '',
+            charDesc: charDesc || '',
+            userDesc: userDesc || '',
+            sceneDesc: sceneDesc || '',
+            charShort,
+            userShort,
+            charLockDataUrl: charLockImage || '',
+            userLockDataUrl: userLockImage || '',
+            recentChat: messages.slice(-DIRECTOR_RECENT_CHAT_TURNS).map(m => ({
+                speaker: m.role === 'user' ? (userProfile.name || 'User') : (char.name || 'Character'),
+                text: (typeof m.content === 'string' ? m.content : '').replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_RECENT_TURN_CHARS),
+            })).filter(t => t.text),
+            memoryLines: (((char as any).memories) || []).slice(-DIRECTOR_MEMORY_COUNT).map((mem: any) =>
+                mem?.summary ? `[${mem.date || ''}] ${String(mem.summary).replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_MEMORY_CHARS)}` : ''
+            ).filter(Boolean),
+            refinedMemoryLines: Object.entries((char as any).refinedMemories || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .slice(-DIRECTOR_REFINED_COUNT)
+                .map(([month, summary]) => `[${month}] ${String(summary).replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_REFINED_CHARS)}`),
+            fallbackMode: mode,
+        };
+
+        let execution: ImageGenExecution | null = null;
+        let directorFailed = false;
+        const directorConfigured = !!(apiConfig.subBaseUrl && apiConfig.subApiKey && apiConfig.subModel);
+        const hasDirectorContext = directorInput.recentChat.length > 0 || directorInput.memoryLines.length > 0 || directorInput.refinedMemoryLines.length > 0;
+        if (preset) {
+            // 失败占位卡点「重试」：复用已存 final prompt 与锁脸意图，不再重新判定（避免图意漂移）
+            const coerced = coerceDirective(directorInput, {
+                subjectType: preset.subjectType,
+                useCharLock: preset.useCharLock,
+                useUserLock: preset.useUserLock,
+                prompt: preset.finalPrompt,
+            });
+            if (coerced) {
+                execution = resolveExecutionFromDirective(directorInput, coerced);
+                execution.directorUsed = preset.directorUsed;
+            }
+        } else if (directorConfigured && hasDirectorContext) {
+            try {
+                const directorCfg = {
+                    baseUrl: apiConfig.subBaseUrl || '',
+                    apiKey: apiConfig.subApiKey || '',
+                    model: apiConfig.subModel || '',
+                };
+                const directive = await requestDirectorDirective(directorCfg, directorInput);
+                if (directive) {
+                    execution = resolveExecutionFromDirective(directorInput, directive);
+                } else {
+                    directorFailed = true;
+                }
+            } catch (e: any) {
+                console.warn('[ImageGen Auto] director judgement failed, fallback to legacy modes:', e?.message || e);
+                directorFailed = true;
+            }
         }
+        if (!execution) {
+            execution = buildFallbackExecution(directorInput);
+        }
+        if (directorFailed && !directorWarnedRef.current) {
+            directorWarnedRef.current = true;
+            addToast('上下文画面判定暂不可用，已按基础模式生图', 'info');
+        }
+
+        prompt = execution.prompt;
+        lockImage = execution.lockImageDataUrl;
+        lockImageDataUrls = execution.lockImageDataUrls;
+        const autoCopy = pickAutoImageCopy(execution.imageGenMode, execution.usedLockFace);
+        statusText = autoCopy.statusText;
+        successToast = autoCopy.successToast;
+        metadataExtra = {
+            imageGenMode: execution.imageGenMode,
+            imageGenSubjectType: execution.imageGenMode,
+            usedLockFace: execution.usedLockFace,
+            directorBySubApi: execution.directorUsed,
+            refinedBySubApi: execution.directorUsed, // 兼容旧字段读取
+        };
 
         // ---- 第 1 步：先插入占位图片卡片（让用户看到"正在画"） ----
         const placeholderId = Date.now() + Math.floor(Math.random() * 10000);
@@ -1734,7 +1813,11 @@ const Chat: React.FC = () => {
                     imageGenPending: true,
                     imageGenSceneDesc: sceneDesc,
                     imageGenStatusText: statusText,
-                    imageGenMode: mode, // 重试时需要知道模式
+                    imageGenMode: execution.imageGenMode, // 重试时需要知道模式
+                    imageGenFinalPrompt: execution.prompt, // 重试复用最终 prompt
+                    imageGenUseCharLock: execution.useCharLock,
+                    imageGenUseUserLock: execution.useUserLock,
+                    imageGenDirectorUsed: execution.directorUsed,
                 },
             };
             return [...prev.map(m => m.id === msgId ? {
@@ -1748,45 +1831,6 @@ const Chat: React.FC = () => {
                 }
             } : m), placeholder];
         });
-
-        // ---- 第 2 步：副 API 结合最近聊天上下文精修 prompt（可选）----
-        // 该链路（角色主动发图 / 让角色发图）默认读上下文：让副 API 润色生图描述。
-        // 若副 API 未配置 / 上下文为空 / 调用失败 → 静默回退原始 prompt，不影响占位卡。
-        let refinedBySub = false;
-        if (apiConfig.subBaseUrl && apiConfig.subApiKey && apiConfig.subModel) {
-            try {
-                const recentCtx = messages.slice(-10).map(m => {
-                    const sender = m.role === 'user' ? userProfile.name : char.name;
-                    return `${sender}: ${(typeof m.content === 'string' ? m.content : '').substring(0, 120)}`;
-                }).join('\n');
-                if (recentCtx.trim()) {
-                    const subCtrl = new AbortController();
-                    const subTimer = setTimeout(() => subCtrl.abort(), 20000);
-                    try {
-                        const subRes = await fetch(`${apiConfig.subBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.subApiKey}` },
-                            body: JSON.stringify({
-                                model: apiConfig.subModel,
-                                messages: [
-                                    { role: 'system', content: 'You are a prompt engineer. Generate a single detailed English image generation prompt based on the input. Describe scene, appearance, lighting, mood, composition. Output ONLY the prompt, nothing else.' },
-                                    { role: 'user', content: `Mode: ${mode}\nCharacter: ${char.name}\nCharDesc: ${charDesc}\nUserDesc: ${userDesc}\nScene: ${sceneDesc || 'portrait'}\nLock: ${lockImage ? 'must keep the face/appearance of the reference photo' : 'no reference photo'}\nRecent chat context:\n${recentCtx}\n\nBase draft prompt:\n${prompt}` },
-                                ],
-                                max_tokens: 300,
-                                temperature: 0.7,
-                            }),
-                        });
-                        clearTimeout(subTimer);
-                        if (subRes.ok) {
-                            const subData = await subRes.json();
-                            const refined = subData?.choices?.[0]?.message?.content;
-                            if (refined && refined.trim()) { prompt = refined.trim(); refinedBySub = true; }
-                        }
-                    } catch { clearTimeout(subTimer); }
-                }
-            } catch { /* 副 API 精修失败：继续用原始 prompt */ }
-        }
-        if (refinedBySub) metadataExtra = { ...metadataExtra, refinedBySubApi: true };
 
         // ---- 第 3 步：调生图 API ----
         try {
@@ -1922,11 +1966,25 @@ const Chat: React.FC = () => {
     };
 
     // 失败时点击「重试」——从已尝试集合里移除，允许再次触发
+    // 优先复用占位卡 metadata 里已定稿的 final prompt 与锁脸意图，避免重新判定导致图意漂移
     const retryImageGen = useCallback((msgId: number, sceneDesc: string) => {
         const msg = messages.find(m => m.id === msgId);
-        const mode: 'char' | 'user' | 'joint' = ((msg as any)?.metadata?.imageGenMode) || 'char';
+        const meta = ((msg as any)?.metadata) || {};
+        const finalPrompt = meta.imageGenFinalPrompt as string | undefined;
+        const subjectType = (meta.imageGenMode as ImageGenSubjectType) || 'char';
+        const mode: 'char' | 'user' | 'joint' = (subjectType === 'user' || subjectType === 'joint') ? subjectType : 'char';
         processedMsgIdsRef.current.delete(msgId);
-        autoGenerateImage(msgId, sceneDesc, mode);
+        if (finalPrompt && finalPrompt.trim()) {
+            autoGenerateImage(msgId, sceneDesc, mode, {
+                finalPrompt,
+                subjectType,
+                useCharLock: !!meta.imageGenUseCharLock,
+                useUserLock: !!meta.imageGenUseUserLock,
+                directorUsed: !!meta.imageGenDirectorUsed,
+            });
+        } else {
+            autoGenerateImage(msgId, sceneDesc, mode);
+        }
     }, [char, apiConfig, messages]);
 
     // 自动生图：只在 AI 打字刚结束（isTyping 从 true→false）的瞬间检查最新 AI 消息
