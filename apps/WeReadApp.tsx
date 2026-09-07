@@ -18,6 +18,7 @@ import WereadBookCity from '../components/weread/WereadBookCity';
 import WereadBookDetail from '../components/weread/WereadBookDetail';
 import WereadReader from '../components/weread/WereadReader';
 import WereadNotes from '../components/weread/WereadNotes';
+import WereadAllNotes from '../components/weread/WereadAllNotes';
 
 type Tab = 'read' | 'shelf' | 'me';
 
@@ -59,6 +60,10 @@ const WeReadApp: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [reader, setReader] = useState<{ bookId: string; bookTitle: string } | null>(null);
   const [notes, setNotes] = useState<{ bookId: string; bookTitle: string } | null>(null);
+  // 「我」页数字卡跳书架：目标过滤 + 每次点强制重挂载书架
+  const [shelfNav, setShelfNav] = useState<{ filter: 'reading' | 'finished' | 'wish' | 'all'; ts: number } | null>(null);
+  // 「我」页点「笔记」→ 聚合全部书的划线/想法
+  const [allNotesOpen, setAllNotesOpen] = useState(false);
 
   // 阅读 Tab：最近在读
   const [recent, setRecent] = useState<WereadBook[]>([]);
@@ -101,8 +106,24 @@ const WeReadApp: React.FC = () => {
   const openReader = (bookId: string) => setReader({ bookId, bookTitle: detail?.title || '微信读书' });
   const openNotes = (bookId: string) => setNotes({ bookId, bookTitle: detail?.title || '' });
 
-  // 全屏子页（搜索/详情/阅读器/笔记）：隐藏 Tab 栏
+  // 「阅读」Tab 版式数据（方案 §3.1①）
+  const READ_CATEGORIES = ['开学特惠', '分类', '榜单', '书单', '会员'] as const;
+  const WEEK_ROW = ['一', '二', '三', '四', '五', '六', '日'] as const;
+  const todayWeekIdx = (new Date().getDay() + 6) % 7; // 周一为首
+
+  // 全屏子页（搜索/详情/阅读器/笔记/全部笔记）：隐藏 Tab 栏
   const fullscreenPage = useMemo(() => {
+    if (allNotesOpen) {
+      return {
+        key: 'all-notes',
+        render: () => (
+          <WereadAllNotes
+            onBack={() => setAllNotesOpen(false)}
+            onOpenBook={(bookId, bookTitle) => { setAllNotesOpen(false); setNotes({ bookId, bookTitle }); }}
+          />
+        ),
+      };
+    }
     if (reader) {
       return { render: () => <WereadReader bookId={reader.bookId} bookTitle={reader.bookTitle} onBack={() => setReader(null)} />, key: 'reader' };
     }
@@ -126,7 +147,7 @@ const WeReadApp: React.FC = () => {
       return { key: 'search', render: () => <WereadBookCity onBack={() => setSearchOpen(false)} onOpenBook={b => { setSearchOpen(false); setDetail(b); }} /> };
     }
     return null;
-  }, [reader, notes, detail, searchOpen]);
+  }, [reader, notes, detail, searchOpen, allNotesOpen]);
 
   if (fullscreenPage) {
     return (
@@ -147,12 +168,10 @@ const WeReadApp: React.FC = () => {
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              aria-label="搜索"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-emerald-800 bg-emerald-600/10 active:scale-90 transition-transform"
+              aria-label="书城"
+              className="px-3 h-8 rounded-full text-emerald-700 text-xs font-semibold bg-emerald-600/10 active:scale-95 transition-transform"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
-              </svg>
+              书城
             </button>
           ) : undefined
         }
@@ -161,26 +180,61 @@ const WeReadApp: React.FC = () => {
       {/* Body */}
       <div className="flex-1 min-h-0 flex flex-col">
         {tab === 'shelf' && (
-          <WereadShelf onOpenBook={openBook} onOpenSearch={() => setSearchOpen(true)} onNeedsLogin={() => setTab('me')} />
+          <WereadShelf
+            key={shelfNav?.ts ?? 0}
+            initialFilter={shelfNav?.filter ?? 'all'}
+            onOpenBook={openBook}
+            onOpenSearch={() => setSearchOpen(true)}
+            onNeedsLogin={() => setTab('me')}
+          />
         )}
 
         {tab === 'read' && (
-          <div className="flex-1 min-h-0 flex flex-col bg-[#F7F8F6] overflow-y-auto no-scrollbar">
-            {/* 本周/顶部欢迎 */}
-            <div className="mx-3 mt-3 rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg,#E7F6EE,#FFFFFF)' }}>
-              <div className="p-4">
-                <p className="text-[11px] text-emerald-800/50 font-medium">为你推荐 · 最近在读</p>
-                <p className="text-sm font-semibold text-emerald-950 mt-1">继续读下去，把今天也留给书。</p>
+          <div className="flex-1 min-h-0 flex flex-col bg-[#F7F8F6] overflow-y-auto no-scrollbar pb-6">
+            {/* 分类入口（横滑）：真实分类/榜单/书单接口暂未接入 → 先进「书城」搜索同类内容 */}
+            <div className="shrink-0 flex gap-2 overflow-x-auto no-scrollbar px-3 pt-3">
+              {READ_CATEGORIES.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setSearchOpen(true)}
+                  className="shrink-0 px-4 py-2 rounded-full bg-white border border-emerald-100 text-emerald-800/70 text-xs font-semibold active:scale-95 transition-transform"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            {/* 本周阅读（时长接口未接入 → 诚实占位，不造假） */}
+            <div className="mx-3 mt-3 rounded-2xl bg-white border border-emerald-100 px-4 py-4">
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-[11px] text-emerald-800/50 font-medium">本周阅读</h3>
+                <span className="text-lg font-bold text-slate-300">— 分钟</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                {WEEK_ROW.map((w, i) => (
+                  <span
+                    key={w}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] ${i === todayWeekIdx ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400'}`}
+                  >
+                    {w}
+                  </span>
+                ))}
               </div>
             </div>
 
-            <div className="flex-1 min-h-0">
+            {/* 为你推荐（真实最近在读，非假数据） */}
+            <div className="px-3 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[14px] font-semibold text-emerald-950">为你推荐</h3>
+                {recent.length > 0 && <span className="text-[10px] text-emerald-800/40">{recent.length} 本在读</span>}
+              </div>
               {recentLoading ? (
                 <Spinner label="同步最近阅读…" />
               ) : recent.length === 0 ? (
                 <EmptyHint
                   title="还没有最近阅读"
-                  desc="在『书架』里打开一本书，就会出现在这里"
+                  desc="在『书架』里打开一本书，推荐区就会出现"
                   action={
                     <button
                       type="button"
@@ -193,20 +247,14 @@ const WeReadApp: React.FC = () => {
                   }
                 />
               ) : (
-                <div className="px-3 pt-3 pb-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[13px] font-semibold text-emerald-950">最近在读</h3>
-                    <span className="text-[10px] text-emerald-800/40">{recent.length} 本</span>
-                  </div>
-                  <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-3 px-3">
-                    {recent.map(b => (
-                      <button key={b.bookId} type="button" onClick={() => openBook(b)} className="w-[104px] shrink-0 text-left active:scale-[0.98] transition-transform">
-                        <BookCover src={b.cover} title={b.title} className="aspect-[3/4]" rounded="rounded-lg" />
-                        <p className="mt-1.5 text-[12px] text-emerald-950 font-medium line-clamp-1">{b.title}</p>
-                        {b.progress > 0 && <p className="text-[10px] font-semibold" style={{ color: '#07A05C' }}>读到 {Math.round(b.progress)}%</p>}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-3 px-3">
+                  {recent.map(b => (
+                    <button key={b.bookId} type="button" onClick={() => openBook(b)} className="w-[104px] shrink-0 text-left active:scale-[0.98] transition-transform">
+                      <BookCover src={b.cover} title={b.title} className="aspect-[3/4]" rounded="rounded-lg" />
+                      <p className="mt-1.5 text-[12px] text-emerald-950 font-medium line-clamp-1">{b.title}</p>
+                      {b.progress > 0 && <p className="text-[10px] font-semibold" style={{ color: '#07A05C' }}>读到 {Math.round(b.progress)}%</p>}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -219,6 +267,10 @@ const WeReadApp: React.FC = () => {
             finishedCount={meStats?.finished ?? 0}
             noteCount={meStats?.notes ?? 0}
             onOpenSettings={() => openApp(AppID.Settings)}
+            // 「我」页数字卡点击：在读/读完 → 书架带过滤；笔记 → 全部笔记聚合页
+            onOpenInRead={() => { setTab('shelf'); setShelfNav({ filter: 'reading', ts: Date.now() }); }}
+            onOpenFinished={() => { setTab('shelf'); setShelfNav({ filter: 'finished', ts: Date.now() }); }}
+            onOpenNotes={() => setAllNotesOpen(true)}
           />
         )}
       </div>

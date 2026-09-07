@@ -9,11 +9,17 @@ import { getWereadConfig, getWereadCookieValue } from '../../utils/weread/weread
 interface Props {
   /** 昵称（cookie 里的 wr_name，通常由父级传入展示） */
   nickname?: string;
+  /** 真实头像 URL（worker 用户接口返回；缺省用首字母占位） */
+  avatar?: string;
   inReadCount: number;
   finishedCount: number;
   noteCount: number;
   /** 打开 SullyOS 设置 → 实时感知（补 cookie / 角色感知开关） */
   onOpenSettings: () => void;
+  /** 数字卡点击：在读 → 书架在读；读完 → 书架读完；笔记 → 全部笔记 */
+  onOpenInRead: () => void;
+  onOpenFinished: () => void;
+  onOpenNotes: () => void;
 }
 
 function LabeledDash({ label }: { label: string }) {
@@ -25,16 +31,21 @@ function LabeledDash({ label }: { label: string }) {
   );
 }
 
-function StatCell({ value, label, accent }: { value: number; label: string; accent?: boolean }) {
+function StatCell({ value, label, accent, onClick }: { value: number; label: string; accent?: boolean; onClick?: () => void }) {
+  const Comp = onClick ? 'button' : 'div';
   return (
-    <div className={`rounded-2xl px-3 py-3 text-center ${accent ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-900'}`}>
+    <Comp
+      type={Comp === 'button' ? 'button' : undefined}
+      onClick={onClick}
+      className={`rounded-2xl px-3 py-3 text-center ${onClick ? 'cursor-pointer active:scale-[0.98] transition-transform' : ''} ${accent ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-900'}`}
+    >
       <p className={`text-2xl font-extrabold leading-none ${accent ? 'text-white' : 'text-emerald-700'}`}>{value}</p>
       <p className={`mt-1.5 text-[10px] font-medium ${accent ? 'text-emerald-50/80' : 'text-emerald-700/60'}`}>{label}</p>
-    </div>
+    </Comp>
   );
 }
 
-export default function WereadProfile({ nickname: nicknameProp, inReadCount, finishedCount, noteCount, onOpenSettings }: Props) {
+export default function WereadProfile({ nickname: nicknameProp, avatar, inReadCount, finishedCount, noteCount, onOpenSettings, onOpenInRead, onOpenFinished, onOpenNotes }: Props) {
   const profile = getWereadConfig();
   const cookieName = getWereadCookieValue(profile.cookie, 'wr_name');
   const nickname = (nicknameProp || profile.nickname || cookieName || '').trim();
@@ -51,9 +62,20 @@ export default function WereadProfile({ nickname: nicknameProp, inReadCount, fin
       >
         <div className="absolute -right-6 -top-8 w-32 h-32 rounded-full bg-emerald-200/30 blur-2xl" aria-hidden />
         <div className="relative flex items-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-600/15 border border-emerald-200 flex items-center justify-center text-emerald-700 font-extrabold text-2xl shrink-0">
-            {initial}
-          </div>
+          {avatar ? (
+            <img
+              src={avatar}
+              alt={displayName}
+              loading="lazy"
+              decoding="async"
+              onError={(e) => { (e.currentTarget.style.display = 'none'); }}
+              className="w-16 h-16 rounded-2xl border border-emerald-200 object-cover bg-emerald-50 shrink-0"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-emerald-600/15 border border-emerald-200 flex items-center justify-center text-emerald-700 font-extrabold text-2xl shrink-0">
+              {initial}
+            </div>
+          )}
           <div className="min-w-0 flex-1">
             <p className="text-lg font-bold text-emerald-950 leading-tight truncate">{displayName}</p>
             <p className="text-[11px] text-emerald-700/60 mt-0.5">微信读书 · {roleAware ? '角色感知已开启' : '账号未连接'}</p>
@@ -64,11 +86,11 @@ export default function WereadProfile({ nickname: nicknameProp, inReadCount, fin
         </div>
       </div>
 
-      {/* 统计卡 */}
+      {/* 统计卡（可点击：在读/读完 → 书架过滤；笔记 → 全部笔记） */}
       <div className="mx-3 mt-3 grid grid-cols-3 gap-2">
-        <StatCell value={inReadCount} label="在读" accent />
-        <StatCell value={finishedCount} label="读完" />
-        <StatCell value={noteCount} label="笔记" />
+        <StatCell value={inReadCount} label="在读" accent onClick={onOpenInRead} />
+        <StatCell value={finishedCount} label="读完" onClick={onOpenFinished} />
+        <StatCell value={noteCount} label="笔记" onClick={onOpenNotes} />
       </div>
 
       {/* 会员/余额/榜单等（接口暂未接入 → 占位） */}

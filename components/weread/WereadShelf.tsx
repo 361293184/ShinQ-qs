@@ -10,6 +10,8 @@ import { BookCover, ErrorHint, EmptyHint, Spinner, ProgressPill } from './Weread
 type Filter = 'all' | WereadReadingStatus;
 
 interface Props {
+  /** 初始过滤（「我」页点数字卡跳来带的目标过滤；父级用 key 重挂载生效） */
+  initialFilter?: Filter;
   onOpenBook: (book: WereadBook) => void;
   onOpenSearch: () => void;
   onNeedsLogin: () => void;
@@ -22,11 +24,11 @@ const TABS: { key: Filter; label: string }[] = [
   { key: 'wish', label: '想读' },
 ];
 
-export default function WereadShelf({ onOpenBook, onOpenSearch, onNeedsLogin }: Props) {
+export default function WereadShelf({ initialFilter = 'all', onOpenBook, onOpenSearch, onNeedsLogin }: Props) {
   const [books, setBooks] = useState<WereadBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>(initialFilter);
   const [profileCookieOk] = useState(() => !!loadWereadProfile().cookie);
 
   const load = useCallback(async (force = false) => {
