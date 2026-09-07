@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SAR_CLUB_STORAGE_KEY } from './vrWorld/sarClub';
 import { SAR_GACHA_STORAGE_KEY } from './vrWorld/sarGacha';
+import { SAR_MODULE_CATALOG, SAR_MODULE_SHOP_STORAGE_KEY } from './vrWorld/sarModuleShop';
 import { collectSARLocalBackup, restoreSARLocalBackup } from './vrWorld/sarBackup';
 import {
     SAR_SIMULATION_STORAGE_KEY,
@@ -280,15 +281,23 @@ describe('SAR 推演与备份状态', () => {
         expect(resolveSARSimulationApi(char, null, api('chat')).baseUrl).toBe('chat');
     });
 
-    it('新备份会携带 SAR 三类本地状态', () => {
+    it('新备份会携带 SAR 四类本地状态', () => {
         const storage = memoryStorage();
         storage.setItem(SAR_CLUB_STORAGE_KEY, JSON.stringify({ version: 1, updateSeenVersion: 1, npcPreference: 'show', caianMet: true }));
         storage.setItem(SAR_GACHA_STORAGE_KEY, JSON.stringify({ version: 1, freeDrawDate: {}, collection: { 'variant-01': 1 }, history: [] }));
         storage.setItem(SAR_SIMULATION_STORAGE_KEY, JSON.stringify({ version: 2, cards: [], runs: [] }));
+        storage.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify({
+            version: 1,
+            credits: 0,
+            inventory: {},
+            purchases: [],
+            market: { dayKey: '2026-09-06', offerIds: [], rollsRemaining: 3 },
+        }));
         const backup = collectSARLocalBackup(storage);
         expect(backup.club).toBeTruthy();
         expect(backup.gacha).toBeTruthy();
         expect(backup.simulations).toEqual({ version: 2, cards: [], runs: [] });
+        expect(backup.moduleShop).toBeTruthy();
     });
 
     it('导入不含 SAR 字段的旧主历史会清掉当前设备标记', () => {
@@ -296,10 +305,12 @@ describe('SAR 推演与备份状态', () => {
         storage.setItem(SAR_CLUB_STORAGE_KEY, '{}');
         storage.setItem(SAR_GACHA_STORAGE_KEY, '{}');
         storage.setItem(SAR_SIMULATION_STORAGE_KEY, '{}');
+        storage.setItem(SAR_MODULE_SHOP_STORAGE_KEY, '{}');
         restoreSARLocalBackup(undefined, { replaceMissing: true }, storage);
         expect(storage.getItem(SAR_CLUB_STORAGE_KEY)).toBeNull();
         expect(storage.getItem(SAR_GACHA_STORAGE_KEY)).toBeNull();
         expect(storage.getItem(SAR_SIMULATION_STORAGE_KEY)).toBeNull();
+        expect(storage.getItem(SAR_MODULE_SHOP_STORAGE_KEY)).toBeNull();
     });
 
     it('媒体补丁导入不会清理 SAR，显式备份则会覆盖', () => {
@@ -310,7 +321,25 @@ describe('SAR 推演与备份状态', () => {
 
         restoreSARLocalBackup({ version: 1, club: { version: 1, updateSeenVersion: 0, npcPreference: null, caianMet: false } }, { replaceMissing: true }, storage);
         expect(storage.getItem(SAR_CLUB_STORAGE_KEY)).toContain('"npcPreference":null');
+        expect(storage.getItem(SAR_MODULE_SHOP_STORAGE_KEY)).toBeNull();
         expect(readSARSimulationState(storage).cards).toHaveLength(0);
         expect(readSARSimulationState(storage).runs).toHaveLength(0);
+    });
+
+    it('模块商店库存会随 SAR 备份恢复', () => {
+        const storage = memoryStorage();
+        const moduleId = SAR_MODULE_CATALOG[0].id;
+        restoreSARLocalBackup({
+            version: 1,
+            moduleShop: {
+                version: 1,
+                credits: 0,
+                inventory: { [moduleId]: 2 },
+                purchases: [],
+                market: { dayKey: '2026-09-06', offerIds: SAR_MODULE_CATALOG.slice(0, 5).map(item => item.id), rollsRemaining: 2 },
+            },
+        }, { replaceMissing: true }, storage);
+
+        expect(storage.getItem(SAR_MODULE_SHOP_STORAGE_KEY)).toContain(`"${moduleId}":2`);
     });
 });

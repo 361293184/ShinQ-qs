@@ -26,6 +26,7 @@ import { shareOrDownloadFile } from '../utils/shareExport';
 import { buildInPersonContinueInstruction } from '../utils/meetingContinue';
 import {
     advanceSARModuleRuntime,
+    createSARModuleEventMeta,
     createSARModuleSurfaceMeta,
     getSARModuleRuntimePlan,
     parseSARModuleReply,
@@ -461,9 +462,16 @@ const DateApp: React.FC = () => {
         });
         const rawContent = await callLLM(messages, apiConfig.temperature ?? 0.85);
         const parsed = parseSARModuleReply(rawContent, sarModulePlan);
-        if (sarModulePlan.user?.phase === 'active' && parsed.userSurface && userMessageId) {
-            const surface = createSARModuleSurfaceMeta(sarModulePlan.user, parsed.userSurface);
-            if (surface) await DB.updateMessageMetadata(userMessageId, previous => ({ ...(previous || {}), sarModuleSurface: surface }));
+        const sarModuleEvents = createSARModuleEventMeta(sarModulePlan);
+        const userSurface = sarModulePlan.user?.phase === 'active' && parsed.userSurface
+            ? createSARModuleSurfaceMeta(sarModulePlan.user, parsed.userSurface)
+            : undefined;
+        if (userMessageId && (sarModuleEvents.length > 0 || userSurface)) {
+            await DB.updateMessageMetadata(userMessageId, previous => ({
+                ...(previous || {}),
+                ...(userSurface ? { sarModuleSurface: userSurface } : {}),
+                ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+            }));
         }
         const assistantSurface = sarModulePlan.character?.phase === 'active' && parsed.assistantSurface
             ? createSARModuleSurfaceMeta(sarModulePlan.character, parsed.assistantSurface)
@@ -554,9 +562,16 @@ const DateApp: React.FC = () => {
         const rawContent = await callLLM(messages, Math.max(apiConfig.temperature ?? 0.85, 0.9));
         const sarPlan = getSARModuleRuntimePlan(char, userProfile);
         const parsed = parseSARModuleReply(rawContent, sarPlan);
-        if (sarPlan.user?.phase === 'active' && parsed.userSurface) {
-            const userSurface = createSARModuleSurfaceMeta(sarPlan.user, parsed.userSurface);
-            if (userSurface) await DB.updateMessageMetadata(lastUserMsg.id, previous => ({ ...(previous || {}), sarModuleSurface: userSurface }));
+        const sarModuleEvents = createSARModuleEventMeta(sarPlan);
+        const userSurface = sarPlan.user?.phase === 'active' && parsed.userSurface
+            ? createSARModuleSurfaceMeta(sarPlan.user, parsed.userSurface)
+            : undefined;
+        if (sarModuleEvents.length > 0 || userSurface) {
+            await DB.updateMessageMetadata(lastUserMsg.id, previous => ({
+                ...(previous || {}),
+                ...(userSurface ? { sarModuleSurface: userSurface } : {}),
+                ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+            }));
         }
         const assistantSurface = sarPlan.character?.phase === 'active' && parsed.assistantSurface
             ? createSARModuleSurfaceMeta(sarPlan.character, parsed.assistantSurface)

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import SARClubRoom from './SARClubRoom';
 import { CaretRight, X } from '@phosphor-icons/react';
 import {
     getSARDialogueNode,
@@ -82,39 +83,17 @@ export const SARClubStage: React.FC<{
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
+    onOpenFishingMarket: (entry: 'water' | 'board') => void;
     fullPage?: boolean;
-}> = ({ npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, fullPage = false }) => (
+}> = ({ npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => (
     <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute bottom-[8%] left-[8%] right-[8%] grid grid-cols-2 gap-2">
-            {[
-                { label: '异世界扭蛋', en: 'ISEKAI', enabled: true, action: onOpenGacha },
-                { label: '异界陈列柜', en: 'ASSEMBLY', enabled: true, action: onOpenCabinet },
-                { label: '模块购买', en: 'MODULES', enabled: true, action: onOpenModuleShop },
-                { label: '钓鱼区', en: 'FISHING', enabled: false, action: undefined },
-            ].map(facility => (
-                <button type="button" key={facility.label} disabled={!facility.enabled} onClick={facility.action}
-                    aria-label={facility.enabled ? `进入${facility.label}` : `${facility.label}准备中`}
-                    className="rounded-xl px-2 py-2.5 text-center backdrop-blur-sm transition-transform enabled:active:scale-[0.96] disabled:opacity-55"
-                    style={{ background: facility.enabled ? 'linear-gradient(145deg,rgba(29,50,67,.72),rgba(8,9,18,.55))' : 'rgba(8,9,18,.42)', border: facility.enabled ? '1px solid rgba(133,192,220,.28)' : '1px solid rgba(255,255,255,.08)', boxShadow: facility.enabled ? 'inset 0 0 15px rgba(103,181,216,.07)' : undefined }}>
-                    <div className="text-[10px] text-white/58">{facility.label}</div>
-                    <div className="mt-0.5 text-[6.5px] tracking-[0.16em] text-indigo-200/25">{facility.en}</div>
-                    <div className="mt-1 text-[6px] tracking-[0.08em]" style={{ color: facility.enabled ? 'rgba(168,220,240,.62)' : 'rgba(255,255,255,.22)' }}>{facility.enabled ? '已接入' : '准备中'}</div>
-                </button>
-            ))}
-        </div>
-        {npcEnabled && (
-            <>
-                <div className="absolute bottom-[35%] left-[27%]" style={{ animation: 'vrfloat 3.2s ease-in-out infinite' }}>
-                    <NpcStandIn who="caian" compact={!fullPage} onClick={caianMet ? undefined : onTalkToCaian} showQuest={!caianMet} />
-                </div>
-                <div className="absolute bottom-[34%] right-[15%]" style={{ animation: 'vrfloat 3.5s .4s ease-in-out infinite' }}>
-                    <NpcStandIn who="aiven" compact={!fullPage} active={caianMet} />
-                </div>
-            </>
-        )}
+        <SARClubRoom onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} />
+        {npcEnabled && <div className="sar-club-npcs">
+            {caianMet ? <span>凯恩在活动室</span> : <button type="button" onClick={onTalkToCaian} aria-label="与凯恩交谈">！ 凯恩</button>}
+            <span>艾文在活动室</span>
+        </div>}
     </div>
 );
-
 export const SARCaianDialogue: React.FC<{
     onClose: () => void;
     onComplete: (reaction?: SARIntroReaction) => void;

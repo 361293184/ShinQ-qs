@@ -59,6 +59,7 @@ import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import {
     advanceSARModuleRuntime,
+    createSARModuleEventMeta,
     createSARModuleSurfaceMeta,
     getSARModuleRuntimePlan,
     parseSARModuleReply,
@@ -2059,14 +2060,16 @@ export const useChatAI = ({
             const latestUserMessage = currentMsgs.slice().reverse().find(message => (
                 message.role === 'user' && message.type === 'text'
             ));
-            if (sarModulePlan.user?.phase === 'active' && sarReply.userSurface && latestUserMessage?.id) {
-                const userSurfaceMeta = createSARModuleSurfaceMeta(sarModulePlan.user, sarReply.userSurface);
-                if (userSurfaceMeta) {
-                    await DB.updateMessageMetadata(latestUserMessage.id, previous => ({
-                        ...(previous || {}),
-                        sarModuleSurface: userSurfaceMeta,
-                    }));
-                }
+            const sarModuleEvents = createSARModuleEventMeta(sarModulePlan);
+            const userSurfaceMeta = sarModulePlan.user?.phase === 'active' && sarReply.userSurface
+                ? createSARModuleSurfaceMeta(sarModulePlan.user, sarReply.userSurface)
+                : undefined;
+            if (latestUserMessage?.id && (sarModuleEvents.length > 0 || userSurfaceMeta)) {
+                await DB.updateMessageMetadata(latestUserMessage.id, previous => ({
+                    ...(previous || {}),
+                    ...(userSurfaceMeta ? { sarModuleSurface: userSurfaceMeta } : {}),
+                    ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+                }));
             }
             const assistantSurfaceMeta = sarModulePlan.character?.phase === 'active' && sarReply.assistantSurface
                 ? createSARModuleSurfaceMeta(sarModulePlan.character, sarReply.assistantSurface)

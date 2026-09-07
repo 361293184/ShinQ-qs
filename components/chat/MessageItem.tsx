@@ -2535,6 +2535,11 @@ const MessageItem = React.memo(({
                             </div>
                         )}
                         {/* 留言簿：把角色在墙上留的原话也显示出来 */}
+                        {md.privateWords && <blockquote className="mt-2 border-l-2 border-teal-200/50 pl-2 text-[12px] leading-relaxed text-indigo-50 whitespace-pre-wrap">{md.privateWords}</blockquote>}
+                        {(md.marketActivity || md.marketEventId) && <details className="mt-2 text-[11px] text-indigo-200/80">
+                            <summary className="cursor-pointer">展开经过与原话</summary>
+                            <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
+                        </details>}
                         {Array.isArray(md.boardPosts) && md.boardPosts.length > 0 && (
                             <div className="mt-2 space-y-1">
                                 {md.boardPosts.map((p: any, i: number) => (

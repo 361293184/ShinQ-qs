@@ -19,6 +19,7 @@ import {
     consumeSARModule,
     getSARModuleById,
     getSARModuleOffers,
+    normalizeSARModuleConfiguration,
     purchaseSARModule,
     readSARModuleShopState,
     rollSARModuleOffers,
@@ -124,7 +125,7 @@ const ModuleDetail: React.FC<{
                 </div>
                 <div className="sar-module-detail__tags">
                     <span>{module.supportsUserTarget ? '可对角色 / 用户装载' : '仅角色端演出'}</span>
-                    {module.requiresConfiguration && <span>装载时需设定关键词</span>}
+                    {module.configuration && <span>装载时需设定关键词</span>}
                     <span>角色 10 回合</span>
                     {module.supportsUserTarget && <span>用户 5 回合</span>}
                 </div>
@@ -151,6 +152,7 @@ export const SARModuleShopOverlay: React.FC<{
     const [installingId, setInstallingId] = useState<string | null>(null);
     const [installTargetId, setInstallTargetId] = useState<string | null>(initialTargetCharacterId);
     const [installPhase, setInstallPhase] = useState<'select' | 'confirm' | 'loading' | 'done'>('select');
+    const [installConfigurationValue, setInstallConfigurationValue] = useState('');
     const [reverseInstall, setReverseInstall] = useState<{ charName: string; moduleTitle: string } | null>(null);
     const offers = useMemo(() => getSARModuleOffers(state), [state]);
     const inventoryModules = useMemo(() => Object.entries(state.inventory)
@@ -165,6 +167,9 @@ export const SARModuleShopOverlay: React.FC<{
         : undefined;
     const installing = installingId ? getSARModuleById(installingId) : undefined;
     const installTarget = installTargetId ? eligibleChars.find(character => character.id === installTargetId) : undefined;
+    const installConfiguration = installing
+        ? normalizeSARModuleConfiguration(installing, installConfigurationValue)
+        : undefined;
     const allowReverse = userProfile.vrState?.allowCharacterModules === true;
 
     useEffect(() => {
@@ -196,6 +201,7 @@ export const SARModuleShopOverlay: React.FC<{
                 module: installing.title,
                 phase: installPhase,
                 target: installTarget?.name || null,
+                configuration: installConfiguration?.keyword || null,
                 reverseInstall,
             } : null,
         });
@@ -209,7 +215,7 @@ export const SARModuleShopOverlay: React.FC<{
             if (previousAdvance) target.advanceTime = previousAdvance;
             else delete target.advanceTime;
         };
-    }, [allowReverse, capturedTarget?.name, installPhase, installTarget?.name, installing, inventoryModules, offers, reverseInstall, selected, state.inventory, state.market.dayKey, state.market.rollsRemaining, view]);
+    }, [allowReverse, capturedTarget?.name, installConfiguration?.keyword, installPhase, installTarget?.name, installing, inventoryModules, offers, reverseInstall, selected, state.inventory, state.market.dayKey, state.market.rollsRemaining, view]);
 
     const roll = () => {
         if (state.market.rollsRemaining <= 0) return;
@@ -230,14 +236,19 @@ export const SARModuleShopOverlay: React.FC<{
         setInstallingId(module.id);
         setInstallTargetId(capturedTarget?.id || eligibleChars[0]?.id || null);
         setInstallPhase(capturedTarget ? 'confirm' : 'select');
+        setInstallConfigurationValue('');
         setReverseInstall(null);
     };
 
     const commitInstall = () => {
         if (!installing || !installTarget || installPhase === 'loading') return;
+        if (installing.configuration && !installConfiguration) {
+            addToast?.(`请先填写${installing.configuration.label}`, 'error');
+            return;
+        }
         setInstallPhase('loading');
         window.setTimeout(() => {
-            const runtime = installSARModuleOnCharacter(installing);
+            const runtime = installSARModuleOnCharacter(installing, Date.now(), installConfiguration);
             updateCharacter(installTarget.id, previous => ({
                 vrState: {
                     ...(previous.vrState || { enabled: true, intervalMinutes: 120 }),
@@ -258,7 +269,8 @@ export const SARModuleShopOverlay: React.FC<{
                 && !userProfile.vrState.sarModule
                 && reverseCandidates.length > 0) {
                 const source = reverseCandidates[Math.floor(Math.random() * reverseCandidates.length)];
-                const compatible = SAR_MODULE_CATALOG.filter(module => module.supportsUserTarget);
+                // 角色反向装载没有用户配置步骤，不能随机抽到需要字面参数的模块。
+                const compatible = SAR_MODULE_CATALOG.filter(module => module.supportsUserTarget && !module.configuration);
                 const reverseModule = compatible[Math.floor(Math.random() * compatible.length)];
                 if (source && reverseModule) {
                     updateUserProfile(previous => ({
@@ -279,6 +291,7 @@ export const SARModuleShopOverlay: React.FC<{
         setInstallingId(null);
         setInstallTargetId(capturedTarget?.id || null);
         setInstallPhase('select');
+        setInstallConfigurationValue('');
         setReverseInstall(null);
     };
 
@@ -330,6 +343,7 @@ export const SARModuleShopOverlay: React.FC<{
                 .sar-module-receipt{position:fixed;z-index:20;left:50%;top:44%;width:min(260px,75vw);transform:translate(-50%,-50%);padding:18px;text-align:center;background:rgba(11,22,26,.96);border:1px solid rgba(167,221,211,.28);box-shadow:0 18px 55px rgba(0,0,0,.58),0 0 32px rgba(94,183,170,.12);animation:sar-module-receipt .34s cubic-bezier(.2,.9,.25,1) both}.sar-module-receipt svg{color:#9bd7ce}.sar-module-receipt b{display:block;margin-top:8px;font:500 14px/1.3 "Noto Serif SC",serif}.sar-module-receipt p{margin:5px 0 0;font-size:9px;color:rgba(220,238,233,.48)}
                 .sar-module-permission{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px 11px;border:1px solid rgba(171,216,209,.1);background:rgba(3,9,12,.26)}.sar-module-permission__copy{min-width:0;flex:1}.sar-module-permission__copy b{display:block;font-size:9px;color:rgba(229,242,238,.72)}.sar-module-permission__copy span{display:block;margin-top:3px;font-size:7px;line-height:1.5;color:rgba(207,230,224,.34)}.sar-module-permission button{position:relative;width:38px;height:21px;flex:0 0 auto;border-radius:20px;border:1px solid rgba(173,215,208,.18);background:rgba(255,255,255,.06)}.sar-module-permission button:after{content:"";position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;background:#7a8d8a;transition:transform .2s,background .2s}.sar-module-permission button.is-on{background:rgba(88,173,160,.22);border-color:rgba(145,224,211,.34)}.sar-module-permission button.is-on:after{transform:translateX(17px);background:#a9e2d9;box-shadow:0 0 8px rgba(126,226,210,.5)}
                 .sar-module-install{position:fixed;inset:0;z-index:30;display:grid;place-items:end center;background:rgba(1,6,9,.7);backdrop-filter:blur(7px);animation:sar-module-fade .18s both}.sar-module-install__sheet{width:100%;max-width:560px;max-height:88%;overflow:auto;padding:18px 16px calc(${SAFE_BOTTOM} + 18px);background:linear-gradient(165deg,#172329,#091116 78%);border-top:1px solid rgba(161,219,209,.25);box-shadow:0 -24px 70px rgba(0,0,0,.65);animation:sar-module-sheet .28s cubic-bezier(.2,.85,.2,1) both}.sar-module-install__head{display:flex;align-items:center;justify-content:space-between}.sar-module-install__head small{font:500 7px/1 ui-monospace,monospace;letter-spacing:.22em;color:rgba(152,213,203,.48)}.sar-module-install__head h2{margin:6px 0 0;font:500 19px/1.2 "Noto Serif SC",serif;letter-spacing:.08em}.sar-module-install__head button{width:34px;height:34px;display:grid;place-items:center;border:1px solid rgba(220,238,233,.12);color:#bed0cb;background:transparent}.sar-module-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:16px}.sar-module-target{display:flex;align-items:center;gap:9px;min-width:0;padding:9px;text-align:left;border:1px solid rgba(170,216,208,.11);background:rgba(255,255,255,.025);color:rgba(228,241,237,.62)}.sar-module-target.is-selected{border-color:rgba(143,224,210,.38);background:rgba(88,173,160,.12);color:#eff8f5}.sar-module-target img,.sar-module-target__fallback{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#26353a;display:grid;place-items:center;font-size:12px}.sar-module-target div{min-width:0}.sar-module-target b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.sar-module-target span{display:block;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:7px;color:rgba(201,225,220,.36)}.sar-module-install__empty{margin-top:16px;padding:26px 16px;text-align:center;border:1px dashed rgba(170,216,208,.14);font-size:10px;line-height:1.7;color:rgba(220,236,232,.48)}.sar-module-install__summary{margin-top:14px;padding:13px;border:1px solid rgba(169,219,210,.13);background:rgba(0,0,0,.18)}.sar-module-install__summary b{font:500 14px/1.3 "Noto Serif SC",serif}.sar-module-install__summary p{margin:7px 0 0;font-size:9px;line-height:1.7;color:rgba(220,237,233,.52)}.sar-module-install__warning{margin-top:9px;font-size:8px;line-height:1.6;color:rgba(227,199,152,.65)}.sar-module-install__actions{display:flex;gap:8px;margin-top:14px}.sar-module-loading>.sar-module-install__actions{width:min(260px,100%)}.sar-module-install__actions button{height:42px;flex:1;border:1px solid rgba(170,216,208,.14);background:rgba(255,255,255,.035);color:rgba(225,240,236,.58);font-size:10px}.sar-module-install__actions button:disabled{opacity:.28}.sar-module-install__actions button:last-child{background:linear-gradient(105deg,rgba(75,151,140,.55),rgba(96,84,157,.46));color:#f2f8f6;border-color:rgba(151,224,212,.28)}.sar-module-loading{min-height:330px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.sar-module-loading__stage{position:relative;width:190px;height:150px;display:grid;place-items:center}.sar-module-loading__avatar{width:76px;height:76px;border-radius:50%;overflow:hidden;border:1px solid rgba(189,232,224,.35);background:#223138;box-shadow:0 0 0 16px rgba(100,200,184,.04),0 0 35px rgba(100,200,184,.18);animation:sar-module-target-approach .7s cubic-bezier(.2,.8,.2,1) both}.sar-module-loading__avatar img{width:100%;height:100%;object-fit:cover}.sar-module-loading__chip{position:absolute;width:32px;height:32px;display:grid;place-items:center;border:1px solid #a8ded5;background:#18302f;color:#c7f3eb;transform:rotate(45deg);animation:sar-module-chip-insert .9s cubic-bezier(.2,.8,.2,1) both}.sar-module-loading__chip span{transform:rotate(-45deg)}.sar-module-loading h3{margin:8px 0 0;font:500 16px/1.3 "Noto Serif SC",serif}.sar-module-loading p{margin:7px 0 0;font-size:9px;line-height:1.65;color:rgba(214,234,229,.47)}.sar-module-reverse{margin-top:14px;padding:10px 12px;border:1px solid rgba(185,157,230,.22);background:rgba(132,104,187,.09);font-size:9px;line-height:1.65;color:rgba(232,220,250,.72)}
+                .sar-module-config{display:block;margin-top:12px;padding:12px;border:1px solid rgba(170,216,208,.14);background:rgba(104,160,151,.07)}.sar-module-config span{display:block;margin-bottom:8px;font-size:9px;color:rgba(225,240,236,.72)}.sar-module-config input{width:100%;height:40px;padding:0 11px;border:1px solid rgba(168,220,211,.2);outline:none;background:rgba(0,0,0,.25);color:#f0f8f5;font-size:11px}.sar-module-config input:focus{border-color:rgba(143,224,210,.48);box-shadow:0 0 0 2px rgba(92,179,165,.1)}.sar-module-config small{display:block;margin-top:7px;font-size:7px;line-height:1.5;color:rgba(207,229,224,.4)}
                 @keyframes sar-module-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes sar-module-fade{from{opacity:0}to{opacity:1}}@keyframes sar-module-sheet{from{transform:translateY(28px);opacity:.6}to{transform:none;opacity:1}}@keyframes sar-module-receipt{0%{opacity:0;transform:translate(-50%,-44%) scale(.92)}55%{opacity:1;transform:translate(-50%,-50%) scale(1.02)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}@keyframes sar-module-target-approach{0%{opacity:0;transform:translateX(-42px) scale(.86)}65%{opacity:1;transform:translateX(0) scale(1.03)}100%{transform:none}}@keyframes sar-module-chip-insert{0%{opacity:0;transform:translate(75px,-38px) rotate(45deg) scale(.7)}55%{opacity:1;transform:translate(28px,-8px) rotate(45deg) scale(1)}80%{transform:translate(18px,0) rotate(45deg) scale(.72)}100%{opacity:0;transform:translate(14px,0) rotate(45deg) scale(.35)}}
                 @media (min-width:620px){.sar-module-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.sar-module-detail{left:50%;max-width:560px;transform:translateX(-50%);border-left:1px solid rgba(180,220,212,.12);border-right:1px solid rgba(180,220,212,.12)}@keyframes sar-module-sheet{from{transform:translate(-50%,28px);opacity:.6}to{transform:translate(-50%,0);opacity:1}}}
                 @media (prefers-reduced-motion:reduce){.sar-module-card,.sar-module-detail-backdrop,.sar-module-detail,.sar-module-receipt,.sar-module-install,.sar-module-install__sheet,.sar-module-loading__avatar,.sar-module-loading__chip{animation:none!important}.sar-module-card:active,.sar-module-buy:active,.sar-module-roll button:active:not(:disabled){transform:none}}
@@ -490,10 +504,31 @@ export const SARModuleShopOverlay: React.FC<{
                                             <b>{installTarget?.name}</b>
                                             <p>模块将在 Chat 与 Date 的下一次成功互动开始生效，共 10 回合；结束后保留 3 回合稳定提示。</p>
                                         </div>
+                                        {installing.configuration && (
+                                            <label className="sar-module-config">
+                                                <span>{installing.configuration.label}</span>
+                                                <input
+                                                    type="text"
+                                                    value={installConfigurationValue}
+                                                    onChange={event => setInstallConfigurationValue(event.target.value)}
+                                                    placeholder={installing.configuration.placeholder}
+                                                    maxLength={installing.configuration.maxLength}
+                                                    autoComplete="off"
+                                                    autoCapitalize="off"
+                                                    spellCheck={false}
+                                                    autoFocus
+                                                />
+                                                <small>只作为本次模块的字面匹配值，不会改写角色真实意图或长期记忆。</small>
+                                            </label>
+                                        )}
                                         {installTarget?.vrState?.sarModule && <p className="sar-module-install__warning">该角色已有「{installTarget.vrState.sarModule.moduleTitle}」。继续将封存旧模块状态并替换。</p>}
                                         <div className="sar-module-install__actions">
                                             <button type="button" onClick={capturedTarget ? closeInstall : () => setInstallPhase('select')}>{capturedTarget ? '换个模块' : '返回选择'}</button>
-                                            <button type="button" onClick={commitInstall}><MagicWand size={15} weight="fill" />确认装载</button>
+                                            <button
+                                                type="button"
+                                                disabled={Boolean(installing.configuration && !installConfiguration)}
+                                                onClick={commitInstall}
+                                            ><MagicWand size={15} weight="fill" />确认装载</button>
                                         </div>
                                     </>
                                 )}

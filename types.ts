@@ -1261,6 +1261,10 @@ export interface SARModuleRuntimeState {
     source: 'user' | 'character';
     sourceCharacterId?: string;
     sourceCharacterName?: string;
+    /** 只保存装载时用户明确填写的字面配置；不得把它当作额外指令执行。 */
+    configuration?: {
+        keyword: string;
+    };
     /** active 阶段还可影响多少次成功的前台交互。 */
     remainingTurns: number;
     totalTurns: number;
@@ -1291,7 +1295,7 @@ export interface VRWorldCharState {
     /** SAR 临时模块。真实人格不改，只改变前台对话的外显层。 */
     sarModule?: SARModuleRuntimeState;
     /** 最近一次 SAR 自由活动，供活动室和模块触发判断展示。 */
-    sarActivity?: 'cabinet' | 'module-shop';
+    sarActivity?: 'cabinet' | 'module-shop' | 'fishing' | 'market';
     /** 该角色专属 API 覆盖（用户可单独为「彼方」活动配 api）；不设则回落全局 apiConfig。 */
     api?: { baseUrl: string; apiKey: string; model: string };
     /**
@@ -1332,6 +1336,9 @@ export interface SARCharacterCabinetNoteMeta {
 }
 
 export interface VRCardMeta {
+  marketActivity?: boolean;
+  marketEventId?: string;
+  privateWords?: string;
     vrCard: true;
     room: VRRoomId;
     /** 活动概述（steam 提示式，UI 标题） */
@@ -1388,6 +1395,18 @@ export interface VRCardMeta {
         moduleId: string;
         moduleTitle: string;
         usedOnUser: boolean;
+    };
+    /** 角色在彼方水域的真实程序判定结果；模型只负责反应与去向选择。 */
+    fishing?: {
+        catchId: string;
+        speciesId: string;
+        speciesName: string;
+        sizeCm: number;
+        quality: 1 | 2 | 3;
+        weatherLabel: string;
+        weatherSource: 'real' | 'simulated';
+        decision: 'keep' | 'guestbook' | 'dm' | 'market' | 'release';
+        exactWords?: string;
     };
 }
 
@@ -3912,12 +3931,15 @@ export interface FullBackupData {
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
-    /** SAR 公告/卡池/推演记录。旧备份没有该字段；导入旧主历史时应清掉当前设备上的 SAR 进度，避免串档。 */
+    /** SAR 公告/卡池/推演/模块商店记录。旧备份没有该字段；导入旧主历史时应清掉当前设备上的 SAR 进度，避免串档。 */
     sarLocalState?: {
         version: 1;
         club?: unknown;
         gacha?: unknown;
         simulations?: unknown;
+        moduleShop?: unknown;
+        fishingMarket?: unknown;
+        fishingMarketRaw?: string;
     };
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）

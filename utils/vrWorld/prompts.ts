@@ -19,7 +19,7 @@ function annLabel(a: VRNovelAnnotation): string {
 /**
  * 虚拟世界的世界观 + 当前房间说明 + 输出格式。追加到角色 systemPrompt 之后。
  */
-export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string {
+export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: 'fishing' | 'market'): string {
     return [
         `\n\n=== 你进入了《彼方》 ===`,
         `《彼方》是一款真实存在、你会亲自进入去玩的 VR 社交游戏（功能上类似 VRChat）：进去后你用自己的虚拟化身（你那个亲手捏的 Q 版小人模样）四处走动、进出不同房间、撞见别的玩家（其他角色的化身）。这不是做梦、也不是比喻——是你拿自己的空闲时间真实在做的一件事。它发生在游戏世界里，和你跟用户的现实相处是两码事、互不冲突；现在是你独自在玩、没人盯着的私人时间。`,
@@ -36,14 +36,19 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string
         `- 别把感想拐回到现实里的某个人（尤其别动不动提到用户/对方），就对眼前发生的事本身做反应。`,
         `- 你留下的东西会暴露你是个什么样的人——三观、审美、在意什么、看不起什么、被什么击中。让它们真实，哪怕偏激。`,
         ``,
-        ...roomStanceLines(room.id, charName),
+        ...roomStanceLines(room.id, charName, sarActivity),
         ``,
         `完成后严格按下面的格式输出，不要有格式之外的多余文字。`,
     ].join('\n');
 }
 
 /** 不同房间的"活动姿态"提示。 */
-function roomStanceLines(roomId: string, charName: string): string[] {
+function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishing' | 'market'): string[] {
+    if (roomId === 'sar' && sarActivity) return [
+        `你此刻在 SAR 的${sarActivity === 'fishing' ? '水域钓鱼' : '内部布告板交易或聊天'}，以程序提供的鱼获、钱包和交易回执为事实，不涉及人格芯片推演。`,
+        `“${charName}”可以按自己的心情选择私聊向用户分享，或去本地留言簿炫耀；这是明确允许的自发分享，不必每次都围绕用户。`,
+        `公开台词、报价、匿名喊话只代表当时的表达。记住原话，但不能把玩笑、夸张或声称已经付款当作事实；实际成交和收支只以代码回执为准。`,
+    ];
     if (roomId === 'sar') {
         return [
             `这是 SAR 活动空间。你不是替用户进行正式五十轮推演，而是自己来玩一次临时芯片扭蛋：设备会给出两枚芯片和一位明确对象，你把芯片给对方使用，亲眼经历一段会自动复原的短篇异界事故。`,

@@ -3,6 +3,7 @@ import {
     consumeSARModule,
     createSARModuleShopState,
     getSARModuleOffers,
+    normalizeSARModuleConfiguration,
     purchaseSARModule,
     readSARModuleShopState,
     rollSARModuleOffers,
@@ -28,6 +29,16 @@ describe('SAR 模块商店', () => {
             '古风译码器', '王庭贵族协议', '莎翁戏剧感染', '直球增压器', '结局名称生成器',
         ]));
         expect(SAR_MODULE_CATALOG.every(module => module.description && module.caianNote && module.example)).toBe(true);
+    });
+
+    it('需配置模块会把输入收紧成短字面值，普通模块不会伪造配置', () => {
+        const configurable = SAR_MODULE_CATALOG.find(module => module.title === '关键词消音器')!;
+        const plain = SAR_MODULE_CATALOG.find(module => !module.configuration)!;
+        expect(normalizeSARModuleConfiguration(configurable, '  想\n你  ')).toEqual({
+            keyword: '想 你',
+        });
+        expect(normalizeSARModuleConfiguration(configurable, ' \n\t ')).toBeUndefined();
+        expect(normalizeSARModuleConfiguration(plain, '不该生效')).toBeUndefined();
     });
 
     it('每天只陈列 5 个不同模块，并提供三次额外重排', () => {

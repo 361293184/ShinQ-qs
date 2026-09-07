@@ -61,6 +61,15 @@ xiaohongshu-skills/
 .android-sdk/
 .gradle-user-home/
 
+# Local fishing QA screenshots, cached existing Tailwind CDN script, isolated build.
+/output/fishing-qa/
+/output/fishing-build/
+
 # Local PNG share card QA and isolated build.
 /output/png-share-qa/
 /output/png-share-build/
+
+# Local SAR Three.js render QA and isolated production build.
+/output/sar-diorama-qa/
+/output/sar-diorama-build/
+/output/sar-diorama-*.log

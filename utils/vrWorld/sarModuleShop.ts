@@ -1,5 +1,12 @@
 export type SARModuleCategory = 'voice' | 'bond' | 'genre' | 'stage';
 
+export interface SARModuleConfigurationDefinition {
+    label: string;
+    placeholder: string;
+    promptLabel: string;
+    maxLength: number;
+}
+
 export interface SARModuleDefinition {
     id: string;
     title: string;
@@ -10,7 +17,7 @@ export interface SARModuleDefinition {
     example: string;
     price: number;
     supportsUserTarget: boolean;
-    requiresConfiguration?: boolean;
+    configuration?: SARModuleConfigurationDefinition;
 }
 
 export interface SARModulePurchase {
@@ -101,7 +108,13 @@ const seeds: ModuleSeed[] = [
     {
         title: '关键词消音器', category: 'stage', effectLabel: '指定内容显示为 ■■',
         description: '自动遮蔽指定词语，可用于名字、称呼或特定关键词。', caianNote: '把你指定的关键词马赛克掉！非常容易让聊天记录变得非常可疑。',
-        example: '“我很想你。” → “我很■■。”', supportsUserTarget: true, requiresConfiguration: true,
+        example: '“我很想你。” → “我很■■。”', supportsUserTarget: true,
+        configuration: {
+            label: '要消音的词语',
+            placeholder: '例如：想你',
+            promptLabel: '必须替换为 ■■ 的词语',
+            maxLength: 40,
+        },
     },
     {
         title: '猫科语法包', category: 'voice', effectLabel: '添加猫语习惯',
@@ -191,7 +204,13 @@ const seeds: ModuleSeed[] = [
     {
         title: '禁止说名字', category: 'stage', effectLabel: '名字自动替换为代称',
         description: '暂时禁止直接使用指定对象的名字，必须自行寻找其他代称。', caianNote: '对于记不住人名的人来说特别受用。',
-        example: '“艾文。” → “那个白头发钓鱼的。”', supportsUserTarget: true, requiresConfiguration: true,
+        example: '“艾文。” → “那个白头发钓鱼的。”', supportsUserTarget: true,
+        configuration: {
+            label: '禁止直接说出的名字',
+            placeholder: '例如：艾文',
+            promptLabel: '禁止直接说出的名字',
+            maxLength: 40,
+        },
     },
     {
         title: '反差强制器', category: 'voice', effectLabel: '表达风格反差化',
@@ -405,6 +424,21 @@ export const readSARModuleShopState = (
 };
 
 export const getSARModuleById = (id: string) => catalogById.get(id);
+
+/** 配置只接受一个短字面值，去掉控制字符/换行，避免把自由文本变成第二份 prompt。 */
+export const normalizeSARModuleConfiguration = (
+    module: SARModuleDefinition,
+    rawValue: string,
+): { keyword: string } | undefined => {
+    if (!module.configuration) return undefined;
+    const flattened = rawValue
+        .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const keyword = Array.from(flattened).slice(0, module.configuration.maxLength).join('');
+    if (!keyword) return undefined;
+    return { keyword };
+};
 
 export const getSARModuleOffers = (state: SARModuleShopState) =>
     state.market.offerIds.map(getSARModuleById).filter((module): module is SARModuleDefinition => Boolean(module));

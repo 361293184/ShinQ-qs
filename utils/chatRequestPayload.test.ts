@@ -238,6 +238,26 @@ describe('timelyByWorker —— 时效段交给 worker，前端这份不重复�
         expect(joined).not.toContain('### 此刻的交流深度');
     });
 
+    it('角色和 User 都没有模块时，Chat prompt 不增加 SAR 文本或输出容器', async () => {
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            char: {
+                id: 'char-sar-empty',
+                name: '测试角色',
+                memoryPalaceEnabled: false,
+                vrState: { enabled: true, intervalMinutes: 120 },
+            } as any,
+            userProfile: { ...userProfile, vrState: { enabled: true } } as any,
+            recallEntryPoint: 'chat_app',
+        });
+        const joined = joinMessages(payload.fullMessages);
+
+        expect(payload.flags.sarModuleActive).toBe(false);
+        expect(joined).not.toContain('### SAR 临时模块');
+        expect(joined).not.toContain('<SAR_MODULE_OUTPUT>');
+        expect(joined).not.toContain('[SAR MODULE REMINDER:');
+    });
+
     it('SAR 与内置翻译同时开启时，以 SAR 为外层、翻译标签留在两个内容字段内', async () => {
         const runtime = installSARModuleOnCharacter(SAR_MODULE_CATALOG[0], 1);
         const payload = await buildChatRequestPayload({

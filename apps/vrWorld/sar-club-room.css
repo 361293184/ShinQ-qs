@@ -1,0 +1,22 @@
+.sar-club-room{position:absolute;inset:0;background:#fff;color:#544b41;font-family:inherit;--sar-footer-space:max(10px,env(safe-area-inset-bottom,0px))}
+.sar-club-art{position:absolute;inset:54px 0 calc(var(--sar-footer-space) + 54px)}
+.sar-club-art img{display:block;width:100%;height:100%;object-fit:contain;user-select:none}
+.sar-club-facilities{position:absolute;bottom:var(--sar-footer-space);left:12px;right:12px;display:flex;justify-content:center;border-top:1px solid #8c775b2b;padding-top:5px}
+.sar-club-facilities button{flex:1;min-height:44px;min-width:0;border:0;border-right:1px solid #8c775b29;background:none;color:#655741;font-size:12px;white-space:nowrap;cursor:pointer;padding:4px 6px}
+.sar-club-facilities button:last-child{border-right:0}
+.sar-club-facilities button:hover{color:#274f43;background:#f7f5ef}
+.sar-club-facilities button:focus-visible,.sar-club-npcs button:focus-visible{outline:2px solid #597e70;outline-offset:2px}
+.sar-world-page{background:#fff}
+.sar-world-page .sar-club-room{--sar-footer-space:49px}
+.sar-world-page .sar-world-heading{pointer-events:none;color:#544735;top:12px}
+.sar-world-page .sar-world-heading h2{color:#534838;font-size:17px;margin-top:4px}
+.sar-world-page .sar-world-heading p{display:none}
+.sar-world-page .sar-world-heading .sar-world-eyebrow{color:#9a8c77;font-size:7px;letter-spacing:.18em}
+.sar-world-page .sar-world-heading .sar-world-npc-status{display:none}
+.sar-world-page .sar-world-pagination button,.sar-world-page .sar-world-pagination>span{color:#76664e!important;background:#f7f1e4!important;border-color:#b9a78b55!important;box-shadow:none}
+.sar-world-page .sar-world-pagination button{height:36px;width:44px}
+.sar-club-npcs{position:absolute;top:52px;right:14px;display:flex;gap:4px;align-items:center;z-index:3}
+.sar-club-npcs button{border:1px solid #baa98b5c;border-radius:20px;background:#fffef9eb;color:#77664e;min-height:44px;padding:6px 10px;font-size:11px;cursor:pointer}
+.sar-club-npcs span{font-size:9px;color:#9b8e79;padding:4px;background:#ffffffdb;border-radius:8px}
+@media(max-width:360px){.sar-club-facilities{left:8px;right:8px}.sar-club-facilities button{padding:4px;font-size:11px}.sar-world-page .sar-world-heading h2{font-size:16px}}
+@media(min-width:700px){.sar-club-facilities{left:50%;right:auto;transform:translateX(-50%);width:540px}.sar-club-facilities button{font-size:13px}}

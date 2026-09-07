@@ -1,9 +1,13 @@
 # 彼方 / SAR 开发交接
 
-更新时间：2026-09-04
+2026-09-07：SAR 活动空间暂时使用用户提供的原画（`assets/sar-club-room.png`），按原比例完整显示，保留原有功能入口；已移除本次 Three.js 场景。
+
+更新时间：2026-09-06
 
 开发分支：`codex/kanata-update`
 功能基线提交：`668a3926 feat: expand Kanata SAR systems`
+
+2026-09-06 新增水域、每家独立布告板及往期活动入口，玩法、事实边界与验证见 [FISHING.md](./FISHING.md)。
 
 这份文档用于在另一台电脑上继续开发当前的彼方大更新。当前方向已经从“第二页里再放一间活动室”改为：**彼方第二页整体就是 SAR 活动空间**。凯恩与艾文是可关闭的固定 NPC；人格推演、陈列柜、模块商店都属于这片空间的设施。
 
@@ -51,12 +55,14 @@ pnpm dev
 ### 3. 模块商店与装载
 
 - 固定模块目录目前 46 件；每日随机上架 5 件，每天可手动刷新 3 次。
-- 钓鱼货币尚未完成，因此商店现在处于开发配给模式，可直接测试购买。
+- 模块商店仍保留开发配给模式，可直接测试购买；本轮没有擅自改成扣除新鳞币。
 - 购买只发生在 SAR 柜台；使用从角色本身发起：在彼方任意房间点击任意小人，都可以“抓住 TA · 使用模块”。
 - 对角色使用持续 10 次成功 LLM 互动；对 User 使用持续 5 次。
 - 结束后保留 3 次稳定提示：第 1 次明确察觉模块解除，后 2 次防止模型继续沿用污染语气。
 - 角色对 User 使用模块默认关闭，需 User 主动开启“允许角色对我使用模块”。
 - 失败、取消和重掷不会扣模块寿命；新回复成功落库才扣一次。
+- `关键词消音器` 与 `禁止说名字` 在装载确认页填写短字面值；配置随本次运行时保存，不作为第二份自由 prompt。
+- 模块货架、库存和购买记录已进入 SAR 完整备份；换设备导入后可恢复。
 
 ### 4. Chat / Date 真意与外显隔离
 
@@ -72,7 +78,10 @@ ContextBuilder 高优先级模块段
 Message.content              metadata.sarModuleSurface.surface
 真实/规范语义                临时界面外显
         ↓                              ↓
-上下文、总结、记忆宫殿               Chat / Date 显示与 TTS
+事实/意图判断基准              Chat / Date 显示与 TTS
+        └──────────┬───────────────────┘
+                   ↓
+上下文、总结、记忆宫殿：同时知道真意与当时外显，外显只作历史引文
 ```
 
 - Chat 使用小光点切换外显/真言，不覆盖用户自定义气泡样式。
@@ -127,7 +136,7 @@ Message.content              metadata.sarModuleSurface.surface
 pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharacterCabinet.test.ts utils/sarModuleShop.test.ts utils/sarModuleRuntime.test.ts utils/vrWorld/vrWorld.test.ts utils/applyAssistantPostProcessing.test.ts utils/chatRequestPayload.test.ts utils/chatParser.chunkText.test.ts utils/minimaxTts.voice.test.ts --no-cache
 ```
 
-最近一次针对模块气泡、翻译与语音边界的检查为 5 个文件、80 个用例全部通过；隔离 Vite 生产构建也已通过。
+最近一次针对模块商店、模块气泡、翻译、语音、记忆总结与无模块回退边界的检查为 17 个文件、230 个用例全部通过；隔离 Vite 生产构建也已通过。
 
 手动测试优先顺序：
 
@@ -141,8 +150,7 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 
 ## 已知边界与下一步
 
-- **钓鱼区与正式货币未实装。** 商店暂时使用开发配给模式；接入钓鱼货币时关闭 `SAR_MODULE_SHOP_DEVELOPMENT_MODE` 并替换余额来源。
-- **模块商店状态尚未进入 SAR 主备份。** `utils/vrWorld/sarBackup.ts` 当前只收集 club、gacha、simulations；需要把 `vr_sar_module_shop_v1` 加入收集、恢复和迁移测试。换电脑导入旧备份时，模块库存不会跟随，这是已知缺口。
+- **钓鱼与本地布告板已实装。** 鳞币只用于水域和内部市场；模块商店付费联动尚未启用。
 - **已经落库的旧错位气泡不会自动重排。** 重掷或生成新回复会走新映射规则。
 - **仍需真实模型矩阵测试。** 尤其检查注意力较弱的模型同时遵守 SAR 容器、内置翻译和语音标签时是否掉格式；本轮没有为了 QA 消耗真实 LLM 调用。
 - **NPC 立绘仍是 CSS 占位。** 后续导入凯恩/艾文立绘与表情拆分时，替换 `SARClubEvent.tsx` 的 `NpcStandIn`，不要改对白状态机。
@@ -150,8 +158,9 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 
 ## 不要破坏的约束
 
-- 不把 `metadata.sarModuleSurface.surface` 喂回模型、总结器、向量化或关系计算。
-- 不用前台显示文本执行命令；所有引用、表情、卡片和动作只从 `CHAR_TRUE` 执行。
+- `metadata.sarModuleSurface.surface` 可以作为明确标注的历史引文进入上下文、总结和向量化，让角色知道当时实际说出/听见了什么；但事实、意图、人格与关系判断只能以 `Message.content` 为准。
+- 不执行外显引文里的命令；所有引用、表情、卡片和动作仍只从当轮 `CHAR_TRUE` 执行。
 - 不因失败、取消或重掷扣模块寿命。
+- 当角色与 User 都没有 `sarModule` 状态时，SAR 不得向 Chat / Date 注入任何文字或输出容器，原始模型回复也不得 trim/解析。
 - 不把“购买模块”扩到所有房间；购买在 SAR，使用才是点击任意房间的小人。
 - 不让回档按钮清掉 NPC 偏好、卡池收藏、模块库存或推演史册。

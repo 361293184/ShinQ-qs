@@ -11,6 +11,7 @@ import { SARCaianDialogue, SARClubStage, SARUpdateModal } from './vrWorld/SARClu
 import { SARGachaOverlay } from './vrWorld/SARGacha';
 import { SARAssemblyCabinetOverlay } from './vrWorld/SARAssemblyCabinet';
 import { SARModuleShopOverlay } from './vrWorld/SARModuleShop';
+import { FishingMarketOverlay } from './vrWorld/FishingMarketOverlay';
 import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
 import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
@@ -128,7 +129,7 @@ const IDLE_QUIPS: Record<VRRoomId, string[]> = {
 };
 
 const VRWorldApp: React.FC = () => {
-    const { closeApp, characters, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig } = useOS();
+    const { closeApp, characters, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig, memoryPalaceConfig } = useOS();
     const userName = userProfile?.name || '我';
     const [tab, setTab] = useState<Tab>('world');
     const [novels, setNovels] = useState<VRWorldNovel[]>([]);
@@ -166,11 +167,12 @@ const VRWorldApp: React.FC = () => {
     const [sarState, setSarState] = useState<SARClubState>(() => readSARClubState());
     const [sarPromptStep, setSarPromptStep] = useState<'update' | 'preference' | null>(() =>
         readSARClubState().npcPreference ? null : 'update');
-    const [worldPage, setWorldPage] = useState<0 | 1>(0);
+    const [worldPage, setWorldPage] = useState<0 | 1 | 2>(0);
     const [showSarDialogue, setShowSarDialogue] = useState(false);
     const [showSarGacha, setShowSarGacha] = useState(false);
     const [showSarCabinet, setShowSarCabinet] = useState(false);
     const [showSarModuleShop, setShowSarModuleShop] = useState(false);
+    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | null>(null);
     const [sarModuleTargetCharId, setSarModuleTargetCharId] = useState<string | null>(null);
     const [showSarRewindConfirm, setShowSarRewindConfirm] = useState(false);
     const [incomingSarModule, setIncomingSarModule] = useState<{ charId: string; charName: string; moduleTitle: string } | null>(null);
@@ -258,6 +260,7 @@ const VRWorldApp: React.FC = () => {
 
     // 网页游戏验证钩子：彼方是 DOM 场景而非 canvas，仍暴露当前可交互状态供自动化读取。
     useEffect(() => {
+        if (showFishingMarket) return; // 子水域拥有自己的游戏时钟与验证状态。
         const target = window as Window & {
             render_game_to_text?: () => string;
             advanceTime?: (ms: number) => void;
@@ -274,6 +277,7 @@ const VRWorldApp: React.FC = () => {
                 sarGacha: showSarGacha,
                 sarCabinet: showSarCabinet,
                 sarModuleShop: showSarModuleShop,
+                fishingMarket: showFishingMarket,
                 help: showHelp,
             },
             sar: {
@@ -289,7 +293,7 @@ const VRWorldApp: React.FC = () => {
             if (target.render_game_to_text === renderState) delete target.render_game_to_text;
             if (target.advanceTime === advanceTime) delete target.advanceTime;
         };
-    }, [tab, loading, enterRoom, sarPromptStep, showSarDialogue, showSarGacha, showSarCabinet, showSarModuleShop, showHelp, sarState, worldPage]);
+    }, [tab, loading, enterRoom, sarPromptStep, showSarDialogue, showSarGacha, showSarCabinet, showSarModuleShop, showFishingMarket, showHelp, sarState, worldPage]);
 
     const loadNovels = useCallback(async () => setNovels(await DB.getVRNovels()), []);
     const loadFeed = useCallback(async () => {
@@ -367,6 +371,7 @@ const VRWorldApp: React.FC = () => {
 
     // 返回键：有弹层先关弹层（阅读器/房间/上传/捏人），而不是直接退回桌面
     useEffect(() => registerBackHandler(() => {
+        if (showFishingMarket) { setShowFishingMarket(null); return true; }
         if (showSarModuleShop) { setShowSarModuleShop(false); setSarModuleTargetCharId(null); return true; }
         if (showSarCabinet) { setShowSarCabinet(false); return true; }
         if (showSarGacha) { setShowSarGacha(false); return true; }
@@ -380,7 +385,7 @@ const VRWorldApp: React.FC = () => {
         if (readerNovel) { setReaderNovel(null); return true; }
         if (enterRoom) { setEnterRoom(null); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -543,7 +548,7 @@ const VRWorldApp: React.FC = () => {
                             }
                         }}
                         onTalkToCaian={() => setShowSarDialogue(true)} onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
-                        onOpenModuleShop={() => setShowSarModuleShop(true)} />
+                        onOpenModuleShop={() => setShowSarModuleShop(true)} onOpenFishingMarket={setShowFishingMarket} />
                 ) : tab === 'library' ? (
                     <LibraryView novels={novels} characters={characters} onOpen={setReaderNovel}
                         onAdd={() => { setShowUpload(true); trackEvent('打开小说上架弹窗'); }}
@@ -591,6 +596,15 @@ const VRWorldApp: React.FC = () => {
                     initialTargetCharacterId={sarModuleTargetCharId}
                     onClose={() => { setShowSarModuleShop(false); setSarModuleTargetCharId(null); }}
                 />
+            )}
+            {showFishingMarket && userProfile && (
+                <FishingMarketOverlay key={showFishingMarket} initialEntry={showFishingMarket} characters={characters} userProfile={userProfile} realtimeConfig={realtimeConfig}
+                    addToast={addToast} onClose={() => setShowFishingMarket(null)}
+                    onCharacterTrip={async (char, mode) => {
+                        const { runVRSession } = await import('../utils/vrWorld/runSession');
+                        return runVRSession({ char, characters, userProfile, groups, apiConfig, realtimeConfig, memoryPalaceConfig,
+                            updateCharacter, updateUserProfile, forcedRoom: 'sar', forcedSARActivity: mode, manual: true });
+                    }} />
             )}
             {incomingSarModule && (() => {
                 const source = characters.find(character => character.id === incomingSarModule.charId);
@@ -1179,9 +1193,8 @@ const ReplyComposeModal: React.FC<{ letter: VRLetter; defaultPen: string; initia
     );
 };
 
-// ============ 信号坠落处 · 顶部特殊活动 banner ============
-// 尽量照搬那张设计图：深空 + 金框四角 + 右侧书影 + 发光衬线标题 + 英文副名 + 副标题；
-// 右下角把「剩余时间倒计时」换成「已完成 x/20 首诗歌」的进度。点整块进入信号坠落处。
+// ============ 信号坠落处 · 往期活动小入口 ============
+// 活动已经封存，只在第三页留一张克制的纪念馆入口，不再占用世界首页头图。
 // banner 底图：月（仓库相对路径，经 assetUrl 走多 CDN 镜像兜底，见 utils/assetUrl.ts）
 const SIGNAL_BANNER_MOON = 'img/MOON.png';
 const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
@@ -1198,7 +1211,7 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
     const done = bk?.poemCount ?? 0;
     const total = bk?.poemsTarget ?? 40;
     return (
-        <button onClick={onOpen} className="relative w-full h-[132px] rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform"
+        <button onClick={onOpen} className="relative w-full h-[84px] rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform"
             style={{ boxShadow: '0 10px 34px rgba(0,0,0,.5)', border: '1px solid rgba(196,164,92,.35)' }}>
             {/* 底图：月 */}
             <div className="absolute inset-0" style={{ backgroundImage: `url(${moonUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
@@ -1213,16 +1226,15 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
                 <div key={i} className={`absolute ${pos} w-4 h-4 ${b} pointer-events-none`} style={{ borderColor: 'rgba(212,178,102,.6)' }} />
             ))}
             {/* 文案 */}
-            <div className="absolute inset-0 px-5 flex flex-col justify-center">
-                <div className="text-[9px] tracking-[0.34em] text-amber-200/75 mb-1.5">{SIGNAL_EVENT_ENDED ? '特殊活动 · 已落幕 · 纪念馆' : '特殊活动 · 跨用户共写'}</div>
-                <div className="text-[27px] leading-none font-bold text-white" style={{ fontFamily: `'Noto Serif SC',serif`, textShadow: '0 0 22px rgba(180,160,255,.55), 0 2px 5px rgba(0,0,0,.55)' }}>信号坠落处</div>
-                <div className="text-[11px] italic tracking-[0.24em] text-indigo-200/50 mt-1.5" style={{ fontFamily: `'Noto Serif SC',serif` }}>Signal&nbsp;Fall</div>
-                <div className="text-[10.5px] text-indigo-100/60 mt-1.5">电子生命的低电量合唱</div>
+            <div className="absolute inset-0 px-4 flex flex-col justify-center">
+                <div className="text-[7.5px] tracking-[0.3em] text-amber-200/65 mb-1">已封存 · 纪念馆</div>
+                <div className="text-[16px] leading-none font-semibold text-white" style={{ fontFamily: `'Noto Serif SC',serif`, textShadow: '0 0 18px rgba(180,160,255,.45), 0 2px 5px rgba(0,0,0,.55)' }}>信号坠落处</div>
+                <div className="text-[8.5px] text-indigo-100/50 mt-1.5">电子生命的低电量合唱 · 只读留存</div>
             </div>
             {/* 进度（替代倒计时） */}
             <div className="absolute right-4 bottom-3 text-right">
-                <div className="text-[8.5px] tracking-[0.22em] text-amber-200/65 flex items-center gap-1 justify-end mb-0.5"><BookOpen size={10} weight="fill" /> {SIGNAL_EVENT_ENDED ? '已封卷' : '已完成'}</div>
-                <div className="text-[15px] font-bold text-amber-100 tabular-nums leading-none" style={{ fontFamily: `'Noto Serif SC',serif` }}>{done}<span className="text-[11px] text-amber-200/55"> / {total} 首</span></div>
+                <div className="text-[7.5px] tracking-[0.2em] text-amber-200/60 flex items-center gap-1 justify-end mb-0.5"><BookOpen size={9} weight="fill" /> 已封卷</div>
+                <div className="text-[12px] font-bold text-amber-100/85 tabular-nums leading-none" style={{ fontFamily: `'Noto Serif SC',serif` }}>{done}<span className="text-[9px] text-amber-200/45"> / {total} 首</span></div>
             </div>
         </button>
     );
@@ -1237,20 +1249,20 @@ const SARWorldPage: React.FC<{
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
+    onOpenFishingMarket: (entry: 'water' | 'board') => void;
     onBackPage: () => void;
-}> = ({ occupants, npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onBackPage }) => (
-    <section className="relative -mx-4 -mt-4 overflow-hidden" aria-label="SAR 活动空间"
-        style={{ minHeight: 500, height: 'calc(100dvh - var(--chrome-top) - var(--safe-bottom) - 6.75rem)' }}>
-        <RoomBackground roomId="sar" />
-        <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(8,9,18,.2),transparent 28%,transparent 70%,rgba(5,6,12,.66))' }} />
+    onNextPage: () => void;
+}> = ({ occupants, npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket, onBackPage, onNextPage }) => (
+    <section className="sar-world-page relative -mx-4 -mt-4 overflow-hidden" aria-label="SAR 活动空间"
+        style={{ minHeight: 480, height: 'calc(100dvh - var(--chrome-top) - var(--safe-bottom) - 4.75rem)' }}>
 
-        <div className="absolute inset-x-5 top-5 z-10 flex items-start justify-between gap-4">
+        <div className="sar-world-heading absolute inset-x-5 top-5 z-10 flex items-start justify-between gap-4">
             <div>
-                <div className="text-[8px] tracking-[0.34em] text-indigo-100/42">PAGE 02 · ACTIVITY SPACE</div>
+                <div className="sar-world-eyebrow text-[8px] tracking-[0.34em] text-indigo-100/42">PAGE 02 · ACTIVITY SPACE</div>
                 <h2 className="mt-1 text-[20px] tracking-[0.16em] text-white/92" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>SAR 活动空间</h2>
                 <p className="mt-1 text-[9.5px] tracking-[0.08em] text-white/35">Synthetic Autonomy Rights</p>
             </div>
-            <div className="rounded-full px-2.5 py-1 text-[9px] text-white/48 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.34)', border: '1px solid rgba(255,255,255,.09)' }}>
+            <div className="sar-world-npc-status rounded-full px-2.5 py-1 text-[9px] backdrop-blur-md">
                 {npcEnabled ? '2 位常驻 NPC' : 'NPC 已隐藏'}
             </div>
         </div>
@@ -1270,24 +1282,36 @@ const SARWorldPage: React.FC<{
             </div>
         )}
 
-        <SARClubStage npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} fullPage />
+        <SARClubStage npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
 
-        {!npcEnabled && (
-            <div className="absolute left-1/2 top-[45%] z-10 w-[72%] -translate-x-1/2 rounded-2xl px-4 py-3 text-center text-[11px] leading-5 text-white/48 backdrop-blur-md" style={{ background: 'rgba(8,9,18,.46)', border: '1px solid rgba(255,255,255,.08)' }}>
-                活动室保持开放。需要时可在「接入」中重新显示凯恩与艾文。
-            </div>
-        )}
-
-        <div className="absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3">
+        <div className="sar-world-pagination absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3">
             <button type="button" onClick={onBackPage} aria-label="返回上一页房间"
                 className="grid h-8 w-8 place-items-center rounded-full text-white/75 backdrop-blur-md active:bg-white/15" style={{ background: 'rgba(7,8,16,.42)', border: '1px solid rgba(255,255,255,.14)' }}>
                 <CaretLeft size={14} weight="bold" />
             </button>
-            <span className="rounded-full px-3 py-1 text-[10px] tracking-[0.15em] text-white/48 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.36)', border: '1px solid rgba(255,255,255,.08)' }}>2 / 2</span>
-            <button type="button" disabled aria-label="已经是最后一页"
-                className="grid h-8 w-8 place-items-center rounded-full text-white/20" style={{ border: '1px solid rgba(255,255,255,.07)' }}>
+            <span className="rounded-full px-3 py-1 text-[10px] tracking-[0.15em] text-white/48 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.36)', border: '1px solid rgba(255,255,255,.08)' }}>2 / 3</span>
+            <button type="button" onClick={onNextPage} aria-label="前往往期活动"
+                className="grid h-8 w-8 place-items-center rounded-full text-white/75 backdrop-blur-md active:bg-white/15" style={{ background: 'rgba(7,8,16,.42)', border: '1px solid rgba(255,255,255,.14)' }}>
                 <CaretRight size={14} weight="bold" />
             </button>
+        </div>
+    </section>
+);
+
+const PastEventsWorldPage: React.FC<{ onOpenSignal: () => void; onBackPage: () => void }> = ({ onOpenSignal, onBackPage }) => (
+    <section className="relative -mx-4 -mt-4 overflow-hidden px-5" aria-label="往期活动"
+        style={{ minHeight: 500, height: 'calc(100dvh - var(--chrome-top) - var(--safe-bottom) - 6.75rem)', paddingTop: '1.45rem' }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(70% 45% at 50% 18%,rgba(98,82,160,.16),transparent),linear-gradient(180deg,rgba(8,9,18,.18),rgba(5,6,12,.55))' }} />
+        <div className="relative z-10">
+            <div className="text-[8px] tracking-[0.34em] text-indigo-100/42">PAGE 03 · ARCHIVE</div>
+            <h2 className="mt-1 text-[20px] tracking-[0.16em] text-white/92" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>往期活动</h2>
+            <p className="mt-2 max-w-[280px] text-[10px] leading-5 text-white/38">结束的活动留在这里供回看。它们不会再主动出现，也不会再接收新内容。</p>
+            <div className="mt-6"><SignalBanner onOpen={onOpenSignal} /></div>
+        </div>
+        <div className="absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3">
+            <button type="button" onClick={onBackPage} aria-label="返回 SAR 活动空间" className="grid h-8 w-8 place-items-center rounded-full text-white/75 backdrop-blur-md active:bg-white/15" style={{ background: 'rgba(7,8,16,.42)', border: '1px solid rgba(255,255,255,.14)' }}><CaretLeft size={14} weight="bold" /></button>
+            <span className="rounded-full px-3 py-1 text-[10px] tracking-[0.15em] text-white/48 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.36)', border: '1px solid rgba(255,255,255,.08)' }}>3 / 3</span>
+            <button type="button" disabled aria-label="已经是最后一页" className="grid h-8 w-8 place-items-center rounded-full text-white/20" style={{ border: '1px solid rgba(255,255,255,.07)' }}><CaretRight size={14} weight="bold" /></button>
         </div>
     </section>
 );
@@ -1300,12 +1324,13 @@ const WorldView: React.FC<{
     onJump: (novelId: string | undefined, segIdx: number) => void;
     onDeleteFeed: (msgId: number) => void; onDeleteFeedMany: (ids: number[]) => void;
     sarNpcEnabled: boolean; sarCaianMet: boolean;
-    roomPage: 0 | 1; onRoomPageChange: (page: 0 | 1) => void;
+    roomPage: 0 | 1 | 2; onRoomPageChange: (page: 0 | 1 | 2) => void;
     onTalkToCaian: () => void;
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
-}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany, sarNpcEnabled, sarCaianMet, roomPage, onRoomPageChange, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop }) => {
+    onOpenFishingMarket: (entry: 'water' | 'board') => void;
+}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany, sarNpcEnabled, sarCaianMet, roomPage, onRoomPageChange, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => {
     const FEED_PER_PAGE = 5;
     const [page, setPage] = useState(0);
     const totalPages = Math.max(1, Math.ceil(feed.length / FEED_PER_PAGE));
@@ -1330,20 +1355,22 @@ const WorldView: React.FC<{
     });
     // 第一页保持原有六个公共房间；第二页本身就是完整 SAR 空间，不再套一层房间入口。
     const shownRooms = VR_ROOMS.filter(room => !room.hiddenFromGrid && room.id !== 'sar' && room.id !== 'cafe');
-    const roomTotalPages = 2;
+    const roomTotalPages = 3;
     const curRoomPage = roomPage;
 
     if (curRoomPage === 1) {
         return (
             <SARWorldPage occupants={occupantsByRoom.sar || []} npcEnabled={sarNpcEnabled} caianMet={sarCaianMet}
                 onTalkToCaian={onTalkToCaian} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet}
-                onOpenModuleShop={onOpenModuleShop} onBackPage={() => onRoomPageChange(0)} />
+                onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket}
+                onBackPage={() => onRoomPageChange(0)} onNextPage={() => onRoomPageChange(2)} />
         );
+    }
+    if (curRoomPage === 2) {
+        return <PastEventsWorldPage onOpenSignal={() => { onEnterRoom('signal'); trackEvent('进入彼方往期活动', { room: 'signal' }); }} onBackPage={() => onRoomPageChange(1)} />;
     }
     return (
     <div className="space-y-4">
-        {/* 顶部特殊活动 banner：信号坠落处（跨用户接龙诗） */}
-        <SignalBanner onOpen={() => { onEnterRoom('signal'); trackEvent('进入彼方房间', { room: 'signal' }); }} />
         <div className="grid grid-cols-2 gap-3">
             {shownRooms.map(room => {
                 const occupants = occupantsByRoom[room.id] || [];
@@ -2013,7 +2040,6 @@ const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean;
 const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t?: any) => void }> = ({ onClose, addToast }) => {
     const [token, setToken] = useState(getAdminToken());
     const [poems, setPoems] = useState<SignalPoem[]>([]);
-    const [paused, setPaused] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [busy, setBusy] = useState(false);
     const [confirmPoem, setConfirmPoem] = useState<string | null>(null);
@@ -2024,18 +2050,12 @@ const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t
         try {
             setAdminToken(tk.trim());
             const r = await Signal.adminList(tk.trim());
-            setPoems(r.poems); setPaused(r.paused); setLoaded(true);
+            setPoems(r.poems); setLoaded(true);
         } catch (e: any) {
             addToast?.(String(e?.message).includes('unauthorized') ? 'ADMIN_TOKEN 不对' : '拉取失败：' + (e?.message || ''), 'error');
         } finally { setBusy(false); }
     }, [addToast]);
 
-    const togglePause = async () => {
-        if (!token.trim()) { addToast?.('先填 ADMIN_TOKEN', 'error'); return; }
-        setBusy(true);
-        try { const p = await Signal.adminPause(token.trim(), !paused); setPaused(p); addToast?.(p ? '已暂停诗歌推入' : '已恢复推入', 'success'); }
-        catch { addToast?.('操作失败', 'error'); } finally { setBusy(false); }
-    };
     const delPoem = async (id: string) => {
         setBusy(true);
         try { await Signal.adminDelete(token.trim(), { poemId: id }); setPoems(ps => ps.filter(p => p.id !== id)); addToast?.('整首已删', 'success'); }
@@ -2057,19 +2077,12 @@ const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t
                 <button onClick={onClose} className="ml-auto h-7 w-7 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center"><X size={14} /></button>
             </div>
             <div className="px-3.5 py-2.5 border-b border-white/10 space-y-2">
-                <p className="text-[9.5px] text-white/45 leading-snug">用 worker 的 <b className="text-amber-200/70">ADMIN_TOKEN</b>（和漂流瓶后台同一个）管理跨用户诗集：删整首 / 删单句 / 暂停推入。token 只存本机。</p>
+                <p className="text-[9.5px] text-white/45 leading-snug">活动已永久封存。用 worker 的 <b className="text-amber-200/70">ADMIN_TOKEN</b>（和漂流瓶后台同一个）维护存档：删整首 / 删单句。token 只存本机。</p>
                 <div className="flex gap-1.5">
                     <input value={token} onChange={e => setToken(e.target.value)} type="password" placeholder="ADMIN_TOKEN"
                         className="flex-1 rounded-lg bg-black/25 px-3 py-2 text-[11.5px] text-amber-50 placeholder-white/25 outline-none" style={{ border: '1px solid rgba(220,190,120,.2)' }} />
                     <button onClick={() => load(token)} disabled={busy} className="text-[11px] px-3 rounded-lg bg-amber-400/85 text-black font-semibold disabled:opacity-40">拉取</button>
                 </div>
-                {loaded && (
-                    <button onClick={togglePause} disabled={busy}
-                        className="w-full text-[11.5px] py-2 rounded-lg font-semibold disabled:opacity-40"
-                        style={{ background: paused ? 'rgba(244,63,94,.85)' : 'rgba(255,255,255,.08)', color: paused ? '#fff' : 'rgba(255,255,255,.8)', border: '1px solid rgba(255,255,255,.12)' }}>
-                        {paused ? '● 已暂停诗歌推入（点击恢复）' : '暂停诗歌推入'}
-                    </button>
-                )}
             </div>
             <div className="flex-1 overflow-y-auto vr-reader-scroll px-3 py-3 space-y-2.5">
                 {!loaded ? (
