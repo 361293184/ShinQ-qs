@@ -31,21 +31,21 @@ function TabIcon({ name, active }: { name: 'discover' | 'shelf' | 'me'; active: 
   const common = { fill: 'none', viewBox: '0 0 24 24', strokeWidth: active ? 2.2 : 1.8, stroke: cls };
   if (name === 'shelf') {
     return (
-      <svg {...common}>
+      <svg className="w-6 h-6 shrink-0" {...common}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
       </svg>
     );
   }
   if (name === 'discover') {
     return (
-      <svg {...common}>
+      <svg className="w-6 h-6 shrink-0" {...common}>
         <circle cx="12" cy="12" r="3" />
         <path d="M3.5 12h4m9 0h4M12 3.5v4m0 9v4" />
       </svg>
     );
   }
   return (
-    <svg {...common}>
+    <svg className="w-6 h-6 shrink-0" {...common}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
     </svg>
   );
@@ -206,10 +206,10 @@ const WeReadApp: React.FC = () => {
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className="flex-1 flex flex-col items-center gap-0.5 py-2.5 active:scale-95 transition-transform"
+              className="flex-1 flex flex-col items-center gap-0.5 py-2 active:scale-95 transition-transform"
             >
               <TabIcon name={t.icon} active={active} />
-              <span className="text-[10px] font-semibold" style={{ color: active ? '#07A05C' : '#9AA3A0' }}>{t.label}</span>
+              <span className="text-[11px] font-semibold" style={{ color: active ? '#07A05C' : '#9AA3A0' }}>{t.label}</span>
             </button>
           );
         })}
