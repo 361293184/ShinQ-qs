@@ -52,12 +52,91 @@ function withHumanSafetyTail(prompt: string): string {
   return `${(prompt || '').trim().replace(/[.\s]+$/, '')}. ${HUMAN_SAFETY_TAIL}`;
 }
 
+/* ------------------------------------------------------------------ */
+/* 发照片主体意图（谁的照片）                                           */
+/* 只认「用户自己消息」里的显式信号：                                  */
+/* - user（拍用户本人）：拍我 / 我的照片 / 我的自拍 …                   */
+/* - joint（合照）：合照 / 合影 / 合个影 …                              */
+/* 角色回复里的第一人称「我/图片- 我…」一律不算用户信号。               */
+/* ------------------------------------------------------------------ */
+
+/** 用户消息里"要拍用户本人"的常见句式（对象明确落在 我/自己 上；避免把“你的照片/你的自拍/给我看看”当成用户信号） */
+const USER_SELF_PATTERNS = [
+  /(?:拍|照|画)(?:张|个|一下|一张|了)?(?:的)?(?:我|自己)/,
+  /我的(?:照片|相片|自拍|美照|帅照)/,
+  /(?:给|帮)(?:我)?(?:拍|照)(?:张|一张)?(?:的)?(?:我|自己)/,
+];
+
+/** 用户消息里"要合照"的常见句式 */
+const JOINT_PATTERNS = [
+  /合照|合影|合个影|来张合照|来张合影|拍张合照|拍张合影/,
+  /咱俩(?:一起)?(?:拍|照)|我们俩(?:一起)?(?:拍|照)|一起拍(?:张)?(?:合照|合影)?/,
+];
+
+/** 该文本（应是用户自己的消息）是否在明确要求"拍用户本人" */
+export function textRequestsUserShot(text: string): boolean {
+  if (!text) return false;
+  return USER_SELF_PATTERNS.some(re => re.test(text));
+}
+
+/** 该文本（应是用户自己的消息）是否在明确要求"合照" */
+export function textRequestsJointShot(text: string): boolean {
+  if (!text) return false;
+  return JOINT_PATTERNS.some(re => re.test(text));
+}
+
+export interface ShotIntents {
+  /** 用户消息里是否有明确"拍用户本人"请求 */
+  userShot: boolean;
+  /** 用户消息里是否有明确"合照"请求 */
+  jointShot: boolean;
+}
+
+/** 只统计用户（isUser=true）消息里的主体意图；角色行里的"我"不算。 */
+export function collectShotIntents(turns: Array<{ isUser?: boolean; text?: string }>): ShotIntents {
+  let userShot = false;
+  let jointShot = false;
+  for (const t of turns || []) {
+    if (!t || !t.isUser || !t.text) continue;
+    if (!userShot && textRequestsUserShot(t.text)) userShot = true;
+    if (!jointShot && textRequestsJointShot(t.text)) jointShot = true;
+    if (userShot && jointShot) break;
+  }
+  return { userShot, jointShot };
+}
+
+export type PersonSubjectGuard = 'ok' | 'user-forbidden' | 'joint-forbidden';
+
+/**
+ * 意图门：subjectType=user/joint 只在用户侧有对应显式请求时允许；
+ * char/scenery/object 恒 ok。被禁止时由调用方降级为角色照（char）。
+ */
+export function guardPersonSubject(input: ImageGenDirectorInput, directive: ImageGenDirective): PersonSubjectGuard {
+  const subj = directive?.subjectType;
+  if (subj !== 'user' && subj !== 'joint') return 'ok';
+  const { userShot, jointShot } = collectShotIntents(input?.recentChat);
+  if (subj === 'user' && !userShot) return 'user-forbidden';
+  if (subj === 'joint' && !jointShot) return 'joint-forbidden';
+  return 'ok';
+}
+
 /** 副 API 的"画面导演"系统提示词 */
 export const DIRECTOR_SYSTEM_PROMPT = [
   'You are the visual director of an image-generation feature inside a virtual companion app.',
-  'A request to take/send a photo just arrived. Decide what the photo should actually show by reasoning over the recent conversation and the character\'s long-term memory — NOT by always depicting the character.',
+  'A request to take/send a photo just arrived. Decide what the photo should actually show by reasoning over the recent conversation and the character\'s long-term memory.',
   '',
-  'When the context is about a place, weather, scenery, plants, an object, food, an animal or a moment the character is seeing/describing, the photo should capture THAT scene/thing, with no person in it.',
+  'Identity (who is who):',
+  '- The CHARACTER is the AI companion (tagged "[Character <name>]" in the conversation below).',
+  '- The USER is the real human chatting (tagged "[User <name>]" below).',
+  '- In a line tagged [Character], first-person words like "我/自己/I" refer to the CHARACTER; in a line tagged [User], they refer to the USER. Never mix them.',
+  '',
+  'Default semantics for sending photos:',
+  '- When the user asks the character to show/send a photo ("给我看看", "发我看看", "让我看看", "发张你的照片", "看看你") it means the user wants a photo OF THE CHARACTER — not a photo of the user.',
+  '- A photo of the user ("user") is allowed ONLY when the user themselves explicitly asks to be photographed (e.g. 拍我 / 我的照片 / 自拍).',
+  '- A joint/couple photo ("joint") is allowed ONLY when the user explicitly asks for a 合照/合影.',
+  '- The "Person-subject constraints" block in the request tells you precisely whether user/joint are allowed THIS time; obey it.',
+  '- When a person photo is expected but nothing says it is the user or a couple, output "char".',
+  '- If the moment is about a place/weather/scenery/object the character is looking at or describing, output "scenery"/"object" (no people).',
   '',
   'Output a SINGLE JSON object with exactly these fields:',
   '{"subjectType":"char"|"user"|"joint"|"scenery"|"object","useCharLock":true|false,"useUserLock":true|false,"prompt":"<final english prompt>"}',
@@ -87,7 +166,10 @@ export const DIRECTOR_SYSTEM_PROMPT = [
 
 /** 判定材料：由 Chat.tsx 在触发时收集（纯数据，无 DOM 依赖） */
 export interface ImageGenDirectorInput {
+  /** 角色名（说话者识别与转写标签用） */
   charName: string;
+  /** 用户昵称（说话者识别与转写标签用，空时回退 'User'） */
+  userName?: string;
   /** 角色外貌/锁脸文字描述（可空） */
   charDesc: string;
   /** 用户外貌/锁脸文字描述（可空） */
@@ -102,8 +184,8 @@ export interface ImageGenDirectorInput {
   charLockDataUrl: string;
   /** 用户锁脸参考图 dataURL（无则空串） */
   userLockDataUrl: string;
-  /** 最近聊天（时间正序），speaker 已带名字 */
-  recentChat: { speaker: string; text: string }[];
+  /** 最近聊天（时间正序），speaker 已带名字，isUser 标记说话者角色（true=用户，false=角色） */
+  recentChat: { speaker: string; text: string; isUser: boolean }[];
   /** 近期记忆行（"[date] summary"），已裁剪 */
   memoryLines: string[];
   /** 长期核心记忆行（"[month] summary"），已裁剪 */
@@ -148,10 +230,17 @@ export interface DirectorRequestConfig {
 /* 判定材料 → 副 API 请求                                              */
 /* ------------------------------------------------------------------ */
 
-/** 组装发给副 API 的 user 消息（上下文材料 + 判定指令） */
+/** 组装发给副 API 的 user 消息（上下文材料 + 角色/用户身份 + 判定指令） */
 export function buildDirectorUserMessage(input: ImageGenDirectorInput): string {
+  const userName = input.userName?.trim() || 'User';
+  const charName = input.charName?.trim() || 'Character';
+
+  // 转写时用「[User x] / [Character x]」角色标签前缀，保证导演分清说话者是谁，
+  // 从而正确归因第一人称代词（角色行的"我"=角色，用户行的"我"=用户）。
   const chatBlock = input.recentChat.length
-    ? input.recentChat.map(t => `- ${t.speaker}: ${t.text}`).join('\n')
+    ? input.recentChat
+        .map(t => `- ${t.isUser ? `[User ${userName}]` : `[Character ${charName}]`}: ${t.text}`)
+        .join('\n')
     : '(no recent conversation)';
 
   const memoryBlock = input.memoryLines.length
@@ -162,8 +251,23 @@ export function buildDirectorUserMessage(input: ImageGenDirectorInput): string {
     ? input.refinedMemoryLines.map(l => `- ${l}`).join('\n')
     : '(none)';
 
+  // 依据"用户自己消息里有没有明确要拍用户/合照"动态给本回合的人物主体约束
+  const intents = collectShotIntents(input.recentChat);
+  const constraints = [
+    'Person-subject constraints for THIS request:',
+    intents.userShot
+      ? '- "user" IS allowed: the user explicitly asked to photograph the user.'
+      : '- "user" is FORBIDDEN unless the user explicitly asks to photograph themselves; a normal "send me a photo" request means the CHARACTER.',
+    intents.jointShot
+      ? '- "joint" IS allowed: the user explicitly asked for a joint/couple photo.'
+      : '- "joint" is FORBIDDEN unless the user explicitly asks for a 合照/合影.',
+    '- Apply these constraints strictly when choosing subjectType.',
+  ].join('\n');
+
   return [
-    `Character: ${input.charName}`,
+    `Character (AI companion): ${charName}`,
+    `User (human chatting): ${userName}`,
+    '',
     `Character appearance: ${input.charDesc?.trim() || input.charShort || '(unknown)'}`,
     `User appearance: ${input.userDesc?.trim() || input.userShort || '(unknown)'}`,
     `Scene / what the photo is about: ${input.sceneDesc?.trim() || '(see conversation)'}`,
@@ -171,7 +275,9 @@ export function buildDirectorUserMessage(input: ImageGenDirectorInput): string {
     `User reference available: ${input.userLockDataUrl ? 'yes' : 'no'}`,
     `Front-end rough guess (use only as a hint, override when context disagrees): ${input.fallbackMode}`,
     '',
-    'Recent conversation (newest at bottom):',
+    constraints,
+    '',
+    'Recent conversation (newest at bottom; "[Character]"-tagged lines are the character speaking, "[User]"-tagged lines are the human user speaking):',
     chatBlock,
     '',
     'Character recent memories (daily):',

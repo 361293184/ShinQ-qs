@@ -41,6 +41,9 @@ import {
     resolveExecutionFromDirective,
     coerceDirective,
     buildFallbackExecution,
+    guardPersonSubject,
+    textRequestsUserShot,
+    textRequestsJointShot,
     DIRECTOR_RECENT_CHAT_TURNS,
     DIRECTOR_RECENT_TURN_CHARS,
     DIRECTOR_MEMORY_COUNT,
@@ -1721,6 +1724,7 @@ const Chat: React.FC = () => {
 
         const directorInput: ImageGenDirectorInput = {
             charName: char.name || '',
+            userName: userProfile.name || '',
             charDesc: charDesc || '',
             userDesc: userDesc || '',
             sceneDesc: sceneDesc || '',
@@ -1730,6 +1734,7 @@ const Chat: React.FC = () => {
             userLockDataUrl: userLockImage || '',
             recentChat: messages.slice(-DIRECTOR_RECENT_CHAT_TURNS).map(m => ({
                 speaker: m.role === 'user' ? (userProfile.name || 'User') : (char.name || 'Character'),
+                isUser: m.role === 'user',
                 text: (typeof m.content === 'string' ? m.content : '').replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_RECENT_TURN_CHARS),
             })).filter(t => t.text),
             memoryLines: (((char as any).memories) || []).slice(-DIRECTOR_MEMORY_COUNT).map((mem: any) =>
@@ -1767,7 +1772,14 @@ const Chat: React.FC = () => {
                 };
                 const directive = await requestDirectorDirective(directorCfg, directorInput);
                 if (directive) {
-                    execution = resolveExecutionFromDirective(directorInput, directive);
+                    // 意图门：没有用户侧明确“拍我/合照”信号时，禁止出用户照/合照 → 降级为角色照
+                    const guard = guardPersonSubject(directorInput, directive);
+                    if (guard === 'ok') {
+                        execution = resolveExecutionFromDirective(directorInput, directive);
+                    } else {
+                        console.warn(`[ImageGen Auto] intent gate: ${guard} (director said ${directive.subjectType}), forced to char`);
+                        execution = buildFallbackExecution({ ...directorInput, fallbackMode: 'char' });
+                    }
                 } else {
                     directorFailed = true;
                 }
@@ -2064,22 +2076,24 @@ const Chat: React.FC = () => {
         if (!sceneDesc) return;
         sceneDesc = sceneDesc.slice(0, 500); // 防超长
 
-        // 决定生图模式：纯关键词判定（角色/用户/合照生图默认全开，不再受 Settings 三开关限制）
-        // 整个 batch 的文本拼接起来判断（用户/合照触发词）
-        const fullBatchText = batch.map(b => typeof b.content === 'string' ? b.content : '').join(' ');
+        // 决定生图模式（降级链路 / 未配副 API 时使用）：只认"这一轮回复前最近一条用户消息"里的显式意图。
+        // - 用户明确要合照 → joint
+        // - 用户明确要拍用户本人（拍我/我的照片/自拍…）→ user
+        // - 其余一律 char（"给我看看/发我看看/发张你的照片" = 用户要角色自己的照片）
+        // 不再扫描角色自己的 caption（"图片- 我今天…"里的"我"指角色自己，不是用户信号），避免误判成用户照。
+        let lastUserAsk = '';
+        for (let i = batchStart - 1; i >= 0; i--) {
+            const mm = messages[i];
+            if (mm.role === 'user') {
+                if (typeof mm.content === 'string' && mm.content.trim()) lastUserAsk = mm.content.trim();
+                break;
+            }
+        }
 
         let mode: 'char' | 'user' | 'joint' = 'char';
-
-        // 「合照」直接触发词
-        const jointDirect = /合照|合影|一起拍|一起照|一起合影|拍一张合影|拍一张合照|拍合照|拍合影|和你合影|和我合影|一起拍张|一起合影|一起合照|合影留念|合照留念|合影一张|合影一张|拍张合影|拍张合照/;
-        // 「用户和角色见面」上下文 → 触发合照
-        const meetingCtx = /我来了|我到了|来到你|见到你|见面了|我们见面|来找你|去看你|我来看你|我到了你|在你身边|到你家|去你家|找你家|站在你|走进|进门|我和你|和你在一起|咱俩|我们俩|两人一起|双人一起|一起出门|一起走在|一起走/;
-        // 「用户生图」触发词
-        const userKeywords = /图片[-－—:：]\s*[我咱][^合]|自拍|给我拍[张照]|我的照片|（图片[-－—:：]\s*[我咱][^合]/;
-
-        if (jointDirect.test(fullBatchText) || meetingCtx.test(fullBatchText)) {
+        if (textRequestsJointShot(lastUserAsk)) {
             mode = 'joint';
-        } else if (userKeywords.test(fullBatchText)) {
+        } else if (textRequestsUserShot(lastUserAsk)) {
             mode = 'user';
         }
 

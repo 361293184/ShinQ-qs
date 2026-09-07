@@ -4,9 +4,13 @@ import {
   buildDirectorUserMessage,
   buildFallbackExecution,
   coerceDirective,
+  collectShotIntents,
   extractDirectiveFromResponse,
+  guardPersonSubject,
   requestDirectorDirective,
   resolveExecutionFromDirective,
+  textRequestsJointShot,
+  textRequestsUserShot,
   type ImageGenDirective,
   type ImageGenDirectorInput,
 } from './imageGenDirector';
@@ -14,6 +18,7 @@ import {
 function makeInput(overrides: Partial<ImageGenDirectorInput> = {}): ImageGenDirectorInput {
   return {
     charName: '小樱',
+    userName: '我',
     charDesc: '黑发、温柔、穿白裙',
     userDesc: '圆脸戴眼镜',
     sceneDesc: '窗外的雨景，雨水打在玻璃上',
@@ -22,8 +27,8 @@ function makeInput(overrides: Partial<ImageGenDirectorInput> = {}): ImageGenDire
     charLockDataUrl: '',
     userLockDataUrl: '',
     recentChat: [
-      { speaker: '我', text: '你那边下雨了吗' },
-      { speaker: '小樱', text: '下了，雨滴顺着玻璃滑下来' },
+      { speaker: '我', isUser: true, text: '你那边下雨了吗' },
+      { speaker: '小樱', isUser: false, text: '下了，雨滴顺着玻璃滑下来' },
     ],
     memoryLines: ['[2026-09-01] 用户说过想一起去山里看雪'],
     refinedMemoryLines: ['[2026-08] 两人约定今年冬天一起去看海'],
@@ -217,13 +222,16 @@ describe('buildDirectorUserMessage / buildDirectorChatBody', () => {
   it('assembles context, memories and lock availability into the message', () => {
     const input = makeInput({ charLockDataUrl: 'data:char' });
     const msg = buildDirectorUserMessage(input);
-    expect(msg).toContain('Character: 小樱');
+    expect(msg).toContain('Character (AI companion): 小樱');
+    expect(msg).toContain('User (human chatting): 我');
     expect(msg).toContain('窗外的雨景');
     expect(msg).toContain('Character reference available: yes');
     expect(msg).toContain('User reference available: no');
-    expect(msg).toContain('我: 你那边下雨了吗');
+    expect(msg).toContain('[User 我]: 你那边下雨了吗');
+    expect(msg).toContain('[Character 小樱]: 下了，雨滴顺着玻璃滑下来');
     expect(msg).toContain('[2026-09-01] 用户说过想一起去山里看雪');
     expect(msg).toContain('[2026-08] 两人约定今年冬天一起去看海');
+    expect(msg).toContain('"user" is FORBIDDEN'); // 用户没要求拍自己 → 约束行禁止 user
 
     const body = buildDirectorChatBody('gpt-4o-mini', input);
     expect(body.model).toBe('gpt-4o-mini');
@@ -263,5 +271,78 @@ describe('requestDirectorDirective', () => {
     })) as unknown as typeof fetch);
     const dir2 = await requestDirectorDirective({ baseUrl: 'https://sub.example.com/v1/', apiKey: 'k', model: 'm' }, makeInput());
     expect(dir2).toBeNull();
+  });
+});
+
+describe('photo subject intent detection', () => {
+  it('textRequestsUserShot: rejects generic "show me" and role selfies, accepts explicit user shots', () => {
+    expect(textRequestsUserShot('给我看看')).toBe(false);
+    expect(textRequestsUserShot('发张你的照片给我')).toBe(false);
+    expect(textRequestsUserShot('给我看看你的自拍')).toBe(false); // "你"=角色自拍，不是用户信号
+    expect(textRequestsUserShot('看看你窗外的风景')).toBe(false);
+    expect(textRequestsUserShot('拍我一张')).toBe(true);
+    expect(textRequestsUserShot('帮我拍张我的照片')).toBe(true);
+    expect(textRequestsUserShot('我的自拍好看吗')).toBe(true);
+  });
+
+  it('textRequestsJointShot: accepts joint requests, rejects generic ones', () => {
+    expect(textRequestsJointShot('我们来张合照吧')).toBe(true);
+    expect(textRequestsJointShot('合影留念')).toBe(true);
+    expect(textRequestsJointShot('给我看看')).toBe(false);
+    expect(textRequestsJointShot('发张你的照片')).toBe(false);
+  });
+
+  it('collectShotIntents only counts user-side (isUser=true) lines', () => {
+    const turns = [
+      { isUser: false, text: '图片- 我今天穿了白裙子，帮我看看好看吗' },
+      { isUser: true, text: '拍我一张' },
+      { isUser: false, text: '图片- 我的照片来啦，我自拍的' },
+    ];
+    const intents = collectShotIntents(turns);
+    expect(intents.userShot).toBe(true);
+    expect(intents.jointShot).toBe(false);
+
+    // 角色第一人称 caption 里的"拍我/我的照片/自拍"不算用户信号
+    const onlyChar = collectShotIntents([{ isUser: false, text: '图片- 拍我一张，我的照片，我刚自拍的' }]);
+    expect(onlyChar.userShot).toBe(false);
+    expect(onlyChar.jointShot).toBe(false);
+  });
+});
+
+describe('guardPersonSubject intent gate', () => {
+  const d = (subjectType: ImageGenDirective['subjectType']): ImageGenDirective => ({
+    subjectType,
+    useCharLock: true,
+    useUserLock: true,
+    prompt: 'final english prompt',
+  });
+
+  it('char/scenery/object are always allowed', () => {
+    const input = makeInput();
+    expect(guardPersonSubject(input, d('char'))).toBe('ok');
+    expect(guardPersonSubject(input, d('scenery'))).toBe('ok');
+    expect(guardPersonSubject(input, d('object'))).toBe('ok');
+  });
+
+  it('user is forbidden unless the user-side message asks to photograph the user', () => {
+    const input = makeInput({ recentChat: [{ speaker: '我', isUser: true, text: '给我看看' }] });
+    expect(guardPersonSubject(input, d('user'))).toBe('user-forbidden');
+
+    const askUser = makeInput({ recentChat: [{ speaker: '我', isUser: true, text: '拍我一张' }] });
+    expect(guardPersonSubject(askUser, d('user'))).toBe('ok');
+  });
+
+  it('joint is forbidden unless the user explicitly asks for a couple photo', () => {
+    const input = makeInput({ recentChat: [{ speaker: '我', isUser: true, text: '给我看看你的照片' }] });
+    expect(guardPersonSubject(input, d('joint'))).toBe('joint-forbidden');
+
+    const askJoint = makeInput({ recentChat: [{ speaker: '我', isUser: true, text: '我们来张合照吧' }] });
+    expect(guardPersonSubject(askJoint, d('joint'))).toBe('ok');
+  });
+
+  it('role-side first-person caption never unlocks user/joint', () => {
+    const input = makeInput({ recentChat: [{ speaker: '小樱', isUser: false, text: '图片- 刚自拍了一张我的照片' }] });
+    expect(guardPersonSubject(input, d('user'))).toBe('user-forbidden');
+    expect(guardPersonSubject(input, d('joint'))).toBe('joint-forbidden');
   });
 });
