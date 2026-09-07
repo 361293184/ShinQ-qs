@@ -26,6 +26,7 @@ import { COMMON_TIMEZONES } from '../utils/timezone';
 import { toMountedWorldbook } from '../utils/worldbook';
 import { stripSensitiveCardFields } from '../utils/characterCard';
 import { shareOrDownloadFile } from '../utils/shareExport';
+import { readShareText } from '../utils/pngShare';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
@@ -1068,85 +1069,85 @@ ${isInitialGeneration ? `
 
       const json = JSON.stringify(portableData, null, 2);
       const fileName = `${formData.name || 'Character'}_Card.json`;
-      
-      const result = await shareOrDownloadFile({
-          content: json,
-          fileName,
-          mimeType: 'application/json;charset=utf-8',
-          shareTitle: '导出角色卡',
-      });
-      addToast(result === 'shared' ? '已打开角色卡分享面板' : '角色卡已生成并导出', 'success');
+
+      try {
+          const result = await shareOrDownloadFile({
+              card: { kind: 'character', title: formData.name, previewUrl: /^(data:|blob:|https?:|\/)/.test(portableData.avatar || '') ? portableData.avatar : undefined },
+              content: json,
+              fileName,
+              mimeType: 'application/json;charset=utf-8',
+              shareTitle: '导出角色卡',
+          });
+          if (result === 'cancelled') return;
+          addToast(result === 'shared' ? '已打开角色卡分享面板' : '角色卡已生成并导出', 'success');
+      } catch (error: any) { addToast(error?.message || '角色卡导出失败', 'error'); }
   };
 
-  const handleImportCard = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCard = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-          try {
-              const json = ev.target?.result as string;
-              const data: CharacterExportData = JSON.parse(json);
-              
-              if (data.type !== 'sully_character_card') {
-                  throw new Error('无效的角色卡文件');
-              }
+      try {
+          const json = await readShareText(file, 'character');
+          const data: CharacterExportData = JSON.parse(json);
 
-              // 导入侧同样剥离凭据 / 美化 / 语言 / 运行时状态：即便对方给的是旧版
-              // 角色卡（把 API 密钥等私密字段一起打包了），也不会被写进本地角色，
-              // 不会用发卡人的 key / 主题 / 语言偏好覆盖你自己的。清单见 utils/characterCard.ts。
-              const safeData = stripSensitiveCardFields(data);
-
-              // Sync mounted worldbooks into the global worldbook app so they
-              // appear under their original category (or the character's name
-              // as a sensible fallback when the card has no category set).
-              const incomingMounted = (data.mountedWorldbooks || []).map(wb => ({ ...wb }));
-              const fallbackCategory = `${data.name || '导入角色'} 的世界书`;
-              let importedWbCount = 0;
-              for (const wb of incomingMounted) {
-                  if (!wb.id || worldbooks.some(existing => existing.id === wb.id)) continue;
-                  const category = wb.category && wb.category.trim() ? wb.category : fallbackCategory;
-                  wb.category = category;
-                  await addWorldbook({
-                      ...wb,
-                      id: wb.id,
-                      title: wb.title || '未命名设定',
-                      content: wb.content || '',
-                      category,
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                  });
-                  importedWbCount++;
-              }
-
-              const newChar: CharacterProfile = {
-                  ...safeData,
-                  id: `char-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                  memories: [],
-                  refinedMemories: {},
-                  activeMemoryMonths: [],
-                  mountedWorldbooks: incomingMounted,
-              } as CharacterProfile;
-
-              await DB.saveCharacter(newChar);
-              trackEvent('导入角色卡');
-              // 不要调用 addCharacter()——它不是"刷新"，而是真的新建一个空白
-              // "New Character" 并写进 DB，reload 后就会多出一张空白卡。
-              // 导入的角色已经存进了 DB（上一行），reload 时 OSContext 会从
-              // DB 重新读全部角色，导入的角色自然会出现，无需手动刷新 state。
-              setTimeout(() => window.location.reload(), 500);
-
-              const wbToastSuffix = importedWbCount > 0 ? `，并同步 ${importedWbCount} 本世界书` : '';
-              addToast(`角色 ${newChar.name} 导入成功${wbToastSuffix}`, 'success');
-
-          } catch (err: any) {
-              console.error(err);
-              addToast(err.message || '导入失败', 'error');
-          } finally {
-              if (cardImportRef.current) cardImportRef.current.value = '';
+          if (data.type !== 'sully_character_card') {
+              throw new Error('无效的角色卡文件');
           }
-      };
-      reader.readAsText(file);
+
+          // 导入侧同样剥离凭据 / 美化 / 语言 / 运行时状态：即便对方给的是旧版
+          // 角色卡（把 API 密钥等私密字段一起打包了），也不会被写进本地角色，
+          // 不会用发卡人的 key / 主题 / 语言偏好覆盖你自己的。清单见 utils/characterCard.ts。
+          const safeData = stripSensitiveCardFields(data);
+
+          // Sync mounted worldbooks into the global worldbook app so they
+          // appear under their original category (or the character's name
+          // as a sensible fallback when the card has no category set).
+          const incomingMounted = (data.mountedWorldbooks || []).map(wb => ({ ...wb }));
+          const fallbackCategory = `${data.name || '导入角色'} 的世界书`;
+          let importedWbCount = 0;
+          for (const wb of incomingMounted) {
+              if (!wb.id || worldbooks.some(existing => existing.id === wb.id)) continue;
+              const category = wb.category && wb.category.trim() ? wb.category : fallbackCategory;
+              wb.category = category;
+              await addWorldbook({
+                  ...wb,
+                  id: wb.id,
+                  title: wb.title || '未命名设定',
+                  content: wb.content || '',
+                  category,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+              });
+              importedWbCount++;
+          }
+
+          const newChar: CharacterProfile = {
+              ...safeData,
+              id: `char-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              memories: [],
+              refinedMemories: {},
+              activeMemoryMonths: [],
+              mountedWorldbooks: incomingMounted,
+          } as CharacterProfile;
+
+          await DB.saveCharacter(newChar);
+          trackEvent('导入角色卡');
+          // 不要调用 addCharacter()——它不是"刷新"，而是真的新建一个空白
+          // "New Character" 并写进 DB，reload 后就会多出一张空白卡。
+          // 导入的角色已经存进了 DB（上一行），reload 时 OSContext 会从
+          // DB 重新读全部角色，导入的角色自然会出现，无需手动刷新 state。
+          setTimeout(() => window.location.reload(), 500);
+
+          const wbToastSuffix = importedWbCount > 0 ? `，并同步 ${importedWbCount} 本世界书` : '';
+          addToast(`角色 ${newChar.name} 导入成功${wbToastSuffix}`, 'success');
+
+      } catch (err: any) {
+          console.error(err);
+          addToast(err.message || '导入失败', 'error');
+      } finally {
+          if (cardImportRef.current) cardImportRef.current.value = '';
+      }
   };
 
   return (
@@ -1176,7 +1177,7 @@ ${isInitialGeneration ? `
                         <ToolButton label="关闭" title="关闭" onClick={closeApp}>
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
                         </ToolButton>
-                        <input type="file" ref={cardImportRef} className="hidden" accept=".json" onChange={handleImportCard} />
+                        <input type="file" ref={cardImportRef} className="hidden" accept=".json,.png,application/json,image/png" onChange={handleImportCard} />
                    </div>
                </div>
                <div className="flex-1 overflow-y-auto px-5 pb-20 no-scrollbar flex flex-col gap-3">

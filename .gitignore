@@ -60,3 +60,7 @@ xiaohongshu-skills/
 # TIAO-Capacitor local Android toolchain and caches (D: only, never committed)
 .android-sdk/
 .gradle-user-home/
+
+# Local PNG share card QA and isolated build.
+/output/png-share-qa/
+/output/png-share-build/
