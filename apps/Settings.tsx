@@ -14,6 +14,8 @@ import { XhsMcpClient } from '../utils/xhsMcpClient';
 import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
 import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
 import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
+import { getWereadConfig, saveWereadConfig, isPlausibleWereadCookie } from '../utils/weread/wereadConfig';
+import { verifyWereadCookie } from '../utils/weread/wereadApi';
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
 import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
@@ -634,6 +636,16 @@ const Settings: React.FC = () => {
   const [luckinEnabled, setLuckinEnabledState] = useState(() => isLuckinEnabled());
   const [luckinTestStatus, setLuckinTestStatus] = useState('');
   const [luckinTesting, setLuckinTesting] = useState(false);
+
+  // 微信读书（真实书架/笔记 + 角色感知）：cookie 与开关统一放实时感知
+  const [initialWeread] = useState(() => getWereadConfig());
+  const [rtWereadEnabled, setRtWereadEnabled] = useState(initialWeread.roleAwareEnabled);
+  const [rtWereadCookie, setRtWereadCookie] = useState(initialWeread.cookie);
+  const [rtWereadNickname, setRtWereadNickname] = useState(initialWeread.nickname || '');
+  const [rtWereadVid, setRtWereadVid] = useState(initialWeread.vid || '');
+  const [rtWereadVerified, setRtWereadVerified] = useState(initialWeread.verified || false);
+  const [rtWereadStatus, setRtWereadStatus] = useState('');
+  const [rtWereadTesting, setRtWereadTesting] = useState(false);
 
   // Proactive Push 加速器（Worker URL / VAPID 公钥写死在 proactivePushConfig.ts 常量里）
   const initialPushCfg = loadPushConfig();
@@ -1953,6 +1965,33 @@ const Settings: React.FC = () => {
       setShowResetConfirm(false);
   };
 
+  // 微信读书：测试连接（用当前输入先保存到本地，再调 worker /weread/shelf 校验 cookie）
+  const testWereadApi = async () => {
+      if (!isPlausibleWereadCookie(rtWereadCookie)) {
+          setRtWereadStatus('❌ Cookie 太短或格式不像登录态，请粘贴完整 Cookie');
+          return;
+      }
+      setRtWereadTesting(true);
+      setRtWereadStatus('');
+      saveWereadConfig({ cookie: rtWereadCookie.trim() });
+      const r = await verifyWereadCookie();
+      setRtWereadTesting(false);
+      if (r.ok) {
+          saveWereadConfig({ verified: true, nickname: r.nickname || rtWereadNickname, vid: r.vid || rtWereadVid });
+          setRtWereadVerified(true);
+          if (r.nickname) setRtWereadNickname(r.nickname);
+          if (r.vid) setRtWereadVid(r.vid);
+          setRtWereadStatus(r.nickname ? `✅ 连接成功，欢迎回来 ${r.nickname}` : '✅ 连接成功');
+      } else {
+          setRtWereadVerified(false);
+          setRtWereadStatus(`❌ ${r.message || '连接失败'}`);
+      }
+  };
+
+  const openWereadLogin = () => {
+      window.open('https://weread.qq.com/', '_blank');
+  };
+
   // 保存实时感知配置
   const handleSaveRealtimeConfig = () => {
       const updates = {
@@ -1983,7 +2022,13 @@ const Settings: React.FC = () => {
           },
           locationEnabled: rtLocationEnabled,
           amapKey: rtAmapKey,
-          amapSecurityJsCode: rtAmapSecurityJsCode
+          amapSecurityJsCode: rtAmapSecurityJsCode,
+          // 微信读书（cookie 与角色感知开关在此统一保存）
+          wereadCookie: rtWereadCookie.trim() || undefined,
+          wereadNickname: rtWereadNickname || undefined,
+          wereadVid: rtWereadVid || undefined,
+          wereadVerified: rtWereadVerified || undefined,
+          wereadRoleAwareEnabled: rtWereadEnabled || undefined,
       };
       updateRealtimeConfig(updates);
       RealtimeContextManager.clearCache();
@@ -5117,6 +5162,57 @@ const Settings: React.FC = () => {
                               2. 粘贴到上面的输入框（仅存本地，<b>不会上传服务器</b>）<br/>
                               3. 下单类操作涉及真实支付，角色会先复述清单等你确认再下单<br/>
                               4. 上游需经 Worker 代理 (/mcp/luckin)，请确保已部署最新 worker
+                          </p>
+                      </div>
+                  )}
+              </div>
+
+              {/* 微信读书（真实书架/笔记 + 角色感知） */}
+              <div className="bg-emerald-50/60 p-4 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                          <Book size={20} weight="fill" className="text-emerald-600" />
+                          <span className="text-sm font-bold text-emerald-700">微信读书</span>
+                          {rtWereadVerified && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{rtWereadNickname || '已连接'}</span>}
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={rtWereadEnabled} onChange={e => setRtWereadEnabled(e.target.checked)} className="sr-only peer" />
+                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                      </label>
+                  </div>
+                  <p className="text-[10px] text-emerald-700/70 leading-relaxed">
+                      配置网页版 Cookie 后，微信读书 App 能看真实书架/笔记/正文；开启角色感知后，角色还会在聊天里自然提起你最近在读的书。
+                  </p>
+                  {(rtWereadEnabled || rtWereadCookie) && (
+                      <div className="space-y-2">
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">微信读书 Cookie (个人)</label>
+                              <textarea
+                                  value={rtWereadCookie}
+                                  onChange={e => setRtWereadCookie(e.target.value)}
+                                  rows={4}
+                                  placeholder={'wr_vid=123; wr_name=…; wr_skey=…'}
+                                  className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-xs font-mono resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300 placeholder:text-emerald-800/30"
+                              />
+                          </div>
+                          <div className="flex gap-2">
+                              <button onClick={testWereadApi} disabled={rtWereadTesting} className="flex-1 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-60">
+                                  {rtWereadTesting ? '连接中…' : '测试连接'}
+                              </button>
+                              <button onClick={openWereadLogin} className="px-3 py-2 rounded-xl border border-emerald-200 bg-white text-emerald-700 text-xs font-bold active:scale-95 transition-transform">
+                                  打开网页版
+                              </button>
+                          </div>
+                          {rtWereadStatus && (
+                              <div className={`p-2 rounded-lg text-[11px] whitespace-pre-line leading-relaxed ${rtWereadStatus.startsWith('✅') ? 'bg-emerald-100 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                                  {rtWereadStatus}
+                              </div>
+                          )}
+                          <p className="text-[10px] text-emerald-700/70 leading-relaxed">
+                              1. 打开 <span className="underline">weread.qq.com</span> 网页版扫码登录<br/>
+                              2. 复制整串 Cookie（F12 → Network → weread.qq.com 请求里的 Cookie）<br/>
+                              3. 粘贴到上方（仅存本地，<b>不上传服务器</b>）后点「测试连接」<br/>
+                              4. 如需角色感知：保持上方开关打开，并在微信读书 App「我」页确认
                           </p>
                       </div>
                   )}

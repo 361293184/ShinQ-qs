@@ -3,11 +3,12 @@
  * - 底部 Tab：阅读 / 书架 / 我（去掉书友，与微信读书一致）
  * - 阅读 Tab：最近在读 + 快捷续读
  * - 书架 Tab：全量书架（全部/在读/读完/想读）
- * - 我 Tab：cookie 登录 / 角色感知开关
+ * - 我 Tab：个人中心（账号配置统一在 SullyOS 设置 → 实时感知）
  * - 页面栈：搜索书城 / 书籍详情 / 阅读器 / 笔记
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOS } from '../context/OSContext';
+import { AppID } from '../types';
 import { fetchWereadShelf } from '../utils/weread/wereadApi';
 import type { WereadBook } from '../utils/weread/types';
 import { BookCover, EmptyHint, Spinner, HeaderBar } from '../components/weread/WereadShared';
@@ -52,7 +53,7 @@ function TabIcon({ name, active }: { name: 'discover' | 'shelf' | 'me'; active: 
 }
 
 const WeReadApp: React.FC = () => {
-  const { closeApp } = useOS();
+  const { closeApp, openApp } = useOS();
   const [tab, setTab] = useState<Tab>('read');
   const [detail, setDetail] = useState<WereadBook | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -77,6 +78,24 @@ const WeReadApp: React.FC = () => {
   }, []);
 
   useEffect(() => { void loadRecent(); }, [loadRecent]);
+
+  // 「我」页统计（全量书架汇总，5 分钟缓存内秒开）
+  const [meStats, setMeStats] = useState<{ inRead: number; finished: number; notes: number } | null>(null);
+  useEffect(() => {
+    if (tab !== 'me') return;
+    let alive = true;
+    fetchWereadShelf()
+      .then(list => {
+        if (!alive) return;
+        setMeStats({
+          inRead: list.filter(b => b.readingStatus === 'reading').length,
+          finished: list.filter(b => b.readingStatus === 'finished').length,
+          notes: list.reduce((s, b) => s + (b.markCount || 0) + (b.noteCount || 0), 0),
+        });
+      })
+      .catch(() => { if (alive) setMeStats(null); });
+    return () => { alive = false; };
+  }, [tab]);
 
   const openBook = (b: WereadBook) => { setDetail(b); };
   const openReader = (bookId: string) => setReader({ bookId, bookTitle: detail?.title || '微信读书' });
@@ -194,7 +213,14 @@ const WeReadApp: React.FC = () => {
           </div>
         )}
 
-        {tab === 'me' && <WereadProfile />}
+        {tab === 'me' && (
+          <WereadProfile
+            inReadCount={meStats?.inRead ?? 0}
+            finishedCount={meStats?.finished ?? 0}
+            noteCount={meStats?.notes ?? 0}
+            onOpenSettings={() => openApp(AppID.Settings)}
+          />
+        )}
       </div>
 
       {/* Bottom Tabs */}

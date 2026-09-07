@@ -62,7 +62,7 @@ export function HeaderBar({ title, onBack, right, subtitle }: {
 }) {
   return (
     <div className="shrink-0 bg-white/85 backdrop-blur-xl border-b border-emerald-50 z-10" style={{ paddingTop: 'var(--safe-top)' }}>
-      <div className="min-h-24 flex items-center gap-1 px-3">
+      <div className="min-h-12 flex items-center gap-1 px-3">
         {onBack && (
           <button
             type="button"

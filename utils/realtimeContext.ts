@@ -88,6 +88,13 @@ export interface RealtimeConfig {
         userXsecToken?: string; // 从 feed 列表自动获取，用于 getUserProfile 等
     };
 
+    // 微信读书配置（cookie + 角色感知开关统一在「设置 → 实时感知」填）
+    wereadCookie?: string;
+    wereadNickname?: string;
+    wereadVid?: string;
+    wereadVerified?: boolean;
+    wereadRoleAwareEnabled?: boolean;
+
     // 缓存配置
     cacheMinutes: number;   // 缓存时长（分钟）
 }

@@ -624,6 +624,13 @@ export interface RealtimeConfig {
   xhsEnabled: boolean;
   xhsMcpConfig?: XhsMcpConfig;
 
+  // 微信读书配置（cookie + 角色感知开关统一走「设置 → 实时感知」，App 内不再填）
+  wereadCookie?: string;
+  wereadNickname?: string;
+  wereadVid?: string;
+  wereadVerified?: boolean;
+  wereadRoleAwareEnabled?: boolean;
+
   // 定位配置（位置分享：真实定位走高德 JS API，虚拟定位免配置）
   locationEnabled?: boolean;
   amapKey?: string;            // 高德 JS API Key（真实定位选点用）
