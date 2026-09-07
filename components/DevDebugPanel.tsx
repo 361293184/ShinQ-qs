@@ -356,7 +356,7 @@ const DevDebugPanel: React.FC = () => {
 
     return (
         <div
-            className="fixed select-none"
+            className="fixed select-none pointer-events-none"
             style={{
                 left: open ? panelPosition.x : floatingPosition.x,
                 top: open ? panelPosition.y : floatingPosition.y,
@@ -372,7 +372,7 @@ const DevDebugPanel: React.FC = () => {
                     onPointerMove={handlePointerMove}
                     onPointerUp={finishDrag}
                     onPointerCancel={finishDrag}
-                    className="relative flex h-11 w-11 cursor-grab touch-none items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-md active:scale-95 active:cursor-grabbing"
+                    className="pointer-events-auto relative flex h-11 w-11 cursor-grab touch-none items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-md active:scale-95 active:cursor-grabbing"
                 >
                     <Wrench size={20} weight="bold" />
                     {activeCount > 0 && (
@@ -385,7 +385,7 @@ const DevDebugPanel: React.FC = () => {
 
             {open && (
                 <section
-                    className="flex w-[min(342px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-white/12 bg-zinc-950/90 text-white shadow-2xl backdrop-blur-xl"
+                    className="pointer-events-auto flex w-[min(342px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-white/12 bg-zinc-950/90 text-white shadow-2xl backdrop-blur-xl"
                     style={{ maxHeight: panelMaxHeight }}
                     aria-label="开发调试面板"
                 >
