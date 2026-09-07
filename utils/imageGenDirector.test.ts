@@ -171,6 +171,48 @@ describe('buildFallbackExecution', () => {
   });
 });
 
+describe('human safety tail on person shots', () => {
+  const charDir: ImageGenDirective = { subjectType: 'char', useCharLock: true, useUserLock: false, prompt: 'portrait of the girl in a park' };
+  const userDir: ImageGenDirective = { subjectType: 'user', useCharLock: false, useUserLock: true, prompt: 'selfie of the user' };
+
+  it('appends the anatomically-correct tail exactly once for char/user shots', () => {
+    const input = makeInput({ charLockDataUrl: 'data:char', userLockDataUrl: 'data:user' });
+    const charEx = resolveExecutionFromDirective(input, charDir);
+    const userEx = resolveExecutionFromDirective(input, userDir);
+    for (const ex of [charEx, userEx]) {
+      expect(ex.prompt).toContain('anatomically correct');
+      expect(ex.prompt).toContain('no gore');
+      expect(ex.prompt.match(/anatomically correct/g)).toHaveLength(1);
+    }
+  });
+
+  it('skips the tail for scenery/object (still keeps the no-human guard)', () => {
+    const input = makeInput({ charLockDataUrl: 'data:char' });
+    const scenery = resolveExecutionFromDirective(input, { subjectType: 'scenery', useCharLock: false, useUserLock: false, prompt: 'a field of sunflowers at sunset' });
+    const obj = resolveExecutionFromDirective(input, { subjectType: 'object', useCharLock: false, useUserLock: false, prompt: 'a steaming cup of coffee on a rainy windowsill' });
+    expect(scenery.prompt).not.toContain('anatomically correct');
+    expect(scenery.prompt).toContain('No humans');
+    expect(obj.prompt).not.toContain('anatomically correct');
+  });
+
+  it('retry reuse (second resolve) does not duplicate the tail', () => {
+    const input = makeInput({ charLockDataUrl: 'data:char' });
+    const once = resolveExecutionFromDirective(input, charDir);
+    const twice = resolveExecutionFromDirective(input, { ...charDir, prompt: once.prompt });
+    expect(twice.prompt).toBe(once.prompt);
+    expect(twice.prompt.match(/anatomically correct/g)).toHaveLength(1);
+  });
+
+  it('covers all three fallback templates too', () => {
+    for (const fallbackMode of ['char', 'user', 'joint'] as const) {
+      const ex = buildFallbackExecution(makeInput({ charLockDataUrl: 'data:char', userLockDataUrl: 'data:user', fallbackMode }));
+      expect(ex.prompt).toContain('anatomically correct');
+      expect(ex.prompt).toContain('no gore');
+      expect(ex.prompt.match(/anatomically correct/g)).toHaveLength(1);
+    }
+  });
+});
+
 describe('buildDirectorUserMessage / buildDirectorChatBody', () => {
   it('assembles context, memories and lock availability into the message', () => {
     const input = makeInput({ charLockDataUrl: 'data:char' });

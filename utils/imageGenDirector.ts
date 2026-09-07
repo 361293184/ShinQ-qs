@@ -41,6 +41,17 @@ const QUALITY_TAIL = 'masterpiece, best quality, highly detailed';
 /** 无人物硬约束（仅纯景/物件场景追加） */
 const NO_HUMAN_GUARD = 'No humans, no people, no human faces, no characters anywhere in the image.';
 
+/** 人物正向安全约束尾缀（角色照/用户照/合照场景追加，防畸形/血腥恐怖） */
+export const HUMAN_SAFETY_TAIL =
+  'anatomically correct, naturally proportioned body, complete healthy limbs, ' +
+  'intact hands with five normal fingers, no gore, no blood, no violence, no horror, no disturbing content';
+
+/** 有人物画面统一追加安全尾缀（判重，避免 retry 复用 prompt 时二次拼接） */
+function withHumanSafetyTail(prompt: string): string {
+  if (/anatomically correct/i.test(prompt || '')) return prompt;
+  return `${(prompt || '').trim().replace(/[.\s]+$/, '')}. ${HUMAN_SAFETY_TAIL}`;
+}
+
 /** 副 API 的"画面导演"系统提示词 */
 export const DIRECTOR_SYSTEM_PROMPT = [
   'You are the visual director of an image-generation feature inside a virtual companion app.',
@@ -276,6 +287,9 @@ export function resolveExecutionFromDirective(input: ImageGenDirectorInput, dire
       lockImageDataUrls = [input.charLockDataUrl, input.userLockDataUrl];
     }
   }
+  // 有人物画面（char/user/joint）：追加"解剖正确/肢体完整/无血腥恐怖"正向约束。
+  // 判重处理与上方无人物硬约束一致：retry 复用已含尾缀的 prompt 时不二次拼接。
+  if (!isSceneryLike) prompt = withHumanSafetyTail(prompt);
 
   return {
     prompt,
@@ -345,8 +359,9 @@ export function buildFallbackExecution(input: ImageGenDirectorInput): ImageGenEx
     useCharLock = !!charLock;
   }
 
+  // 回退档都是人物画面：同样追加"解剖正确/无血腥恐怖"安全尾缀（与 resolve 行为一致）
   return {
-    prompt,
+    prompt: withHumanSafetyTail(prompt),
     imageGenMode: mode,
     lockImageDataUrl,
     lockImageDataUrls,
