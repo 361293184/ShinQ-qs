@@ -3,12 +3,14 @@ import {
   buildDirectorChatBody,
   buildDirectorUserMessage,
   buildFallbackExecution,
+  classifyRoughSubject,
   coerceDirective,
   collectShotIntents,
   extractDirectiveFromResponse,
   guardPersonSubject,
   requestDirectorDirective,
   resolveExecutionFromDirective,
+  textRequestsCharPhotoShot,
   textRequestsJointShot,
   textRequestsUserShot,
   type ImageGenDirective,
@@ -174,6 +176,31 @@ describe('buildFallbackExecution', () => {
     expect(ex.lockImageDataUrl).toBe('data:user');
     expect(ex.usedLockFace).toBe(true);
   });
+
+  it('scenery fallback: no lock image, no lock flags, no-human guard, no human safety tail', () => {
+    const input = makeInput({ charLockDataUrl: 'data:char', userLockDataUrl: 'data:user', sceneDesc: '图片- 阳台一角', fallbackMode: 'scenery' });
+    const ex = buildFallbackExecution(input);
+    expect(ex.imageGenMode).toBe('scenery');
+    expect(ex.lockImageDataUrl).toBeNull();
+    expect(ex.lockImageDataUrls).toBeUndefined();
+    expect(ex.useCharLock).toBe(false);
+    expect(ex.useUserLock).toBe(false);
+    expect(ex.usedLockFace).toBe(false);
+    expect(ex.directorUsed).toBe(false);
+    expect(ex.prompt).toContain('No humans, no people');
+    expect(ex.prompt).toContain('阳台一角');
+    expect(ex.prompt).not.toContain('anatomically correct');
+    expect(ex.prompt).not.toContain('MUST keep the face');
+  });
+
+  it('object fallback mirrors scenery semantics', () => {
+    const input = makeInput({ charLockDataUrl: 'data:char', sceneDesc: '一碗热腾腾的牛肉面', fallbackMode: 'object' });
+    const ex = buildFallbackExecution(input);
+    expect(ex.imageGenMode).toBe('object');
+    expect(ex.lockImageDataUrl).toBeNull();
+    expect(ex.useCharLock).toBe(false);
+    expect(ex.prompt).toContain('No humans');
+  });
 });
 
 describe('human safety tail on person shots', () => {
@@ -283,6 +310,33 @@ describe('photo subject intent detection', () => {
     expect(textRequestsUserShot('拍我一张')).toBe(true);
     expect(textRequestsUserShot('帮我拍张我的照片')).toBe(true);
     expect(textRequestsUserShot('我的自拍好看吗')).toBe(true);
+  });
+
+  it('textRequestsCharPhotoShot: role-portrait requests, not scenery/objects', () => {
+    expect(textRequestsCharPhotoShot('给我看看')).toBe(false);
+    expect(textRequestsCharPhotoShot('看看你阳台')).toBe(false); // 场景不是角色照
+    expect(textRequestsCharPhotoShot('发张你的照片给我')).toBe(true);
+    expect(textRequestsCharPhotoShot('看看你长什么样')).toBe(true);
+    expect(textRequestsCharPhotoShot('拍你一张')).toBe(true);
+    expect(textRequestsCharPhotoShot('你的自拍好看吗')).toBe(true);
+  });
+
+  it('classifyRoughSubject: role sharing their room/food no longer defaults to char', () => {
+    // 角色主动发住处/饭菜/风景 → scenery/object（不再硬套角色照）
+    expect(classifyRoughSubject('', '图片- 阳台一角，午后的阳光洒在木地板上，晾衣架上的白衬衫微微晃动，角落里一盆绿植')).toBe('scenery');
+    expect(classifyRoughSubject('', '图片- 刚做好的可乐鸡翅，冒着热气，撒着葱花')).toBe('object');
+    expect(classifyRoughSubject('', '图片- 窗外下着雨，雨滴顺着玻璃滑下来')).toBe('scenery');
+
+    // 画面描述明确"我在画面里" → 仍判角色照
+    expect(classifyRoughSubject('', '图片- 我站在阳台晒太阳，穿着白衬衫')).toBe('char');
+    expect(classifyRoughSubject('', '图片- 我的自拍，刚洗完头')).toBe('char');
+
+    // 用户显式想看角色的地方/东西
+    expect(classifyRoughSubject('给我看看你住的房间', '房间一角')).toBe('scenery');
+    expect(classifyRoughSubject('给我看看你中午吃了什么', '图片- 一碗牛肉面')).toBe('object');
+
+    // 用户显式想看角色本人
+    expect(classifyRoughSubject('发张你的照片', '图片- 今天天气好')).toBe('char');
   });
 
   it('textRequestsJointShot: accepts joint requests, rejects generic ones', () => {

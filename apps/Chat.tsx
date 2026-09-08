@@ -42,8 +42,7 @@ import {
     coerceDirective,
     buildFallbackExecution,
     guardPersonSubject,
-    textRequestsUserShot,
-    textRequestsJointShot,
+    classifyRoughSubject,
     DIRECTOR_RECENT_CHAT_TURNS,
     DIRECTOR_RECENT_TURN_CHARS,
     DIRECTOR_MEMORY_COUNT,
@@ -52,6 +51,7 @@ import {
     DIRECTOR_REFINED_CHARS,
     type ImageGenDirectorInput,
     type ImageGenExecution,
+    type ImageGenFallbackMode,
     type ImageGenSubjectType,
 } from '../utils/imageGenDirector';
 import McdMiniApp from '../components/mcd/McdMiniApp';
@@ -1668,10 +1668,12 @@ const Chat: React.FC = () => {
     };
 
     // 自动生图：AI 回复里包含 "图片- xxx" 格式时触发生图
-    // 支持三种模式（由 trigger effect 根据三个开关 + 消息内容决定）：
+    // hint 档位由 trigger effect 粗判（char/user/joint/scenery/object，仅作提示）：
     //   - 'char'  ：角色生图（角色锁脸 + 角色外貌描述）
     //   - 'user'  ：用户生图（用户锁脸 + 用户外貌描述）
     //   - 'joint' ：合照（角色锁脸 + 双人描述融合）
+    //   - 'scenery'/'object'：纯景/物件（不锁脸、不传参考图、无人物）
+    // 副 API 配置后由"画面导演"读上下文做最终判定；未配/失败时该 hint 作为兜底档。
     // 生成的图片作为角色的回复（role: 'assistant'）出现在气泡流中
     // 新流程：先插入半透明占位卡片 → API 成功后替换为真图 → 失败则卡片显示失败状态
     // preset：失败占位卡点「重试」时传入，直接复用已定稿的 prompt 与锁脸意图（不重新判定）
@@ -1692,7 +1694,7 @@ const Chat: React.FC = () => {
     const autoGenerateImage = async (
         msgId: number,
         sceneDesc: string,
-        mode: 'char' | 'user' | 'joint' = 'char',
+        mode: ImageGenFallbackMode = 'char',
         preset?: { finalPrompt: string; subjectType: ImageGenSubjectType; useCharLock: boolean; useUserLock: boolean; directorUsed: boolean; },
     ) => {
         if (!apiConfig.imageGenBaseUrl || !apiConfig.imageGenApiKey || !apiConfig.imageGenModel) {
@@ -1795,6 +1797,15 @@ const Chat: React.FC = () => {
             directorWarnedRef.current = true;
             addToast('上下文画面判定暂不可用，已按基础模式生图', 'info');
         }
+        // 可观测：无论走哪条路都明确记录判定来源与最终档位，便于排查"为何出的是角色照/纯景"
+        const directorPath = preset
+            ? 'retry-reuse'
+            : !directorConfigured
+                ? 'sub-api-not-configured'
+                : directorFailed
+                    ? 'sub-api-failed'
+                    : 'sub-api-judged';
+        console.log(`[ImageGen Auto] path=${directorPath} hint=${mode} → decided=${execution.imageGenMode} lock=${execution.usedLockFace} | scene:`, (sceneDesc || '').slice(0, 60));
 
         prompt = execution.prompt;
         lockImage = execution.lockImageDataUrl;
@@ -1984,7 +1995,7 @@ const Chat: React.FC = () => {
         const meta = ((msg as any)?.metadata) || {};
         const finalPrompt = meta.imageGenFinalPrompt as string | undefined;
         const subjectType = (meta.imageGenMode as ImageGenSubjectType) || 'char';
-        const mode: 'char' | 'user' | 'joint' = (subjectType === 'user' || subjectType === 'joint') ? subjectType : 'char';
+        const mode: ImageGenFallbackMode = (subjectType === 'user' || subjectType === 'joint' || subjectType === 'scenery' || subjectType === 'object') ? subjectType : 'char';
         processedMsgIdsRef.current.delete(msgId);
         if (finalPrompt && finalPrompt.trim()) {
             autoGenerateImage(msgId, sceneDesc, mode, {
@@ -2076,11 +2087,11 @@ const Chat: React.FC = () => {
         if (!sceneDesc) return;
         sceneDesc = sceneDesc.slice(0, 500); // 防超长
 
-        // 决定生图模式（降级链路 / 未配副 API 时使用）：只认"这一轮回复前最近一条用户消息"里的显式意图。
+        // 决定生图模式 hint（仅提示，副 API 导演做最终判定；未配/失败时作为兜底档）：
         // - 用户明确要合照 → joint
         // - 用户明确要拍用户本人（拍我/我的照片/自拍…）→ user
-        // - 其余一律 char（"给我看看/发我看看/发张你的照片" = 用户要角色自己的照片）
-        // 不再扫描角色自己的 caption（"图片- 我今天…"里的"我"指角色自己，不是用户信号），避免误判成用户照。
+        // - 用户/画面明确指向角色本人（发张你的照片/我在画面里…）→ char
+        // - 角色分享的是住处/窗外/饭菜/某物（或画面描述纯景无人）→ scenery/object，不再硬套角色照
         let lastUserAsk = '';
         for (let i = batchStart - 1; i >= 0; i--) {
             const mm = messages[i];
@@ -2090,14 +2101,9 @@ const Chat: React.FC = () => {
             }
         }
 
-        let mode: 'char' | 'user' | 'joint' = 'char';
-        if (textRequestsJointShot(lastUserAsk)) {
-            mode = 'joint';
-        } else if (textRequestsUserShot(lastUserAsk)) {
-            mode = 'user';
-        }
+        const mode: ImageGenFallbackMode = classifyRoughSubject(lastUserAsk, sceneDesc);
 
-        console.log(`[ImageGen Auto] mode=${mode} scene:`, sceneDesc.slice(0, 80));
+        console.log(`[ImageGen Auto] hint=${mode} scene:`, sceneDesc.slice(0, 80));
         // 调度前就登记：避免在网络请求期间触发重复（更可靠的去重在 autoGenerateImage 内部）
         processedMsgIdsRef.current.add(targetBubbleId);
         setTimeout(() => autoGenerateImage(targetBubbleId, sceneDesc!, mode), 800);

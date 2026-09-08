@@ -16,7 +16,8 @@
  */
 
 export type ImageGenSubjectType = 'char' | 'user' | 'joint' | 'scenery' | 'object';
-export type ImageGenFallbackMode = 'char' | 'user' | 'joint';
+/** 前端粗分档位：除 char/user/joint 外也允许纯景/物件 hint，避免「发照片」被定死成角色照 */
+export type ImageGenFallbackMode = ImageGenSubjectType;
 
 export const IMAGE_SUBJECT_TYPES: readonly ImageGenSubjectType[] = ['char', 'user', 'joint', 'scenery', 'object'];
 
@@ -73,6 +74,58 @@ const JOINT_PATTERNS = [
   /咱俩(?:一起)?(?:拍|照)|我们俩(?:一起)?(?:拍|照)|一起拍(?:张)?(?:合照|合影)?/,
 ];
 
+/**
+ * 用户消息里"要角色本人的照片"的句式（对象明确落在 角色 上）。
+ * 注意与 place/object 句式区分："看看你家/阳台/晚饭"不是要角色出镜。
+ */
+const CHAR_PHOTO_PATTERNS = [
+  /(?:拍|照)(?:张|个|一张)?(?:的)?(?:你|你自己)/, // 拍你 / 拍张你
+  /你的(?:照片|相片|自拍|美照|帅照|近照|正脸照)/, // 你的照片/你的自拍
+  /(?:发|传)(?:张|个|一张)?你的?(?:照片|相片|自拍)/, // 发张你的照片
+  /看看你长(?:什么样|啥样|什么样子)/, // 看看你长什么样
+  /(?:看看|瞅瞅|让我看看)(?:你本人|现在的你|真实的你)/,
+  /你(?:给我)?自拍(?:一张)?(?:看看|发我)?/, // 你自拍一张看看
+];
+
+/** 场景地点类名词（用户想看角色的住处/窗外/公司/所在环境等 → scenery） */
+const SCENERY_PLACE_NOUNS = [
+  '阳台', '窗外', '窗边', '窗户', '窗外', '屋里', '家里', '家', '房间', '卧室', '客厅', '厨房', '书房',
+  '浴室', '卫生间', '天台', '院子', '花园', '后院', '门口', '楼下', '小区', '街道', '马路', '风景',
+  '景色', '天空', '天气', '外面', '外面', '城市', '夜景', '日落', '日出', '晚霞', '公司', '单位', '办公室',
+  '工位', '座位', '住处', '宿舍', '所在', '环境', '生活的地方', '楼下', '屋顶', '海边', '窗外', '湖',
+  '公园', '山', '树林', '操场',
+];
+
+/** 物件/食物类名词（用户想看角色吃/买/养的某样东西 → object） */
+const OBJECT_NOUNS = [
+  '午饭', '晚饭', '早餐', '夜宵', '午餐', '晚餐', '吃的', '食物', '外卖', '咖啡', '奶茶', '果汁',
+  '新买的', '买的', '快递', '礼物', '花', '绿植', '植物', '盆栽', '猫', '狗', '宠物', '鱼', '手办',
+  '书', '作业', '工牌', '车', '鞋子', '球鞋', '衣服', '衬衫', '卫衣', '裤子', '照片墙',
+  '鸡翅', '排骨', '面条', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '火锅', '烧烤', '串', '蛋糕',
+];
+
+/** 画面描述里出现"角色/人在画面中"的信号（用于粗判"这是角色照还是纯景"） */
+const PERSON_IN_FRAME_PATTERNS = [
+  /(?:我|自己|本人)(?:在|站|坐|躺|蹲|靠|穿|戴|披|露|笑|看镜头|比|举|抱|回眸|侧身|走|跳|吃|喝)/, // 我在阳台/我站着/我穿着…
+  /自拍|他拍|镜中|拍下了我|拍了一张我|出镜/,
+  /我的(?:脸|头|肩|锁骨|身材|侧脸|正脸|打扮|穿搭|样子|样子)/, // 我的穿搭(可能人是主体)但"我的衣服"也命中…见下
+];
+
+/** 纯景画面描述里的场景词（无人物时用于粗判 scenery） */
+const SCENERY_DESC_NOUNS = [
+  '阳台', '窗', '窗户', '窗外', '屋里', '家里', '房间', '卧室', '客厅', '厨房', '天空', '阳光', '日落',
+  '日出', '晚霞', '街道', '马路', '城市', '风景', '外面', '楼下', '公园', '花园', '院子', '天台',
+  '海边', '湖', '山', '树林', '雨天', '下雨', '雪', '微风', '晾衣', '绿植', '植物', '盆栽',
+];
+
+/** 物件/食物类画面名词 */
+const OBJECT_DESC_NOUNS = [
+  '饭', '菜', '汤', '面', '饺子', '火锅', '烧烤', '咖啡', '奶茶', '甜点', '蛋糕', '水果', '外卖',
+  '猫', '狗', '宠物', '鱼', '花', '绿植', '植物', '盆栽', '手办', '书', '快递', '礼物', '新买的',
+  '鞋', '衣服', '衬衫', '卫衣', '球鞋', '工牌', '工位', '车',
+  '鸡翅', '排骨', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '粥',
+];
+
 /** 该文本（应是用户自己的消息）是否在明确要求"拍用户本人" */
 export function textRequestsUserShot(text: string): boolean {
   if (!text) return false;
@@ -105,6 +158,52 @@ export function collectShotIntents(turns: Array<{ isUser?: boolean; text?: strin
   return { userShot, jointShot };
 }
 
+/** 用户消息是否在明确要"角色本人的照片"（对象落在角色上，不是场景/物件） */
+export function textRequestsCharPhotoShot(text: string): boolean {
+  if (!text) return false;
+  return CHAR_PHOTO_PATTERNS.some(re => re.test(text));
+}
+
+/** 在文本里找是否命中名词表（避免把"窗外/阳台"误当"看看你"里的主体） */
+function hitsAny(text: string, nouns: string[]): boolean {
+  if (!text) return false;
+  return nouns.some(n => text.includes(n));
+}
+
+/**
+ * 前端粗判：这张照片该拍什么（只作为 hint，不是硬约束）。
+ * 只有用户消息里出现了明确的对象词才用它定档；否则按画面描述(sceneDesc)本身猜。
+ * 核心改变：不再"非 user/joint 一律 char"——角色分享住处/饭菜/风景时不再被硬套成人像。
+ */
+export function classifyRoughSubject(lastUserAsk: string, sceneDesc: string): ImageGenFallbackMode {
+  const ask = lastUserAsk || '';
+  const scene = sceneDesc || '';
+
+  // 1) 用户显式意图最优先
+  if (textRequestsJointShot(ask)) return 'joint';
+  if (textRequestsUserShot(ask)) return 'user';
+  if (textRequestsCharPhotoShot(ask)) return 'char';
+
+  // 2) 画面描述明确"人在画面中"（我在/自拍/穿着…）→ 角色照（即使 ask 只是"看看你的房间"，
+  //    角色自己都把"我"写进画面了，说明这张照片本来就有人）
+  if (PERSON_IN_FRAME_PATTERNS.some(re => re.test(scene))) return 'char';
+
+  // 3) 用户想看角色的某个地方/窗外 → 纯景
+  if (ask && hitsAny(ask, SCENERY_PLACE_NOUNS)) return 'scenery';
+
+  // 4) 用户想看角色吃的/买的/养的某样东西 → 物件特写
+  if (ask && hitsAny(ask, OBJECT_NOUNS)) return 'object';
+
+  // 5) 用户没点明对象（或角色主动发图）→ 按画面描述内容走纯景/物件
+  if (scene) {
+    if (hitsAny(scene, SCENERY_DESC_NOUNS)) return 'scenery';
+    if (hitsAny(scene, OBJECT_DESC_NOUNS)) return 'object';
+  }
+
+  // 6) 完全无信号：保持旧默认 char（保守）
+  return 'char';
+}
+
 export type PersonSubjectGuard = 'ok' | 'user-forbidden' | 'joint-forbidden';
 
 /**
@@ -131,12 +230,15 @@ export const DIRECTOR_SYSTEM_PROMPT = [
   '- In a line tagged [Character], first-person words like "我/自己/I" refer to the CHARACTER; in a line tagged [User], they refer to the USER. Never mix them.',
   '',
   'Default semantics for sending photos:',
-  '- When the user asks the character to show/send a photo ("给我看看", "发我看看", "让我看看", "发张你的照片", "看看你") it means the user wants a photo OF THE CHARACTER — not a photo of the user.',
   '- A photo of the user ("user") is allowed ONLY when the user themselves explicitly asks to be photographed (e.g. 拍我 / 我的照片 / 自拍).',
   '- A joint/couple photo ("joint") is allowed ONLY when the user explicitly asks for a 合照/合影.',
   '- The "Person-subject constraints" block in the request tells you precisely whether user/joint are allowed THIS time; obey it.',
-  '- When a person photo is expected but nothing says it is the user or a couple, output "char".',
+  '',
+  'Deciding "char" vs "scenery"/"object" — read the request carefully, do NOT default to char:',
+  '- "char" means the photo shows the CHARACTER. Choose it only when the user clearly wants to see the character himself/herself (e.g. 发张你的照片 / 看看你 / 拍你一张 / 你的自拍 / 你长什么样), OR when the scene description says the character is actually in the frame (我在阳台/自拍/站在…).',
+  '- When the character proactively shares their surroundings/life (给我看看你家/阳台/窗外/你住的地方/你做的饭/新买的XX/今天的天气), the photo is about THAT PLACE or THAT THING, not necessarily the character. If the scene description does not mention a person, output "scenery" or "object" and DO NOT insert the character.',
   '- If the moment is about a place/weather/scenery/object the character is looking at or describing, output "scenery"/"object" (no people).',
+  '- When in doubt, look at the "Scene / what the photo is about" line: if it describes only a place/view/food/item with no person, choose scenery/object over char.',
   '',
   'Output a SINGLE JSON object with exactly these fields:',
   '{"subjectType":"char"|"user"|"joint"|"scenery"|"object","useCharLock":true|false,"useUserLock":true|false,"prompt":"<final english prompt>"}',
@@ -425,7 +527,24 @@ export function buildFallbackExecution(input: ImageGenDirectorInput): ImageGenEx
   let useCharLock = false;
   let useUserLock = false;
 
-  if (mode === 'user') {
+  if (mode === 'scenery' || mode === 'object') {
+    // 纯景/物件兜底：不锁脸、不传参考图、强制"无人物"
+    const parts = [scene || (mode === 'object' ? 'a close-up detail shot of an object' : 'a scenic view')];
+    parts.push(NO_HUMAN_GUARD);
+    parts.push(QUALITY_TAIL);
+    prompt = parts.filter(Boolean).join(', ');
+    // 与人物画面一致：judge scenery-like 时不追加人体安全尾缀（与 resolve 行为保持一致）
+    return {
+      prompt,
+      imageGenMode: mode,
+      lockImageDataUrl: null,
+      lockImageDataUrls: undefined,
+      usedLockFace: false,
+      useCharLock: false,
+      useUserLock: false,
+      directorUsed: false,
+    };
+  } else if (mode === 'user') {
     const parts = [input.userShort || 'a person'];
     if (userLock) parts.push(LOCK_FACE_HINT);
     if (scene) parts.push(scene);

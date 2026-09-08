@@ -3302,14 +3302,6 @@ const MessageItem = React.memo(({
         const isPlaceholder = !!imgMeta.imageGenPlaceholder;
         const isPending = !!imgMeta.imageGenPending;
         const isFailed = !!imgMeta.imageGenFailed;
-        const modeBadgeStyles: Record<string, string> = {
-            char: 'bg-violet-500/15 text-violet-600',
-            user: 'bg-emerald-500/15 text-emerald-600',
-            joint: 'bg-pink-500/15 text-pink-600',
-            scenery: 'bg-sky-500/15 text-sky-600',
-            object: 'bg-amber-500/15 text-amber-600',
-        };
-        const modeLabels: Record<string, string> = { char: '角色', user: '你', joint: '合照', scenery: '风景', object: '物件' };
         return (
             <>
                 {commonLayout(
@@ -3326,19 +3318,13 @@ const MessageItem = React.memo(({
                     />
                 ) : isPlaceholder ? (
                     isPending ? (
-                        // 正在生成：半透明占位卡 + 动画
-                        <div className="w-[200px] px-4 py-8 rounded-2xl bg-slate-100 border border-slate-200 flex flex-col items-center gap-2">
+                        // 正在生成：9:16 竖版占位卡（与最终照片同比例同尺寸，切换不跳；只留跳点，隐藏文字）
+                        <div className="w-[169px] aspect-[9/16] rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
                             <div className="flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce" />
                                 <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce [animation-delay:120ms]" />
                                 <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce [animation-delay:240ms]" />
                             </div>
-                            <span className="text-xs text-slate-500 text-center">
-                                {imgMeta.imageGenStatusText || 'AI 正在生成图片...'}
-                            </span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${(modeBadgeStyles[imgMeta.imageGenMode] || modeBadgeStyles.char)}`}>
-                                {modeLabels[imgMeta.imageGenMode] || '角色'}
-                            </span>
                         </div>
                     ) : isFailed ? (
                         // 生成失败：失败卡 + 重试
