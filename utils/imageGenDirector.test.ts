@@ -331,6 +331,11 @@ describe('photo subject intent detection', () => {
     expect(classifyRoughSubject('', '图片- 我站在阳台晒太阳，穿着白衬衫')).toBe('char');
     expect(classifyRoughSubject('', '图片- 我的自拍，刚洗完头')).toBe('char');
 
+    // 角色身体部位/穿搭/状态特写，即使没写"我"也是角色照，不是纯景/物件
+    expect(classifyRoughSubject('', '图片- 锁骨上还挂着水珠，顺着线条滑下来')).toBe('char');
+    expect(classifyRoughSubject('', '图片- 今天的穿搭，oversize 卫衣配工装裤')).toBe('char');
+    expect(classifyRoughSubject('', '图片- 刚洗完澡，头发还在滴水')).toBe('char');
+
     // 用户显式想看角色的地方/东西
     expect(classifyRoughSubject('给我看看你住的房间', '房间一角')).toBe('scenery');
     expect(classifyRoughSubject('给我看看你中午吃了什么', '图片- 一碗牛肉面')).toBe('object');

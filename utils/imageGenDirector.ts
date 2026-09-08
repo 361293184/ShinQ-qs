@@ -104,11 +104,14 @@ const OBJECT_NOUNS = [
   '鸡翅', '排骨', '面条', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '火锅', '烧烤', '串', '蛋糕',
 ];
 
-/** 画面描述里出现"角色/人在画面中"的信号（用于粗判"这是角色照还是纯景"） */
+/** 画面描述里出现"角色/人在画面中"的信号（用于粗判"这是角色照还是纯景"）。
+ *  不仅"我/自拍"算，角色身体部位特写（锁骨/侧脸/背影/手指/腿/腰）、穿搭造型、素颜、
+ *  刚洗头等"展示自己某个局部/状态"的描述也算 char——主体是角色，不是纯景/物件。 */
 const PERSON_IN_FRAME_PATTERNS = [
   /(?:我|自己|本人)(?:在|站|坐|躺|蹲|靠|穿|戴|披|露|笑|看镜头|比|举|抱|回眸|侧身|走|跳|吃|喝)/, // 我在阳台/我站着/我穿着…
   /自拍|他拍|镜中|拍下了我|拍了一张我|出镜/,
-  /我的(?:脸|头|肩|锁骨|身材|侧脸|正脸|打扮|穿搭|样子|样子)/, // 我的穿搭(可能人是主体)但"我的衣服"也命中…见下
+  /我的(?:脸|头|肩|锁骨|身材|侧脸|正脸|背影|腿|腰|手指|手|脚|脚踝|发型|素颜|妆|穿搭|打扮|look|状态|样子)/, // 展示自己某部位/某状态
+  /(?:锁骨|侧脸|背影|素颜|洗完头|洗了澡|洗完澡|今天的穿搭|这身穿搭|这身look|没化妆|只涂了|还挂着水珠)/, // 无"我"但显然是角色身体/造型特写
 ];
 
 /** 纯景画面描述里的场景词（无人物时用于粗判 scenery） */
@@ -234,11 +237,13 @@ export const DIRECTOR_SYSTEM_PROMPT = [
   '- A joint/couple photo ("joint") is allowed ONLY when the user explicitly asks for a 合照/合影.',
   '- The "Person-subject constraints" block in the request tells you precisely whether user/joint are allowed THIS time; obey it.',
   '',
-  'Deciding "char" vs "scenery"/"object" — read the request carefully, do NOT default to char:',
-  '- "char" means the photo shows the CHARACTER. Choose it only when the user clearly wants to see the character himself/herself (e.g. 发张你的照片 / 看看你 / 拍你一张 / 你的自拍 / 你长什么样), OR when the scene description says the character is actually in the frame (我在阳台/自拍/站在…).',
-  '- When the character proactively shares their surroundings/life (给我看看你家/阳台/窗外/你住的地方/你做的饭/新买的XX/今天的天气), the photo is about THAT PLACE or THAT THING, not necessarily the character. If the scene description does not mention a person, output "scenery" or "object" and DO NOT insert the character.',
-  '- If the moment is about a place/weather/scenery/object the character is looking at or describing, output "scenery"/"object" (no people).',
-  '- When in doubt, look at the "Scene / what the photo is about" line: if it describes only a place/view/food/item with no person, choose scenery/object over char.',
+  'Deciding "char" vs "scenery"/"object" — be NEUTRAL, follow the conversation:',
+  '- There is no default bias. The character may want to send a selfie, a body/outfit detail, a scenery view, their meal, an object, or themselves standing in a place — all equally normal. Decide purely from the recent conversation, the character\'s memory, and the "Scene / what the photo is about" line.',
+  '- "char" (the photo shows the character) fits when the moment is about the character himself/herself: the user asks to see the character (发张你的照片 / 看看你 / 拍你一张 / 你的自拍 / 你长什么样), or the scene description puts the character in the frame (我在阳台 / 自拍 / 我站在… / 我穿着…), or the conversation strongly implies the character is presenting themselves right now.',
+  '- A close-up of the character\'s own body part or outfit (锁骨 / 手指 / 腿 / 今天的穿搭 / 刚洗的头发 / 素颜…) is STILL "char" — the subject is the character, even though only a part is visible. Do not downgrade these to "object".',
+  '- "scenery"/"object" fits when the photo is clearly about a place/view/thing with no person intended: the character offers to show their surroundings, a view, weather, a meal, or a newly bought item, AND the scene description does not describe the character or their body. Never insert the character into a genuinely person-free scenery/object shot.',
+  '- When the character is IN a scenery (e.g. 我站在阳台 / 我在海边) and the moment is about them, "char" is correct (character + place as background), not scenery.',
+  '- When genuinely ambiguous, weigh the conversation: what were they just talking about, and whose intent (user asking vs character offering) does it serve? Choose what best fits the context. Do not force either side.',
   '',
   'Output a SINGLE JSON object with exactly these fields:',
   '{"subjectType":"char"|"user"|"joint"|"scenery"|"object","useCharLock":true|false,"useUserLock":true|false,"prompt":"<final english prompt>"}',
