@@ -24,10 +24,24 @@ function humanMessage(code: string, fallback?: string): string {
   switch (code) {
     case 'NO_COOKIE': return '尚未登录微信读书：请到『我』页粘贴 cookie 或扫码登录';
     case 'COOKIE_EXPIRED': return '微信读书登录已失效，请到『我』页重新登录/更新 cookie';
+    case 'NO_VID': return 'cookie 中未找到 wr_vid，请到微信读书网页版重新复制完整 cookie（必须含 wr_vid= 与 wr_skey=）';
+    case 'WEREAD_LOGIN_TIMEOUT': return '微信读书登录已超时，请到『我』页重新粘贴 cookie';
+    case 'WEREAD_AUTH_FAILED': return '微信读书鉴权失败，请到『我』页重新粘贴 cookie';
     case 'UPSTREAM_NETWORK': return '微信读书接口暂不可达，请稍后重试';
     case 'WEREAD_ERROR': return '微信读书接口异常，稍后重试';
     default: return fallback || '加载失败，请稍后重试';
   }
+}
+
+/**
+ * 微信读书上游接口在 HTTP 200 的 body 里也会塞业务错误码（{ errCode: -2012, errMsg: "登录超时" }）。
+ * 这里把常见业务码归一到前端的 error.code，方便 UI 走对应文案 + 引导去『我』页重新登录。
+ * errCode 约定：0 = 成功；负数 = 鉴权/会话类；正数 = 一般业务错误。
+ */
+function mapUpstreamErrCode(ec: number): string {
+  if (ec === -2012 || ec === -2010 || ec === -2011) return 'COOKIE_EXPIRED';
+  if (ec === -1 || ec === -2 || ec === -3) return 'WEREAD_AUTH_FAILED';
+  return 'WEREAD_LOGIN_TIMEOUT';
 }
 
 /* ---------- 内存缓存 ---------- */
@@ -86,6 +100,17 @@ async function wereadRequest<T>(action: string, params: Record<string, string>, 
     throw apiError(code, payload?.message || humanMessage(code));
   }
   const data = (payload?.data !== undefined ? payload.data : payload) as T;
+  // 微信读书上游在 HTTP 200 的 body 里也塞业务错误码（errCode ≠ 0）。
+  // 不识别的话 normalizeShelf 会把它当正常数据解析、返回 []，UI 就显示"书架空空的"，
+  // 实际是 cookie 过期——这就是当前 bug 的根因。统一在这里翻译成前端 error code。
+  if (data && typeof data === 'object' && 'errCode' in (data as any)) {
+    const ec = Number((data as any).errCode);
+    if (Number.isFinite(ec) && ec !== 0) {
+      const code = mapUpstreamErrCode(ec);
+      const upstreamMsg = typeof (data as any).errMsg === 'string' && (data as any).errMsg ? (data as any).errMsg : '';
+      throw apiError(code, upstreamMsg ? `${humanMessage(code)}（${upstreamMsg}）` : humanMessage(code));
+    }
+  }
   return remember(key, data);
 }
 
