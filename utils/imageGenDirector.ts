@@ -1,36 +1,21 @@
 /**
- * 自动生图链路的"画面导演"（副 API 判定）——纯逻辑层，无 React/无 UI 文案。
+ * 自动生图的"执行构造"——主模型描述驱动版。
  *
- * 背景：旧的自动发图链路是"前端关键词三档硬判(char/user/joint) + 模板拼 prompt +
- * 可选副 API 润色"。它不认识上下文，导致"角色被要求拍眼前的花田/窗外雨景"时，
- * 依然按默认 char 档把角色+角色锁脸硬塞进画面。
- *
- * 本模块把判定权交给副 API：把「最近聊天 + 角色长期记忆 + 角色/用户外貌与锁脸状态 +
- * 本次画面描述」喂给它，让它先输出结构化画面意图
- * （subjectType: char/user/joint/scenery/object + 是否用各锁脸 + 完整英文 prompt），
- * 前端照做再调生图 API。
- *
- * 约定：
- * - 副 API 未配置 / 超时 / 解析失败 → 调用方回退 buildFallbackExecution（旧三档模板），保证不哑火。
- * - 纯景/物件（scenery/object）强制不使用任何锁脸参考图，并在 prompt 末尾追加"无人物"硬约束。
+ * 判定哲学（副 API"画面导演"已退役，不再额外调用）：
+ * - 聊天主模型在生成「图片- 描述」时，已经基于完整上下文决定了要不要发、画面里是谁。
+ *   不需要再调一次副 API 去"解读"主模型刚写好的描述（那是二道贩子：多花钱、会超时、
+ *   还会因为裁剪上下文而判错）。
+ * - 前端唯一需要做的判断是：**描述里谁出镜 → 决定给生图 API 传哪张锁脸参考图**。
+ *   - 角色本人出镜（描述里"我"作画面主语 / 自拍 / 身体部位 / 穿搭）→ 传角色锁脸图
+ *   - 用户与角色一起（描述含"你和我 / 咱俩 / 合照"）→ 双锁脸
+ *   - 用户本人出镜（描述以"你"为被拍对象）→ 传用户锁脸图
+ *   - 纯景 / 物件（描述里没有任何人）→ 不传锁脸图 + 追加"无人物"硬约束
+ * - 人物画面统一追加"解剖正确 / 肢体完整 / 无血腥"正向约束。
  */
 
 export type ImageGenSubjectType = 'char' | 'user' | 'joint' | 'scenery' | 'object';
-/** 前端粗分档位：除 char/user/joint 外也允许纯景/物件 hint，避免「发照片」被定死成角色照 */
-export type ImageGenFallbackMode = ImageGenSubjectType;
 
 export const IMAGE_SUBJECT_TYPES: readonly ImageGenSubjectType[] = ['char', 'user', 'joint', 'scenery', 'object'];
-
-/** 副 API 判定超时（毫秒） */
-export const DIRECTOR_TIMEOUT_MS = 20_000;
-
-/** 判定材料裁剪上限 */
-export const DIRECTOR_RECENT_CHAT_TURNS = 20;
-export const DIRECTOR_RECENT_TURN_CHARS = 200;
-export const DIRECTOR_MEMORY_COUNT = 15;
-export const DIRECTOR_MEMORY_CHARS = 200;
-export const DIRECTOR_REFINED_COUNT = 10;
-export const DIRECTOR_REFINED_CHARS = 300;
 
 /** 锁脸强化指令：有锁脸图时强制 AI 以参考图为准，避免自由发挥改变性别/外貌 */
 export const LOCK_FACE_HINT =
@@ -43,7 +28,7 @@ const QUALITY_TAIL = 'masterpiece, best quality, highly detailed';
 const NO_HUMAN_GUARD = 'No humans, no people, no human faces, no characters anywhere in the image.';
 
 /** 人物正向安全约束尾缀（角色照/用户照/合照场景追加，防畸形/血腥恐怖） */
-export const HUMAN_SAFETY_TAIL =
+const HUMAN_SAFETY_TAIL =
   'anatomically correct, naturally proportioned body, complete healthy limbs, ' +
   'intact hands with five normal fingers, no gore, no blood, no violence, no horror, no disturbing content';
 
@@ -54,266 +39,77 @@ function withHumanSafetyTail(prompt: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* 发照片主体意图（谁的照片）                                           */
-/* 只认「用户自己消息」里的显式信号：                                  */
-/* - user（拍用户本人）：拍我 / 我的照片 / 我的自拍 …                   */
-/* - joint（合照）：合照 / 合影 / 合个影 …                              */
-/* 角色回复里的第一人称「我/图片- 我…」一律不算用户信号。               */
+/* 出镜判定：从主模型自己写的画面描述里读"谁在画面"                     */
 /* ------------------------------------------------------------------ */
 
-/** 用户消息里"要拍用户本人"的常见句式（对象明确落在 我/自己 上；避免把“你的照片/你的自拍/给我看看”当成用户信号） */
-const USER_SELF_PATTERNS = [
-  /(?:拍|照|画)(?:张|个|一下|一张|了)?(?:的)?(?:我|自己)/,
-  /我的(?:照片|相片|自拍|美照|帅照)/,
-  /(?:给|帮)(?:我)?(?:拍|照)(?:张|一张)?(?:的)?(?:我|自己)/,
-];
-
-/** 用户消息里"要合照"的常见句式 */
-const JOINT_PATTERNS = [
-  /合照|合影|合个影|来张合照|来张合影|拍张合照|拍张合影/,
-  /咱俩(?:一起)?(?:拍|照)|我们俩(?:一起)?(?:拍|照)|一起拍(?:张)?(?:合照|合影)?/,
-];
-
 /**
- * 用户消息里"要角色本人的照片"的句式（对象明确落在 角色 上）。
- * 注意与 place/object 句式区分："看看你家/阳台/晚饭"不是要角色出镜。
+ * 描述里"角色本人出镜"的信号。主模型按 prompt 约定：角色在画面就用"我"作画面主语、
+ * 或描述自拍/身体部位/穿搭造型。仅凭所属格（"我的房间/我的书"）不判出镜。
  */
-const CHAR_PHOTO_PATTERNS = [
-  /(?:拍|照)(?:张|个|一张)?(?:的)?(?:你|你自己)/, // 拍你 / 拍张你
-  /你的(?:照片|相片|自拍|美照|帅照|近照|正脸照)/, // 你的照片/你的自拍
-  /(?:发|传)(?:张|个|一张)?你的?(?:照片|相片|自拍)/, // 发张你的照片
-  /看看你长(?:什么样|啥样|什么样子)/, // 看看你长什么样
-  /(?:看看|瞅瞅|让我看看)(?:你本人|现在的你|真实的你)/,
-  /你(?:给我)?自拍(?:一张)?(?:看看|发我)?/, // 你自拍一张看看
-];
-
-/** 场景地点类名词（用户想看角色的住处/窗外/公司/所在环境等 → scenery） */
-const SCENERY_PLACE_NOUNS = [
-  '阳台', '窗外', '窗边', '窗户', '窗外', '屋里', '家里', '家', '房间', '卧室', '客厅', '厨房', '书房',
-  '浴室', '卫生间', '天台', '院子', '花园', '后院', '门口', '楼下', '小区', '街道', '马路', '风景',
-  '景色', '天空', '天气', '外面', '外面', '城市', '夜景', '日落', '日出', '晚霞', '公司', '单位', '办公室',
-  '工位', '座位', '住处', '宿舍', '所在', '环境', '生活的地方', '楼下', '屋顶', '海边', '窗外', '湖',
-  '公园', '山', '树林', '操场',
-];
-
-/** 物件/食物类名词（用户想看角色吃/买/养的某样东西 → object） */
-const OBJECT_NOUNS = [
-  '午饭', '晚饭', '早餐', '夜宵', '午餐', '晚餐', '吃的', '食物', '外卖', '咖啡', '奶茶', '果汁',
-  '新买的', '买的', '快递', '礼物', '花', '绿植', '植物', '盆栽', '猫', '狗', '宠物', '鱼', '手办',
-  '书', '作业', '工牌', '车', '鞋子', '球鞋', '衣服', '衬衫', '卫衣', '裤子', '照片墙',
-  '鸡翅', '排骨', '面条', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '火锅', '烧烤', '串', '蛋糕',
-];
-
-/** 画面描述里出现"角色/人在画面中"的信号（用于粗判"这是角色照还是纯景"）。
- *  不仅"我/自拍"算，角色身体部位特写（锁骨/侧脸/背影/手指/腿/腰）、穿搭造型、素颜、
- *  刚洗头等"展示自己某个局部/状态"的描述也算 char——主体是角色，不是纯景/物件。 */
-const PERSON_IN_FRAME_PATTERNS = [
-  /(?:我|自己|本人)(?:在|站|坐|躺|蹲|靠|穿|戴|披|露|笑|看镜头|比|举|抱|回眸|侧身|走|跳|吃|喝)/, // 我在阳台/我站着/我穿着…
+const CHAR_IN_FRAME_PATTERNS = [
+  /(?:我|自己|本人)(?:在|站|坐|躺|蹲|靠|穿|戴|披|露|笑|看镜头|比|举|抱|回眸|侧身|走|跳|吃|喝|淋|晒)/,
   /自拍|他拍|镜中|拍下了我|拍了一张我|出镜/,
-  /我的(?:脸|头|肩|锁骨|身材|侧脸|正脸|背影|腿|腰|手指|手|脚|脚踝|发型|素颜|妆|穿搭|打扮|look|状态|样子)/, // 展示自己某部位/某状态
-  /(?:锁骨|侧脸|背影|素颜|洗完头|洗了澡|洗完澡|今天的穿搭|这身穿搭|这身look|没化妆|只涂了|还挂着水珠)/, // 无"我"但显然是角色身体/造型特写
+  /我的(?:脸|头|肩|锁骨|身材|侧脸|正脸|背影|腿|腰|手指|手|脚|脚踝|发型|素颜|妆|穿搭|打扮|look|状态|样子)/,
+  /(?:锁骨|侧脸|背影|素颜|洗完头|洗了澡|洗完澡|今天的穿搭|这身穿搭|这身look|没化妆|只涂了|还挂着水珠)/,
 ];
 
-/** 纯景画面描述里的场景词（无人物时用于粗判 scenery） */
+/** 描述里"用户与角色同框"的信号（合照/并肩/依偎等双人表达） */
+const JOINT_IN_FRAME_PATTERNS = [
+  /你和我|你与我|我俩|咱俩|我们俩|我们两个|两个人|双人|合照|合影|并肩|依偎|一起出镜|都(?:在|入|出)镜/,
+];
+
+/** 描述里"用户本人是被拍对象"的信号（角色拍了一张用户的照片）。
+ *  只认"拍你/你在画面里/你的特写"这些把用户当主体的表达，避免误伤"你的房间"这类所属。 */
+const USER_IN_FRAME_PATTERNS = [
+  /拍(?:了|下|到)?(?:一张)?(?:的)?你/,
+  /你(?:在|站|坐|躺|蹲|靠|穿|戴|披|露|笑|看镜头|回眸|侧身|走|跳)/,
+  /你的(?:自拍|样子|穿搭|锁骨|侧脸|背影|正脸)/,
+  /这张(?:是|拍的是)你/,
+];
+
+/** 物件特写类画面名词（纯景 vs 物件只影响徽标与文案，都不传锁脸图） */
+const OBJECT_DESC_NOUNS = [
+  '饭', '菜', '汤', '面', '饺子', '火锅', '烧烤', '咖啡', '奶茶', '甜点', '蛋糕', '水果', '外卖',
+  '鸡翅', '排骨', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '粥', '猫', '狗', '宠物', '鱼', '花',
+  '绿植', '植物', '盆栽', '手办', '书', '快递', '礼物', '新买的', '鞋', '球鞋', '工牌',
+];
+
+/** 纯景画面描述里的场景词（供"无人物"时区分徽标用） */
 const SCENERY_DESC_NOUNS = [
-  '阳台', '窗', '窗户', '窗外', '屋里', '家里', '房间', '卧室', '客厅', '厨房', '天空', '阳光', '日落',
+  '阳台', '窗', '窗户', '窗外', '屋里', '家里', '房间', '卧室', '客厅', '厨房', '书房', '天空', '阳光', '日落',
   '日出', '晚霞', '街道', '马路', '城市', '风景', '外面', '楼下', '公园', '花园', '院子', '天台',
   '海边', '湖', '山', '树林', '雨天', '下雨', '雪', '微风', '晾衣', '绿植', '植物', '盆栽',
 ];
 
-/** 物件/食物类画面名词 */
-const OBJECT_DESC_NOUNS = [
-  '饭', '菜', '汤', '面', '饺子', '火锅', '烧烤', '咖啡', '奶茶', '甜点', '蛋糕', '水果', '外卖',
-  '猫', '狗', '宠物', '鱼', '花', '绿植', '植物', '盆栽', '手办', '书', '快递', '礼物', '新买的',
-  '鞋', '衣服', '衬衫', '卫衣', '球鞋', '工牌', '工位', '车',
-  '鸡翅', '排骨', '炒饭', '蛋挞', '披萨', '汉堡', '包子', '粥',
-];
+/** 从主模型自己写的画面描述判断主体档位。 */
+export function classifySceneSubject(sceneDesc: string): ImageGenSubjectType {
+  const scene = (sceneDesc || '').trim();
+  if (!scene) return 'char'; // 无描述默认保守为角色照（几乎不会发生）
 
-/** 该文本（应是用户自己的消息）是否在明确要求"拍用户本人" */
-export function textRequestsUserShot(text: string): boolean {
-  if (!text) return false;
-  return USER_SELF_PATTERNS.some(re => re.test(text));
+  // 1) 双人同框（优先于单角色，因为"你和我"同时含两方）
+  if (JOINT_IN_FRAME_PATTERNS.some(re => re.test(scene))) return 'joint';
+
+  // 2) 用户本人是被拍对象（且不含角色自己出镜）
+  if (USER_IN_FRAME_PATTERNS.some(re => re.test(scene))) return 'user';
+
+  // 3) 角色自己出镜
+  if (CHAR_IN_FRAME_PATTERNS.some(re => re.test(scene))) return 'char';
+
+  // 4) 没有任何人 → 先看场景词再看物件词（都无锁脸）。场景词优先：
+  //    避免"书房/阳台+绿植"这类描述因命中物件词(书/绿植)被误标成 object。
+  if (SCENERY_DESC_NOUNS.some(n => scene.includes(n))) return 'scenery';
+  if (OBJECT_DESC_NOUNS.some(n => scene.includes(n))) return 'object';
+  return 'scenery'; // 无人且无明确词 → 当纯景处理（无锁脸、不加人）
 }
 
-/** 该文本（应是用户自己的消息）是否在明确要求"合照" */
-export function textRequestsJointShot(text: string): boolean {
-  if (!text) return false;
-  return JOINT_PATTERNS.some(re => re.test(text));
-}
+/* ------------------------------------------------------------------ */
+/* 判定结果 → 执行参数                                                 */
+/* ------------------------------------------------------------------ */
 
-export interface ShotIntents {
-  /** 用户消息里是否有明确"拍用户本人"请求 */
-  userShot: boolean;
-  /** 用户消息里是否有明确"合照"请求 */
-  jointShot: boolean;
-}
-
-/** 只统计用户（isUser=true）消息里的主体意图；角色行里的"我"不算。 */
-export function collectShotIntents(turns: Array<{ isUser?: boolean; text?: string }>): ShotIntents {
-  let userShot = false;
-  let jointShot = false;
-  for (const t of turns || []) {
-    if (!t || !t.isUser || !t.text) continue;
-    if (!userShot && textRequestsUserShot(t.text)) userShot = true;
-    if (!jointShot && textRequestsJointShot(t.text)) jointShot = true;
-    if (userShot && jointShot) break;
-  }
-  return { userShot, jointShot };
-}
-
-/** 用户消息是否在明确要"角色本人的照片"（对象落在角色上，不是场景/物件） */
-export function textRequestsCharPhotoShot(text: string): boolean {
-  if (!text) return false;
-  return CHAR_PHOTO_PATTERNS.some(re => re.test(text));
-}
-
-/** 在文本里找是否命中名词表（避免把"窗外/阳台"误当"看看你"里的主体） */
-function hitsAny(text: string, nouns: string[]): boolean {
-  if (!text) return false;
-  return nouns.some(n => text.includes(n));
-}
-
-/**
- * 前端粗判：这张照片该拍什么（只作为 hint，不是硬约束）。
- * 只有用户消息里出现了明确的对象词才用它定档；否则按画面描述(sceneDesc)本身猜。
- * 核心改变：不再"非 user/joint 一律 char"——角色分享住处/饭菜/风景时不再被硬套成人像。
- */
-export function classifyRoughSubject(lastUserAsk: string, sceneDesc: string): ImageGenFallbackMode {
-  const ask = lastUserAsk || '';
-  const scene = sceneDesc || '';
-
-  // 1) 用户显式意图最优先
-  if (textRequestsJointShot(ask)) return 'joint';
-  if (textRequestsUserShot(ask)) return 'user';
-  if (textRequestsCharPhotoShot(ask)) return 'char';
-
-  // 2) 画面描述明确"人在画面中"（我在/自拍/穿着…）→ 角色照（即使 ask 只是"看看你的房间"，
-  //    角色自己都把"我"写进画面了，说明这张照片本来就有人）
-  if (PERSON_IN_FRAME_PATTERNS.some(re => re.test(scene))) return 'char';
-
-  // 3) 用户想看角色的某个地方/窗外 → 纯景
-  if (ask && hitsAny(ask, SCENERY_PLACE_NOUNS)) return 'scenery';
-
-  // 4) 用户想看角色吃的/买的/养的某样东西 → 物件特写
-  if (ask && hitsAny(ask, OBJECT_NOUNS)) return 'object';
-
-  // 5) 用户没点明对象（或角色主动发图）→ 按画面描述内容走纯景/物件
-  if (scene) {
-    if (hitsAny(scene, SCENERY_DESC_NOUNS)) return 'scenery';
-    if (hitsAny(scene, OBJECT_DESC_NOUNS)) return 'object';
-  }
-
-  // 6) 完全无信号：保持旧默认 char（保守）
-  return 'char';
-}
-
-export type PersonSubjectGuard = 'ok' | 'user-forbidden' | 'joint-forbidden';
-
-/**
- * 意图门：subjectType=user/joint 只在用户侧有对应显式请求时允许；
- * char/scenery/object 恒 ok。被禁止时由调用方降级为角色照（char）。
- */
-export function guardPersonSubject(input: ImageGenDirectorInput, directive: ImageGenDirective): PersonSubjectGuard {
-  const subj = directive?.subjectType;
-  if (subj !== 'user' && subj !== 'joint') return 'ok';
-  const { userShot, jointShot } = collectShotIntents(input?.recentChat);
-  if (subj === 'user' && !userShot) return 'user-forbidden';
-  if (subj === 'joint' && !jointShot) return 'joint-forbidden';
-  return 'ok';
-}
-
-/** 副 API 的"画面导演"系统提示词 */
-export const DIRECTOR_SYSTEM_PROMPT = [
-  'You are the visual director of an image-generation feature inside a virtual companion app.',
-  'A request to take/send a photo just arrived. Decide what the photo should actually show by reasoning over the recent conversation and the character\'s long-term memory.',
-  '',
-  'Identity (who is who):',
-  '- The CHARACTER is the AI companion (tagged "[Character <name>]" in the conversation below).',
-  '- The USER is the real human chatting (tagged "[User <name>]" below).',
-  '- In a line tagged [Character], first-person words like "我/自己/I" refer to the CHARACTER; in a line tagged [User], they refer to the USER. Never mix them.',
-  '',
-  'Default semantics for sending photos:',
-  '- A photo of the user ("user") is allowed ONLY when the user themselves explicitly asks to be photographed (e.g. 拍我 / 我的照片 / 自拍).',
-  '- A joint/couple photo ("joint") is allowed ONLY when the user explicitly asks for a 合照/合影.',
-  '- The "Person-subject constraints" block in the request tells you precisely whether user/joint are allowed THIS time; obey it.',
-  '',
-  'Deciding "char" vs "scenery"/"object" — be NEUTRAL, follow the conversation:',
-  '- There is no default bias. The character may want to send a selfie, a body/outfit detail, a scenery view, their meal, an object, or themselves standing in a place — all equally normal. Decide purely from the recent conversation, the character\'s memory, and the "Scene / what the photo is about" line.',
-  '- "char" (the photo shows the character) fits when the moment is about the character himself/herself: the user asks to see the character (发张你的照片 / 看看你 / 拍你一张 / 你的自拍 / 你长什么样), or the scene description puts the character in the frame (我在阳台 / 自拍 / 我站在… / 我穿着…), or the conversation strongly implies the character is presenting themselves right now.',
-  '- A close-up of the character\'s own body part or outfit (锁骨 / 手指 / 腿 / 今天的穿搭 / 刚洗的头发 / 素颜…) is STILL "char" — the subject is the character, even though only a part is visible. Do not downgrade these to "object".',
-  '- "scenery"/"object" fits when the photo is clearly about a place/view/thing with no person intended: the character offers to show their surroundings, a view, weather, a meal, or a newly bought item, AND the scene description does not describe the character or their body. Never insert the character into a genuinely person-free scenery/object shot.',
-  '- When the character is IN a scenery (e.g. 我站在阳台 / 我在海边) and the moment is about them, "char" is correct (character + place as background), not scenery.',
-  '- When genuinely ambiguous, weigh the conversation: what were they just talking about, and whose intent (user asking vs character offering) does it serve? Choose what best fits the context. Do not force either side.',
-  '',
-  'Output a SINGLE JSON object with exactly these fields:',
-  '{"subjectType":"char"|"user"|"joint"|"scenery"|"object","useCharLock":true|false,"useUserLock":true|false,"prompt":"<final english prompt>"}',
-  '',
-  'subjectType meaning:',
-  '- "char": a photo of the AI character (the companion).',
-  '- "user": a photo of the human user (the person chatting).',
-  '- "joint": both the user and the character together in one photo.',
-  '- "scenery": a place/landscape/weather/urban or natural view — NO people at all.',
-  '- "object": an object/plant/food/animal/item/detail shot — NO people at all.',
-  '',
-  'Lock (reference photo) rules:',
-  '- A lock exists only when "Character reference available / User reference available" says yes.',
-  '- If subjectType is "scenery" or "object" you MUST set useCharLock=false and useUserLock=false, and the prompt must not describe or imply any person, and must not mention the reference photos.',
-  '- If subjectType is "char" and the character reference exists, set useCharLock=true so the face matches; otherwise false.',
-  '- Same logic for "user" and for "joint" (use the two locks separately). Never set a lock that does not exist.',
-  '',
-  'Prompt rules:',
-  '- Write the final prompt in English, photographic style, vivid and concrete.',
-  '- Weave in details from the scene description AND relevant specifics from the recent conversation / long-term memory (place, season, weather, mood, shared plans...) when they fit.',
-  '- If a person is depicted, describe pose/expression/activity and surrounding naturally; use "the person in the reference photo" wording when a lock is enabled.',
-  '- If scenery/object, focus on the scenery/object itself (lighting, colors, composition, atmosphere).',
-  '- End the prompt with: masterpiece, best quality, highly detailed.',
-  '',
-  'Output ONLY the JSON object. No explanations, no markdown code fences.',
-].join('\n');
-
-/** 判定材料：由 Chat.tsx 在触发时收集（纯数据，无 DOM 依赖） */
-export interface ImageGenDirectorInput {
-  /** 角色名（说话者识别与转写标签用） */
-  charName: string;
-  /** 用户昵称（说话者识别与转写标签用，空时回退 'User'） */
-  userName?: string;
-  /** 角色外貌/锁脸文字描述（可空） */
-  charDesc: string;
-  /** 用户外貌/锁脸文字描述（可空） */
-  userDesc: string;
-  /** 本次要画的内容（AI 回复里的"图片- xxx"描述，可空） */
-  sceneDesc: string;
-  /** 已折叠好的角色形象短句（charDesc || persona 前300字 || 名字） */
-  charShort: string;
-  /** 已折叠好的用户短句（userDesc || 'a person'） */
-  userShort: string;
-  /** 角色锁脸参考图 dataURL（无则空串） */
-  charLockDataUrl: string;
-  /** 用户锁脸参考图 dataURL（无则空串） */
-  userLockDataUrl: string;
-  /** 最近聊天（时间正序），speaker 已带名字，isUser 标记说话者角色（true=用户，false=角色） */
-  recentChat: { speaker: string; text: string; isUser: boolean }[];
-  /** 近期记忆行（"[date] summary"），已裁剪 */
-  memoryLines: string[];
-  /** 长期核心记忆行（"[month] summary"），已裁剪 */
-  refinedMemoryLines: string[];
-  /** 前端关键词粗分（仅作为提示，不是硬约束） */
-  fallbackMode: ImageGenFallbackMode;
-}
-
-/** 副 API 返回的结构化画面意图 */
-export interface ImageGenDirective {
-  subjectType: ImageGenSubjectType;
-  useCharLock: boolean;
-  useUserLock: boolean;
-  /** 最终英文生图 prompt */
-  prompt: string;
-}
-
-/** 判定结束后的"执行参数"：Chat.tsx 拿它直接调生图 API 与落库 */
+/** 执行参数：Chat.tsx 拿它直接调生图 API 与落库 */
 export interface ImageGenExecution {
   prompt: string;
-  /** 徽标/落库用的主体档位（scenery/object 会落进来） */
+  /** 徽标/落库用的主体档位 */
   imageGenMode: ImageGenSubjectType;
   lockImageDataUrl: string | null;
   /** 合照双锁脸：0=角色、1=用户 */
@@ -321,210 +117,30 @@ export interface ImageGenExecution {
   usedLockFace: boolean;
   useCharLock: boolean;
   useUserLock: boolean;
-  /** true=副 API 导演成功；false=回退三档模板 */
-  directorUsed: boolean;
 }
 
-export interface DirectorRequestConfig {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  /** 默认 DIRECTOR_TIMEOUT_MS */
-  timeoutMs?: number;
+export interface ImageGenInput {
+  /** 角色名（日志/占位用） */
+  charName: string;
+  /** 角色外貌/锁脸文字描述（可空） */
+  charDesc: string;
+  /** 用户外貌/锁脸文字描述（可空） */
+  userDesc: string;
+  /** 主模型写的画面描述（"图片- xxx" 的内容） */
+  sceneDesc: string;
+  /** 角色锁脸参考图 dataURL（无则空串） */
+  charLockDataUrl: string;
+  /** 用户锁脸参考图 dataURL（无则空串） */
+  userLockDataUrl: string;
 }
 
-/* ------------------------------------------------------------------ */
-/* 判定材料 → 副 API 请求                                              */
-/* ------------------------------------------------------------------ */
-
-/** 组装发给副 API 的 user 消息（上下文材料 + 角色/用户身份 + 判定指令） */
-export function buildDirectorUserMessage(input: ImageGenDirectorInput): string {
-  const userName = input.userName?.trim() || 'User';
-  const charName = input.charName?.trim() || 'Character';
-
-  // 转写时用「[User x] / [Character x]」角色标签前缀，保证导演分清说话者是谁，
-  // 从而正确归因第一人称代词（角色行的"我"=角色，用户行的"我"=用户）。
-  const chatBlock = input.recentChat.length
-    ? input.recentChat
-        .map(t => `- ${t.isUser ? `[User ${userName}]` : `[Character ${charName}]`}: ${t.text}`)
-        .join('\n')
-    : '(no recent conversation)';
-
-  const memoryBlock = input.memoryLines.length
-    ? input.memoryLines.map(l => `- ${l}`).join('\n')
-    : '(none)';
-
-  const refinedBlock = input.refinedMemoryLines.length
-    ? input.refinedMemoryLines.map(l => `- ${l}`).join('\n')
-    : '(none)';
-
-  // 依据"用户自己消息里有没有明确要拍用户/合照"动态给本回合的人物主体约束
-  const intents = collectShotIntents(input.recentChat);
-  const constraints = [
-    'Person-subject constraints for THIS request:',
-    intents.userShot
-      ? '- "user" IS allowed: the user explicitly asked to photograph the user.'
-      : '- "user" is FORBIDDEN unless the user explicitly asks to photograph themselves; a normal "send me a photo" request means the CHARACTER.',
-    intents.jointShot
-      ? '- "joint" IS allowed: the user explicitly asked for a joint/couple photo.'
-      : '- "joint" is FORBIDDEN unless the user explicitly asks for a 合照/合影.',
-    '- Apply these constraints strictly when choosing subjectType.',
-  ].join('\n');
-
-  return [
-    `Character (AI companion): ${charName}`,
-    `User (human chatting): ${userName}`,
-    '',
-    `Character appearance: ${input.charDesc?.trim() || input.charShort || '(unknown)'}`,
-    `User appearance: ${input.userDesc?.trim() || input.userShort || '(unknown)'}`,
-    `Scene / what the photo is about: ${input.sceneDesc?.trim() || '(see conversation)'}`,
-    `Character reference available: ${input.charLockDataUrl ? 'yes' : 'no'}`,
-    `User reference available: ${input.userLockDataUrl ? 'yes' : 'no'}`,
-    `Front-end rough guess (use only as a hint, override when context disagrees): ${input.fallbackMode}`,
-    '',
-    constraints,
-    '',
-    'Recent conversation (newest at bottom; "[Character]"-tagged lines are the character speaking, "[User]"-tagged lines are the human user speaking):',
-    chatBlock,
-    '',
-    'Character recent memories (daily):',
-    memoryBlock,
-    '',
-    'Character long-term key memories (monthly):',
-    refinedBlock,
-    '',
-    'Decide the subjectType & lock usage based on the above, then write the final English image prompt.',
-  ].join('\n');
-}
-
-/** 组装副 API 请求体 */
-export function buildDirectorChatBody(model: string, input: ImageGenDirectorInput): Record<string, unknown> {
-  return {
-    model,
-    messages: [
-      { role: 'system', content: DIRECTOR_SYSTEM_PROMPT },
-      { role: 'user', content: buildDirectorUserMessage(input) },
-    ],
-    max_tokens: 500,
-    temperature: 0.7,
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* 响应解析 + 校正                                                     */
-/* ------------------------------------------------------------------ */
-
-/** 从副 API 回复文本中容错提取 JSON（支持 ```json 围栏与首尾噪声） */
-export function extractDirectiveFromResponse(raw: string): ImageGenDirective | null {
-  if (!raw || !raw.trim()) return null;
-  const clean = raw
-    .replace(/```(?:json)?/gi, '')
-    .trim();
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try {
-    const obj = JSON.parse(clean.slice(start, end + 1));
-    const subjectType = obj?.subjectType;
-    const prompt = typeof obj?.prompt === 'string' ? obj.prompt.trim() : '';
-    if (!IMAGE_SUBJECT_TYPES.includes(subjectType)) return null;
-    if (!prompt) return null;
-    return {
-      subjectType,
-      useCharLock: !!obj?.useCharLock,
-      useUserLock: !!obj?.useUserLock,
-      prompt,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** 校正副 API 意图：锁脸只允许引用"真实存在"的参考图；纯景/物件强制无锁脸 */
-export function coerceDirective(input: ImageGenDirectorInput, dir: ImageGenDirective): ImageGenDirective | null {
-  if (!dir) return null;
-  if (!IMAGE_SUBJECT_TYPES.includes(dir.subjectType)) return null;
-  if (typeof dir.prompt !== 'string' || !dir.prompt.trim()) return null;
-
-  const hasCharLock = !!input.charLockDataUrl;
-  const hasUserLock = !!input.userLockDataUrl;
-  let { useCharLock, useUserLock } = dir;
-  const subjectType = dir.subjectType;
-
-  if (subjectType === 'scenery' || subjectType === 'object') {
-    useCharLock = false;
-    useUserLock = false;
-  } else if (subjectType === 'char') {
-    useUserLock = false;
-    if (!hasCharLock) useCharLock = false;
-  } else if (subjectType === 'user') {
-    useCharLock = false;
-    if (!hasUserLock) useUserLock = false;
-  } else {
-    // joint
-    if (!hasCharLock) useCharLock = false;
-    if (!hasUserLock) useUserLock = false;
-  }
-
-  return { subjectType, useCharLock, useUserLock, prompt: dir.prompt.trim() };
-}
-
-/* ------------------------------------------------------------------ */
-/* 意图 → 执行参数                                                     */
-/* ------------------------------------------------------------------ */
-
-/** 按校正后的副 API 意图生成执行参数（纯景/物件追加"无人物"硬约束） */
-export function resolveExecutionFromDirective(input: ImageGenDirectorInput, directive: ImageGenDirective): ImageGenExecution {
-  const subj = directive.subjectType;
+/** 由主体档位 + 描述拼出最终英文生图 prompt（不锁脸 / 无人物约束都在这层定）。 */
+export function buildExecution(input: ImageGenInput): ImageGenExecution {
+  const subj = classifySceneSubject(input.sceneDesc);
+  const charLock = input.charLockDataUrl || '';
+  const userLock = input.userLockDataUrl || '';
+  const scene = (input.sceneDesc || '').trim();
   const isSceneryLike = subj === 'scenery' || subj === 'object';
-
-  const useCharLock = directive.useCharLock && !!input.charLockDataUrl && !isSceneryLike;
-  const useUserLock = directive.useUserLock && !!input.userLockDataUrl && !isSceneryLike;
-
-  let prompt = directive.prompt || '';
-  let lockImageDataUrl: string | null = null;
-  let lockImageDataUrls: (string | null | undefined)[] | undefined;
-
-  if (isSceneryLike) {
-    // 仅首次追加无人物硬约束；重试复用的 prompt 已含该句时不再重复拼接
-    if (!/No humans?|no people|no human faces/i.test(prompt)) {
-      prompt = `${prompt.replace(/[.\s]+$/, '')}. ${NO_HUMAN_GUARD}`;
-    }
-  } else if (subj === 'char') {
-    if (useCharLock) lockImageDataUrl = input.charLockDataUrl;
-  } else if (subj === 'user') {
-    if (useUserLock) lockImageDataUrl = input.userLockDataUrl;
-  } else if (subj === 'joint') {
-    if (useCharLock || useUserLock) {
-      lockImageDataUrl = input.charLockDataUrl || input.userLockDataUrl || null;
-      lockImageDataUrls = [input.charLockDataUrl, input.userLockDataUrl];
-    }
-  }
-  // 有人物画面（char/user/joint）：追加"解剖正确/肢体完整/无血腥恐怖"正向约束。
-  // 判重处理与上方无人物硬约束一致：retry 复用已含尾缀的 prompt 时不二次拼接。
-  if (!isSceneryLike) prompt = withHumanSafetyTail(prompt);
-
-  return {
-    prompt,
-    imageGenMode: subj,
-    lockImageDataUrl,
-    lockImageDataUrls,
-    usedLockFace: subj === 'char' ? useCharLock : subj === 'user' ? useUserLock : useCharLock || useUserLock,
-    useCharLock,
-    useUserLock,
-    directorUsed: true,
-  };
-}
-
-/**
- * 回退三档模板（旧链路逻辑，从 Chat.tsx 抽入保持行为一致）。
- * 副 API 未配置 / 失败 / 无上下文可判定时使用，保证"没配副 API 也能发图"不退化为哑火。
- */
-export function buildFallbackExecution(input: ImageGenDirectorInput): ImageGenExecution {
-  const mode = input.fallbackMode;
-  const charLock = input.charLockDataUrl;
-  const userLock = input.userLockDataUrl;
-  const scene = input.sceneDesc?.trim();
 
   let prompt: string;
   let lockImageDataUrl: string | null = null;
@@ -532,33 +148,21 @@ export function buildFallbackExecution(input: ImageGenDirectorInput): ImageGenEx
   let useCharLock = false;
   let useUserLock = false;
 
-  if (mode === 'scenery' || mode === 'object') {
-    // 纯景/物件兜底：不锁脸、不传参考图、强制"无人物"
-    const parts = [scene || (mode === 'object' ? 'a close-up detail shot of an object' : 'a scenic view')];
+  if (subj === 'scenery' || subj === 'object') {
+    const parts = [scene || 'a scenic view'];
     parts.push(NO_HUMAN_GUARD);
     parts.push(QUALITY_TAIL);
     prompt = parts.filter(Boolean).join(', ');
-    // 与人物画面一致：judge scenery-like 时不追加人体安全尾缀（与 resolve 行为保持一致）
-    return {
-      prompt,
-      imageGenMode: mode,
-      lockImageDataUrl: null,
-      lockImageDataUrls: undefined,
-      usedLockFace: false,
-      useCharLock: false,
-      useUserLock: false,
-      directorUsed: false,
-    };
-  } else if (mode === 'user') {
-    const parts = [input.userShort || 'a person'];
+  } else if (subj === 'user') {
+    const parts = [input.userDesc?.trim() || 'a person'];
     if (userLock) parts.push(LOCK_FACE_HINT);
     if (scene) parts.push(scene);
     parts.push(QUALITY_TAIL);
     prompt = parts.filter(Boolean).join(', ');
     lockImageDataUrl = userLock || null;
     useUserLock = !!userLock;
-  } else if (mode === 'joint') {
-    // 健壮版：空描述时用"参考图中的人物"代替，有锁脸优先
+    prompt = withHumanSafetyTail(prompt);
+  } else if (subj === 'joint') {
     const _userPart = input.userDesc?.trim() || (userLock ? 'the exact person shown in the reference photo' : 'a person');
     const _charPart = input.charDesc?.trim() || (charLock ? 'the exact character shown in the reference photo' : 'a character');
     const parts = [
@@ -578,61 +182,66 @@ export function buildFallbackExecution(input: ImageGenDirectorInput): ImageGenEx
     lockImageDataUrls = [charLock, userLock]; // 两张都传：0=角色、1=用户
     useCharLock = !!charLock;
     useUserLock = !!userLock;
+    prompt = withHumanSafetyTail(prompt);
   } else {
-    // 默认 char 模式
-    const parts = [input.charShort || 'a character'];
+    // char：角色本人出镜
+    const parts = [input.charDesc?.trim() || 'a character'];
     if (charLock) parts.push(LOCK_FACE_HINT);
     if (scene) parts.push(scene);
     parts.push(QUALITY_TAIL);
     prompt = parts.filter(Boolean).join(', ');
     lockImageDataUrl = charLock || null;
     useCharLock = !!charLock;
+    prompt = withHumanSafetyTail(prompt);
   }
 
-  // 回退档都是人物画面：同样追加"解剖正确/无血腥恐怖"安全尾缀（与 resolve 行为一致）
   return {
-    prompt: withHumanSafetyTail(prompt),
-    imageGenMode: mode,
+    prompt,
+    imageGenMode: subj,
     lockImageDataUrl,
     lockImageDataUrls,
     usedLockFace: useCharLock || useUserLock,
     useCharLock,
     useUserLock,
-    directorUsed: false,
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* 副 API 调用（超时保护，失败返回 null 由调用方降级）                   */
-/* ------------------------------------------------------------------ */
+/** 复用已有 prompt 与锁脸意图（失败占位卡点「重试」用，避免重判导致图意漂移）。 */
+export function buildExecutionFromPreset(
+  input: ImageGenInput,
+  preset: { subjectType: ImageGenSubjectType; useCharLock: boolean; useUserLock: boolean; finalPrompt: string },
+): ImageGenExecution {
+  const subj = preset.subjectType;
+  const isSceneryLike = subj === 'scenery' || subj === 'object';
 
-/**
- * 调用副 API 完成一次"画面导演"判定。
- * 超时 / HTTP 失败 / 内容非 JSON / 校正不通过 → 返回 null（调用方回退三档模板）。
- */
-export async function requestDirectorDirective(
-  config: DirectorRequestConfig,
-  input: ImageGenDirectorInput,
-): Promise<ImageGenDirective | null> {
-  if (!config.baseUrl || !config.apiKey || !config.model) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), config.timeoutMs ?? DIRECTOR_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${config.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify(buildDirectorChatBody(config.model, input)),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content;
-    if (typeof raw !== 'string') return null;
-    const directive = extractDirectiveFromResponse(raw);
-    return directive ? coerceDirective(input, directive) : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+  let prompt = preset.finalPrompt || '';
+  let lockImageDataUrl: string | null = null;
+  let lockImageDataUrls: (string | null | undefined)[] | undefined;
+  const useCharLock = !isSceneryLike && preset.useCharLock && !!input.charLockDataUrl;
+  const useUserLock = !isSceneryLike && preset.useUserLock && !!input.userLockDataUrl;
+
+  if (isSceneryLike) {
+    if (!/No humans?|no people|no human faces/i.test(prompt)) {
+      prompt = `${prompt.replace(/[.\s]+$/, '')}. ${NO_HUMAN_GUARD}`;
+    }
+  } else if (subj === 'char') {
+    if (useCharLock) lockImageDataUrl = input.charLockDataUrl || null;
+  } else if (subj === 'user') {
+    if (useUserLock) lockImageDataUrl = input.userLockDataUrl || null;
+  } else if (subj === 'joint') {
+    if (useCharLock || useUserLock) {
+      lockImageDataUrl = input.charLockDataUrl || input.userLockDataUrl || null;
+      lockImageDataUrls = [input.charLockDataUrl, input.userLockDataUrl];
+    }
   }
+
+  return {
+    prompt,
+    imageGenMode: subj,
+    lockImageDataUrl,
+    lockImageDataUrls,
+    usedLockFace: useCharLock || useUserLock,
+    useCharLock,
+    useUserLock,
+  };
 }

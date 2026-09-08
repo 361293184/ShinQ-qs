@@ -37,21 +37,9 @@ import type { CollaborationTransferMessage } from '../features/collaboration/typ
 const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
 import { generateImage as generateImageApi, loadCharImageSettings, loadUserImageSettings } from '../utils/imageGen';
 import {
-    requestDirectorDirective,
-    resolveExecutionFromDirective,
-    coerceDirective,
-    buildFallbackExecution,
-    guardPersonSubject,
-    classifyRoughSubject,
-    DIRECTOR_RECENT_CHAT_TURNS,
-    DIRECTOR_RECENT_TURN_CHARS,
-    DIRECTOR_MEMORY_COUNT,
-    DIRECTOR_MEMORY_CHARS,
-    DIRECTOR_REFINED_COUNT,
-    DIRECTOR_REFINED_CHARS,
-    type ImageGenDirectorInput,
+    buildExecution,
+    buildExecutionFromPreset,
     type ImageGenExecution,
-    type ImageGenFallbackMode,
     type ImageGenSubjectType,
 } from '../utils/imageGenDirector';
 import McdMiniApp from '../components/mcd/McdMiniApp';
@@ -131,8 +119,6 @@ const Chat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     // 生图：已处理过的消息 id（去重，避免 messages 变化导致重复触发）；手动生图面板开关
     const processedMsgIdsRef = useRef<Set<number>>(new Set());
-    // 「副 API 画面导演」判定失败已提示过一次（避免每次发图都刷 toast）
-    const directorWarnedRef = useRef(false);
     const [showImageGenPanel, setShowImageGenPanel] = useState(false);
     // 角色心声：点最新一条角色消息头像 → 弹出「此刻的心里话」；null = 未打开
     const [innerVoiceMsg, setInnerVoiceMsg] = useState<Message | null>(null);
@@ -1668,13 +1654,9 @@ const Chat: React.FC = () => {
     };
 
     // 自动生图：AI 回复里包含 "图片- xxx" 格式时触发生图
-    // hint 档位由 trigger effect 粗判（char/user/joint/scenery/object，仅作提示）：
-    //   - 'char'  ：角色生图（角色锁脸 + 角色外貌描述）
-    //   - 'user'  ：用户生图（用户锁脸 + 用户外貌描述）
-    //   - 'joint' ：合照（角色锁脸 + 双人描述融合）
-    //   - 'scenery'/'object'：纯景/物件（不锁脸、不传参考图、无人物）
-    // 副 API 配置后由"画面导演"读上下文做最终判定；未配/失败时该 hint 作为兜底档。
-    // 生成的图片作为角色的回复（role: 'assistant'）出现在气泡流中
+    // 主体判定完全交给聊天主模型：它写描述时已决定发不发、画面是谁（角色/用户/合照/纯景/物件）。
+    // 前端只从描述读取"谁出镜"来定锁脸与 prompt（buildExecution），不再调副 API。
+    // 生成图作为角色的回复（role: 'assistant'）出现在气泡流中
     // 新流程：先插入半透明占位卡片 → API 成功后替换为真图 → 失败则卡片显示失败状态
     // preset：失败占位卡点「重试」时传入，直接复用已定稿的 prompt 与锁脸意图（不重新判定）
     const pickAutoImageCopy = (type: ImageGenSubjectType, usedLockFace: boolean): { statusText: string; successToast: string } => {
@@ -1694,8 +1676,7 @@ const Chat: React.FC = () => {
     const autoGenerateImage = async (
         msgId: number,
         sceneDesc: string,
-        mode: ImageGenFallbackMode = 'char',
-        preset?: { finalPrompt: string; subjectType: ImageGenSubjectType; useCharLock: boolean; useUserLock: boolean; directorUsed: boolean; },
+        preset?: { finalPrompt: string; subjectType: ImageGenSubjectType; useCharLock: boolean; useUserLock: boolean; },
     ) => {
         if (!apiConfig.imageGenBaseUrl || !apiConfig.imageGenApiKey || !apiConfig.imageGenModel) {
             return;
@@ -1709,11 +1690,10 @@ const Chat: React.FC = () => {
         const { description: charDesc, lockImage: charLockImage } = loadCharImageSettings(char.name || '');
         const { description: userDesc, lockImage: userLockImage } = loadUserImageSettings();
 
-        // ---- 画面判定：副 API 当"视觉导演"（读最近聊天 + 角色长期记忆）----
-        // 旧链路是"前端关键词三档硬判 + 模板拼 prompt + 可选润色"，不认上下文，场景图会被硬套成角色人像。
-        // 新链路：副 API 结合 最近聊天 + 角色记忆(char.memories/refinedMemories) + 角色/用户外貌与锁脸 +
-        // 本次画面描述，自主决定主体类型(char/user/joint/scenery/object)与是否锁脸，产出最终英文 prompt。
-        // 副 API 未配置 / 超时 / 解析失败 → 回退三档模板(旧行为)，保证不哑火。
+        // ---- 判定：主模型自己写的"图片- 描述"就是唯一意图源 ----
+        // 聊天主模型在写描述时已基于完整上下文决定了发不发、画面是谁（我/你和我/纯景）。
+        // 这里不再额外调副 API（已退役）：只从描述判断谁出镜 → 决定锁脸与 prompt 拼法。
+        // preset（失败重试）则复用已定稿 prompt 与锁脸意图，避免图意漂移。
         let prompt: string;
         let lockImage: string | null = null;
         let lockImageDataUrls: (string | null | undefined)[] | undefined; // 合照双锁脸：0=角色、1=用户
@@ -1721,91 +1701,26 @@ const Chat: React.FC = () => {
         let successToast: string;
         let metadataExtra: Record<string, any> = {};
 
-        const charShort = charDesc || (char as any).persona?.replace(/\s+/g, ' ').slice(0, 300) || char.name || 'a character';
-        const userShort = userDesc || 'a person';
-
-        const directorInput: ImageGenDirectorInput = {
+        const input = {
             charName: char.name || '',
-            userName: userProfile.name || '',
-            charDesc: charDesc || '',
+            // 角色外貌设置未填时回退 persona，避免出图"无名无姓"
+            charDesc: charDesc || (char as any).persona?.replace(/\s+/g, ' ').slice(0, 300) || char.name || '',
             userDesc: userDesc || '',
             sceneDesc: sceneDesc || '',
-            charShort,
-            userShort,
             charLockDataUrl: charLockImage || '',
             userLockDataUrl: userLockImage || '',
-            recentChat: messages.slice(-DIRECTOR_RECENT_CHAT_TURNS).map(m => ({
-                speaker: m.role === 'user' ? (userProfile.name || 'User') : (char.name || 'Character'),
-                isUser: m.role === 'user',
-                text: (typeof m.content === 'string' ? m.content : '').replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_RECENT_TURN_CHARS),
-            })).filter(t => t.text),
-            memoryLines: (((char as any).memories) || []).slice(-DIRECTOR_MEMORY_COUNT).map((mem: any) =>
-                mem?.summary ? `[${mem.date || ''}] ${String(mem.summary).replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_MEMORY_CHARS)}` : ''
-            ).filter(Boolean),
-            refinedMemoryLines: Object.entries((char as any).refinedMemories || {})
-                .sort(([a], [b]) => a.localeCompare(b))
-                .slice(-DIRECTOR_REFINED_COUNT)
-                .map(([month, summary]) => `[${month}] ${String(summary).replace(/\s+/g, ' ').trim().slice(0, DIRECTOR_REFINED_CHARS)}`),
-            fallbackMode: mode,
         };
 
-        let execution: ImageGenExecution | null = null;
-        let directorFailed = false;
-        const directorConfigured = !!(apiConfig.subBaseUrl && apiConfig.subApiKey && apiConfig.subModel);
-        const hasDirectorContext = directorInput.recentChat.length > 0 || directorInput.memoryLines.length > 0 || directorInput.refinedMemoryLines.length > 0;
-        if (preset) {
-            // 失败占位卡点「重试」：复用已存 final prompt 与锁脸意图，不再重新判定（避免图意漂移）
-            const coerced = coerceDirective(directorInput, {
+        const execution: ImageGenExecution = preset
+            ? buildExecutionFromPreset(input, {
                 subjectType: preset.subjectType,
                 useCharLock: preset.useCharLock,
                 useUserLock: preset.useUserLock,
-                prompt: preset.finalPrompt,
-            });
-            if (coerced) {
-                execution = resolveExecutionFromDirective(directorInput, coerced);
-                execution.directorUsed = preset.directorUsed;
-            }
-        } else if (directorConfigured && hasDirectorContext) {
-            try {
-                const directorCfg = {
-                    baseUrl: apiConfig.subBaseUrl || '',
-                    apiKey: apiConfig.subApiKey || '',
-                    model: apiConfig.subModel || '',
-                };
-                const directive = await requestDirectorDirective(directorCfg, directorInput);
-                if (directive) {
-                    // 意图门：没有用户侧明确“拍我/合照”信号时，禁止出用户照/合照 → 降级为角色照
-                    const guard = guardPersonSubject(directorInput, directive);
-                    if (guard === 'ok') {
-                        execution = resolveExecutionFromDirective(directorInput, directive);
-                    } else {
-                        console.warn(`[ImageGen Auto] intent gate: ${guard} (director said ${directive.subjectType}), forced to char`);
-                        execution = buildFallbackExecution({ ...directorInput, fallbackMode: 'char' });
-                    }
-                } else {
-                    directorFailed = true;
-                }
-            } catch (e: any) {
-                console.warn('[ImageGen Auto] director judgement failed, fallback to legacy modes:', e?.message || e);
-                directorFailed = true;
-            }
-        }
-        if (!execution) {
-            execution = buildFallbackExecution(directorInput);
-        }
-        if (directorFailed && !directorWarnedRef.current) {
-            directorWarnedRef.current = true;
-            addToast('上下文画面判定暂不可用，已按基础模式生图', 'info');
-        }
-        // 可观测：无论走哪条路都明确记录判定来源与最终档位，便于排查"为何出的是角色照/纯景"
-        const directorPath = preset
-            ? 'retry-reuse'
-            : !directorConfigured
-                ? 'sub-api-not-configured'
-                : directorFailed
-                    ? 'sub-api-failed'
-                    : 'sub-api-judged';
-        console.log(`[ImageGen Auto] path=${directorPath} hint=${mode} → decided=${execution.imageGenMode} lock=${execution.usedLockFace} | scene:`, (sceneDesc || '').slice(0, 60));
+                finalPrompt: preset.finalPrompt,
+            })
+            : buildExecution(input);
+
+        console.log(`[ImageGen Auto] decided=${execution.imageGenMode} lock=${execution.usedLockFace} | scene:`, (sceneDesc || '').slice(0, 60));
 
         prompt = execution.prompt;
         lockImage = execution.lockImageDataUrl;
@@ -1817,8 +1732,8 @@ const Chat: React.FC = () => {
             imageGenMode: execution.imageGenMode,
             imageGenSubjectType: execution.imageGenMode,
             usedLockFace: execution.usedLockFace,
-            directorBySubApi: execution.directorUsed,
-            refinedBySubApi: execution.directorUsed, // 兼容旧字段读取
+            directorBySubApi: false,
+            refinedBySubApi: false, // 兼容旧字段读取
         };
 
         // ---- 第 1 步：先插入占位图片卡片（让用户看到"正在画"） ----
@@ -1840,7 +1755,7 @@ const Chat: React.FC = () => {
                     imageGenFinalPrompt: execution.prompt, // 重试复用最终 prompt
                     imageGenUseCharLock: execution.useCharLock,
                     imageGenUseUserLock: execution.useUserLock,
-                    imageGenDirectorUsed: execution.directorUsed,
+                    imageGenDirectorUsed: false, // 副 API 导演已退役，恒 false（兼容旧字段）
                 },
             };
             return [...prev.map(m => m.id === msgId ? {
@@ -1995,18 +1910,16 @@ const Chat: React.FC = () => {
         const meta = ((msg as any)?.metadata) || {};
         const finalPrompt = meta.imageGenFinalPrompt as string | undefined;
         const subjectType = (meta.imageGenMode as ImageGenSubjectType) || 'char';
-        const mode: ImageGenFallbackMode = (subjectType === 'user' || subjectType === 'joint' || subjectType === 'scenery' || subjectType === 'object') ? subjectType : 'char';
         processedMsgIdsRef.current.delete(msgId);
         if (finalPrompt && finalPrompt.trim()) {
-            autoGenerateImage(msgId, sceneDesc, mode, {
+            autoGenerateImage(msgId, sceneDesc, {
                 finalPrompt,
                 subjectType,
                 useCharLock: !!meta.imageGenUseCharLock,
                 useUserLock: !!meta.imageGenUseUserLock,
-                directorUsed: !!meta.imageGenDirectorUsed,
             });
         } else {
-            autoGenerateImage(msgId, sceneDesc, mode);
+            autoGenerateImage(msgId, sceneDesc);
         }
     }, [char, apiConfig, messages]);
 
@@ -2087,26 +2000,12 @@ const Chat: React.FC = () => {
         if (!sceneDesc) return;
         sceneDesc = sceneDesc.slice(0, 500); // 防超长
 
-        // 决定生图模式 hint（仅提示，副 API 导演做最终判定；未配/失败时作为兜底档）：
-        // - 用户明确要合照 → joint
-        // - 用户明确要拍用户本人（拍我/我的照片/自拍…）→ user
-        // - 用户/画面明确指向角色本人（发张你的照片/我在画面里…）→ char
-        // - 角色分享的是住处/窗外/饭菜/某物（或画面描述纯景无人）→ scenery/object，不再硬套角色照
-        let lastUserAsk = '';
-        for (let i = batchStart - 1; i >= 0; i--) {
-            const mm = messages[i];
-            if (mm.role === 'user') {
-                if (typeof mm.content === 'string' && mm.content.trim()) lastUserAsk = mm.content.trim();
-                break;
-            }
-        }
-
-        const mode: ImageGenFallbackMode = classifyRoughSubject(lastUserAsk, sceneDesc);
-
-        console.log(`[ImageGen Auto] hint=${mode} scene:`, sceneDesc.slice(0, 80));
+        // 主模型在写"图片- 描述"时已决定要不要发、画面是谁（我/你和我/纯景）——
+        // 前端不再做主体档位预判，直接带着描述去触发，由 buildExecution 读取描述出镜者。
+        console.log(`[ImageGen Auto] scene:`, sceneDesc.slice(0, 80));
         // 调度前就登记：避免在网络请求期间触发重复（更可靠的去重在 autoGenerateImage 内部）
         processedMsgIdsRef.current.add(targetBubbleId);
-        setTimeout(() => autoGenerateImage(targetBubbleId, sceneDesc!, mode), 800);
+        setTimeout(() => autoGenerateImage(targetBubbleId, sceneDesc!), 800);
     }, [messages, apiConfig.imageGenApiKey, apiConfig.imageGenBaseUrl, apiConfig.imageGenModel, isTyping]);
 
     // 当前会话麦请求是否激活 (从消息历史推导, 无新存储)
