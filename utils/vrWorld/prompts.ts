@@ -19,7 +19,7 @@ function annLabel(a: VRNovelAnnotation): string {
 /**
  * 虚拟世界的世界观 + 当前房间说明 + 输出格式。追加到角色 systemPrompt 之后。
  */
-export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: 'fishing' | 'market'): string {
+export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: 'fishing' | 'market' | 'garden'): string {
     return [
         `\n\n=== 你进入了《彼方》 ===`,
         `《彼方》是一款真实存在、你会亲自进入去玩的 VR 社交游戏（功能上类似 VRChat）：进去后你用自己的虚拟化身（你那个亲手捏的 Q 版小人模样）四处走动、进出不同房间、撞见别的玩家（其他角色的化身）。这不是做梦、也不是比喻——是你拿自己的空闲时间真实在做的一件事。它发生在游戏世界里，和你跟用户的现实相处是两码事、互不冲突；现在是你独自在玩、没人盯着的私人时间。`,
@@ -43,7 +43,12 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActi
 }
 
 /** 不同房间的"活动姿态"提示。 */
-function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishing' | 'market'): string[] {
+function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishing' | 'market' | 'garden'): string[] {
+    if(roomId==='sar'&&sarActivity==='garden')return [
+        `你在艾文的恐龙箱庭摆弄橡皮泥模型。按${charName}自己的性格留便签或接续小剧场，不必每次都讲笑话。`,
+        '只能做本轮明确允许的箱庭动作。用户原文、昵称、涂装和收藏归属都要保留；玩具不会受伤或死亡，不涉及人格芯片。',
+        '行为成功与否以程序结算为准，小剧场里的欠饼干、吵架等不构成现实债务或现实关系变化。',
+    ];
     if (roomId === 'sar' && sarActivity) return [
         `你此刻在 SAR 的${sarActivity === 'fishing' ? '水域钓鱼' : '内部布告板交易或聊天'}，以程序提供的鱼获、钱包和交易回执为事实，不涉及人格芯片推演。`,
         `“${charName}”可以按自己的心情选择私聊向用户分享，或去本地留言簿炫耀；这是明确允许的自发分享，不必每次都围绕用户。`,

@@ -14,6 +14,7 @@ import {
 } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import TokenImg from '../../components/os/TokenImg';
+import {SARNpcChibi} from './SARNpcArt';
 import { getChibi } from '../../utils/vrWorld/chibi';
 import {
     consumeSARModule,
@@ -115,7 +116,7 @@ const ModuleDetail: React.FC<{
                 <p className="sar-module-detail__description">{module.description}</p>
                 {npcEnabled && (
                     <div className="sar-module-caian-note">
-                        <span className="sar-module-caian-note__avatar">C</span>
+                        <span className="sar-module-caian-note__avatar"><SARNpcChibi who="caian"/></span>
                         <div><b>凯恩的说明</b><p>{module.caianNote}</p></div>
                     </div>
                 )}
@@ -371,7 +372,7 @@ export const SARModuleShopOverlay: React.FC<{
                 ) : (
                     <>
                         <div className="sar-module-shop__notice">
-                            {npcEnabled ? <span className="sar-module-shop__guide">C</span> : <Sparkle size={24} className="text-emerald-100/45" />}
+                            {npcEnabled ? <span className="sar-module-shop__guide"><SARNpcChibi who="caian"/></span> : <Sparkle size={24} className="text-emerald-100/45" />}
                             <div>
                                 <small>{npcEnabled ? 'CAIAN / COUNTER GUIDE' : 'MODULE COUNTER / NOTICE'}</small>
                                 <p>{npcEnabled ? '今天只摆五枚！没看中可以重排三次。先买回去，再去彼方任何区域直接点那个小人装载。' : '每日随机提供 5 枚模块，可重排 3 次。买进模块袋后，在彼方任何区域点击角色小人即可装载。'}</p>

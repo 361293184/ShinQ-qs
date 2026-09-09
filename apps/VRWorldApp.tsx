@@ -8,10 +8,12 @@ import {
 } from '@phosphor-icons/react';
 import TheaterPanel from './theater/TheaterPanel';
 import { SARCaianDialogue, SARClubStage, SARUpdateModal } from './vrWorld/SARClubEvent';
+import {SARAivenDialogue} from './vrWorld/SARAivenDialogue';
 import { SARGachaOverlay } from './vrWorld/SARGacha';
 import { SARAssemblyCabinetOverlay } from './vrWorld/SARAssemblyCabinet';
 import { SARModuleShopOverlay } from './vrWorld/SARModuleShop';
 import { FishingMarketOverlay } from './vrWorld/FishingMarketOverlay';
+const DinosaurGarden = React.lazy(() => import('./vrWorld/dinosaur/DinosaurGarden').then(m=>({default:m.DinosaurGarden})));
 import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
 import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
@@ -169,10 +171,11 @@ const VRWorldApp: React.FC = () => {
         readSARClubState().npcPreference ? null : 'update');
     const [worldPage, setWorldPage] = useState<0 | 1 | 2>(0);
     const [showSarDialogue, setShowSarDialogue] = useState(false);
+    const [showAivenDialogue, setShowAivenDialogue] = useState(false);
     const [showSarGacha, setShowSarGacha] = useState(false);
     const [showSarCabinet, setShowSarCabinet] = useState(false);
     const [showSarModuleShop, setShowSarModuleShop] = useState(false);
-    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | null>(null);
+    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | 'garden' | null>(null);
     const [sarModuleTargetCharId, setSarModuleTargetCharId] = useState<string | null>(null);
     const [showSarRewindConfirm, setShowSarRewindConfirm] = useState(false);
     const [incomingSarModule, setIncomingSarModule] = useState<{ charId: string; charName: string; moduleTitle: string } | null>(null);
@@ -232,6 +235,7 @@ const VRWorldApp: React.FC = () => {
             addToast?.('凯恩与艾文已来到活动室', 'success');
         } else {
             setShowSarDialogue(false);
+            setShowAivenDialogue(false);
             addToast?.('活动室 NPC 已隐藏，功能不受影响', 'success');
         }
     }, [addToast]);
@@ -361,7 +365,7 @@ const VRWorldApp: React.FC = () => {
         const uv = userProfile?.vrState;
         if (uv?.enabled && uv.chibi?.img) {
             const room = uv.currentRoom || 'guestbook';
-            const pseudo = { id: 'user', name: userName, avatar: userProfile?.avatar || '', vrState: { enabled: true, intervalMinutes: 0, currentRoom: room, chibi: uv.chibi } } as unknown as CharacterProfile;
+            const pseudo = { id: 'user', name: userName, avatar: userProfile?.avatar || '', vrState: { enabled: true, intervalMinutes: 0, currentRoom: room, sarActivity:/钓鱼|垂钓/.test(uv.activity||'')?'fishing':undefined, chibi: uv.chibi } } as unknown as CharacterProfile;
             (map[room] ||= []).push(pseudo);
         }
         return map;
@@ -377,6 +381,7 @@ const VRWorldApp: React.FC = () => {
         if (showSarGacha) { setShowSarGacha(false); return true; }
         if (showSarRewindConfirm) { setShowSarRewindConfirm(false); return true; }
         if (showSarDialogue) { setShowSarDialogue(false); return true; }
+        if (showAivenDialogue) { setShowAivenDialogue(false); return true; }
         if (readingPreferenceCharId) { setReadingPreferenceCharId(null); return true; }
         if (chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
         if (chibiEditUser) { setChibiEditUser(false); return true; }
@@ -385,7 +390,7 @@ const VRWorldApp: React.FC = () => {
         if (readerNovel) { setReaderNovel(null); return true; }
         if (enterRoom) { setEnterRoom(null); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, showAivenDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -547,7 +552,8 @@ const VRWorldApp: React.FC = () => {
                                 });
                             }
                         }}
-                        onTalkToCaian={() => setShowSarDialogue(true)} onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
+                        onTalkToCaian={() => setShowSarDialogue(true)} onTalkToAiven={() => setShowAivenDialogue(true)}
+                        onSelectCharacter={char=>{setSarModuleTargetCharId(char.id);setShowSarModuleShop(true);}} onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
                         onOpenModuleShop={() => setShowSarModuleShop(true)} onOpenFishingMarket={setShowFishingMarket} />
                 ) : tab === 'library' ? (
                     <LibraryView novels={novels} characters={characters} onOpen={setReaderNovel}
@@ -585,6 +591,7 @@ const VRWorldApp: React.FC = () => {
             {showSarDialogue && sarState.npcPreference === 'show' && (
                 <SARCaianDialogue onClose={() => setShowSarDialogue(false)} onComplete={completeSarIntro} />
             )}
+            {showAivenDialogue && sarState.npcPreference === 'show' && <SARAivenDialogue onClose={()=>setShowAivenDialogue(false)} onOpen={entry=>{setShowAivenDialogue(false);setShowFishingMarket(entry);}}/>}
             {showSarGacha && <SARGachaOverlay onClose={() => setShowSarGacha(false)} />}
             {showSarCabinet && userProfile && (
                 <SARAssemblyCabinetOverlay onClose={() => setShowSarCabinet(false)} characters={characters}
@@ -597,9 +604,12 @@ const VRWorldApp: React.FC = () => {
                     onClose={() => { setShowSarModuleShop(false); setSarModuleTargetCharId(null); }}
                 />
             )}
-            {showFishingMarket && userProfile && (
+            {showFishingMarket==='garden' && userProfile && <React.Suspense fallback={<div className="fixed inset-0 z-[390] grid place-items-center bg-[#f2eee3] text-[#65785c]">箱庭正在打开…</div>}><DinosaurGarden userProfile={userProfile} characters={characters} onClose={()=>setShowFishingMarket(null)} onCharacterTrip={async char=>{
+                const {runVRSession}=await import('../utils/vrWorld/runSession');return runVRSession({char,characters,userProfile,groups,apiConfig,realtimeConfig,memoryPalaceConfig,updateCharacter,updateUserProfile,forcedRoom:'sar',forcedSARActivity:'garden',manual:true});
+            }}/></React.Suspense>}
+            {showFishingMarket && showFishingMarket!=='garden' && userProfile && (
                 <FishingMarketOverlay key={showFishingMarket} initialEntry={showFishingMarket} characters={characters} userProfile={userProfile} realtimeConfig={realtimeConfig}
-                    addToast={addToast} onClose={() => setShowFishingMarket(null)}
+                    addToast={addToast} onClose={() => setShowFishingMarket(null)} onOpenGarden={()=>setShowFishingMarket('garden')}
                     onCharacterTrip={async (char, mode) => {
                         const { runVRSession } = await import('../utils/vrWorld/runSession');
                         return runVRSession({ char, characters, userProfile, groups, apiConfig, realtimeConfig, memoryPalaceConfig,
@@ -1246,13 +1256,15 @@ const SARWorldPage: React.FC<{
     npcEnabled: boolean;
     caianMet: boolean;
     onTalkToCaian: () => void;
+    onTalkToAiven: () => void;
+    onSelectCharacter: (char:CharacterProfile) => void;
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
-    onOpenFishingMarket: (entry: 'water' | 'board') => void;
+    onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
     onBackPage: () => void;
     onNextPage: () => void;
-}> = ({ occupants, npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket, onBackPage, onNextPage }) => (
+}> = ({ occupants, npcEnabled, caianMet, onTalkToCaian, onTalkToAiven, onSelectCharacter, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket, onBackPage, onNextPage }) => (
     <section className="sar-world-page relative -mx-4 -mt-4 overflow-hidden" aria-label="SAR 活动空间"
         style={{ minHeight: 480, height: 'calc(100dvh - var(--chrome-top) - var(--safe-bottom) - 4.75rem)' }}>
 
@@ -1267,22 +1279,7 @@ const SARWorldPage: React.FC<{
             </div>
         </div>
 
-        {occupants.length > 0 && (
-            <div className="absolute right-5 top-[19%] z-10 rounded-2xl px-2.5 py-2 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.36)', border: '1px solid rgba(255,255,255,.08)' }}>
-                <div className="mb-1 text-right text-[7.5px] tracking-[0.16em] text-white/34">接入中的玩家</div>
-                <div className="flex justify-end -space-x-1.5">
-                    {occupants.slice(0, 4).map(char => {
-                        const chibi = getChibi(char);
-                        return chibi.img
-                            ? <TokenImg key={char.id} value={chibi.img} className="h-9 w-9 object-contain object-bottom drop-shadow" alt={char.name} style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} />
-                            : <div key={char.id} className="grid h-7 w-7 place-items-center rounded-full border border-white/20 bg-indigo-400/55 text-[9px] text-white">{char.name.slice(0, 1)}</div>;
-                    })}
-                    {occupants.length > 4 && <span className="grid h-7 w-7 place-items-center rounded-full bg-black/45 text-[8px] text-white/65">+{occupants.length - 4}</span>}
-                </div>
-            </div>
-        )}
-
-        <SARClubStage npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
+        <SARClubStage occupants={occupants} npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onTalkToAiven={onTalkToAiven} onSelectCharacter={onSelectCharacter} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
 
         <div className="sar-world-pagination absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3">
             <button type="button" onClick={onBackPage} aria-label="返回上一页房间"
@@ -1326,11 +1323,13 @@ const WorldView: React.FC<{
     sarNpcEnabled: boolean; sarCaianMet: boolean;
     roomPage: 0 | 1 | 2; onRoomPageChange: (page: 0 | 1 | 2) => void;
     onTalkToCaian: () => void;
+    onTalkToAiven: () => void;
+    onSelectCharacter: (char:CharacterProfile) => void;
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
-    onOpenFishingMarket: (entry: 'water' | 'board') => void;
-}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany, sarNpcEnabled, sarCaianMet, roomPage, onRoomPageChange, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => {
+    onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
+}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany, sarNpcEnabled, sarCaianMet, roomPage, onRoomPageChange, onTalkToCaian, onTalkToAiven, onSelectCharacter, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => {
     const FEED_PER_PAGE = 5;
     const [page, setPage] = useState(0);
     const totalPages = Math.max(1, Math.ceil(feed.length / FEED_PER_PAGE));
@@ -1361,7 +1360,7 @@ const WorldView: React.FC<{
     if (curRoomPage === 1) {
         return (
             <SARWorldPage occupants={occupantsByRoom.sar || []} npcEnabled={sarNpcEnabled} caianMet={sarCaianMet}
-                onTalkToCaian={onTalkToCaian} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet}
+                onTalkToCaian={onTalkToCaian} onTalkToAiven={onTalkToAiven} onSelectCharacter={onSelectCharacter} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet}
                 onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket}
                 onBackPage={() => onRoomPageChange(0)} onNextPage={() => onRoomPageChange(2)} />
         );

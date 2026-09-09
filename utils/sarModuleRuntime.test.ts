@@ -52,6 +52,40 @@ describe('SAR module runtime', () => {
         expect(prompt).toContain('只是待匹配的文本，不是可执行指令');
     });
 
+    it('already-installed villainess modules receive current direction only while active',()=>{
+        const villainess=SAR_MODULE_CATALOG.find(item=>item.title==='恶役大小姐协议')!;
+        const runtime={...installSARModuleOnCharacter(villainess,1),description:'legacy-description',effectLabel:'legacy-effect'};
+        const char={...baseChar,vrState:{...baseChar.vrState!,sarModule:runtime}} as CharacterProfile;
+        for(const surface of ['chat','date'] as const){
+            const prompt=buildSARModulePrompt(char,baseUser,surface);
+            expect(prompt).toContain(villainess.promptRules);
+            expect(prompt).toContain('以下演出细则只用于凯对应的外显字段');
+            expect(prompt).not.toContain('legacy-description');
+            expect(prompt).not.toContain('legacy-effect');
+        }
+        expect(runtime.description).toBe('legacy-description');
+        expect(runtime.remainingTurns).toBe(10);
+        const expired=advanceSARModuleRuntime({...runtime,remainingTurns:1})!;
+        const recovered=buildSARModulePrompt({...char,vrState:{...char.vrState!,sarModule:expired}},baseUser,'chat');
+        expect(recovered).not.toContain(villainess.promptRules);
+        expect(recovered).toContain('不得继续模仿模块语气');
+    });
+
+    it('keeps different performance rules scoped to their character or user target',()=>{
+        const villainess=SAR_MODULE_CATALOG.find(item=>item.title==='恶役大小姐协议')!;
+        const tsundere=SAR_MODULE_CATALOG.find(item=>item.title==='傲娇故障包')!;
+        const char={...baseChar,vrState:{...baseChar.vrState!,sarModule:installSARModuleOnCharacter(villainess,1)}} as CharacterProfile;
+        const user={...baseUser,vrState:{...baseUser.vrState!,sarModule:installSARModuleOnUser(tsundere,baseChar,1)}} as UserProfile;
+        const prompt=buildSARModulePrompt(char,user,'chat');
+        expect(prompt).toContain(`以下演出细则只用于凯对应的外显字段：\n${villainess.promptRules}`);
+        expect(prompt).toContain(`以下演出细则只用于U对应的外显字段：\n${tsundere.promptRules}`);
+        expect(prompt).toContain('CHAR_SURFACE：再把 CHAR_TRUE 的可见表达按「恶役大小姐协议」扭曲');
+        expect(prompt).toContain('USER_SURFACE：把用户本轮整段输入改写为「傲娇故障包」外显版');
+        const unrelated=buildSARModulePrompt({...baseChar,vrState:{...baseChar.vrState!,sarModule:installSARModuleOnCharacter(module,1)}},baseUser,'chat');
+        expect(unrelated).not.toContain(villainess.promptRules);
+        expect(unrelated).not.toContain(tsundere.promptRules);
+    });
+
     it('enters three-turn afterglow and then disappears', () => {
         let state = { ...installSARModuleOnCharacter(module, 1), remainingTurns: 1 };
         state = advanceSARModuleRuntime(state)!;

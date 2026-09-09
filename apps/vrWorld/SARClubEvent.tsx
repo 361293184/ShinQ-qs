@@ -1,16 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SARClubRoom from './SARClubRoom';
+import {SARDialogueCast} from './SARNpcArt';
+import {SARDialogueChoices} from './SARDialogueChoices';
+import type {CharacterProfile} from '../../types';
 import { CaretRight, X } from '@phosphor-icons/react';
 import {
     getSARDialogueNode,
     type SARDialogueChoice,
-    type SARDialogueSpeaker,
     type SARIntroReaction,
     type SARNpcPreference,
 } from '../../utils/vrWorld/sarClub';
 
 const SAFE_TOP = 'var(--chrome-top)';
-const SAFE_BOTTOM = 'var(--safe-bottom)';
 
 export const SARUpdateModal: React.FC<{
     step: 'update' | 'preference';
@@ -48,52 +49,20 @@ export const SARUpdateModal: React.FC<{
     </div>
 );
 
-const NpcStandIn: React.FC<{
-    who: SARDialogueSpeaker;
-    active?: boolean;
-    compact?: boolean;
-    onClick?: () => void;
-    showQuest?: boolean;
-}> = ({ who, active = true, compact = false, onClick, showQuest = false }) => {
-    const caian = who === 'caian';
-    const name = caian ? '凯恩' : '艾文';
-    const size = compact ? 66 : 114;
-    const Wrapper = onClick ? 'button' : 'div';
-    return (
-        <Wrapper type={onClick ? 'button' : undefined} onClick={onClick} aria-label={onClick ? `与${name}交谈` : undefined}
-            className={`relative flex flex-col items-center transition-all duration-300 ${active ? 'opacity-100 scale-100' : 'opacity-45 scale-[0.96]'}`}>
-            {showQuest && (
-                <span className="absolute -top-7 left-1/2 z-10 grid h-8 w-8 -translate-x-1/2 place-items-center rounded-full text-[19px] font-black text-[#251b08]"
-                    style={{ background: 'linear-gradient(180deg,#fff0a8,#f5bd4f)', boxShadow: '0 0 18px rgba(255,210,92,.8)', animation: 'sarquest 1.25s ease-in-out infinite' }}>!</span>
-            )}
-            <div className="relative" style={{ width: size, height: size * 1.38, filter: active ? 'drop-shadow(0 9px 12px rgba(0,0,0,.48))' : undefined }}>
-                <div className="absolute left-1/2 top-[4%] -translate-x-1/2 rounded-full" style={{ width: size * .58, height: size * .58, background: caian ? 'linear-gradient(145deg,#5c427f,#251d43)' : 'linear-gradient(145deg,#f1f2f8,#aeb9c8)' }} />
-                <div className="absolute left-1/2 top-[27%] -translate-x-1/2 rounded-t-[45%] rounded-b-[24%]" style={{ width: size * .72, height: size * .93, background: caian ? 'linear-gradient(160deg,#596797,#252943)' : 'linear-gradient(160deg,#6c7483,#303640)', border: '1px solid rgba(255,255,255,.12)' }} />
-                <div className="absolute left-1/2 top-[44%] -translate-x-1/2 text-center font-bold text-white/80" style={{ fontSize: compact ? 17 : 28 }}>{caian ? 'C' : 'A'}</div>
-            </div>
-            <span className={`${compact ? 'text-[9px]' : 'text-[11px]'} -mt-1 rounded-full bg-black/35 px-2 py-0.5 font-semibold text-white/85 backdrop-blur-sm`}>{name}</span>
-        </Wrapper>
-    );
-};
-
 export const SARClubStage: React.FC<{
     npcEnabled: boolean;
     caianMet: boolean;
     onTalkToCaian: () => void;
+    onTalkToAiven?: () => void;
+    occupants?: CharacterProfile[];
+    onSelectCharacter?: (char:CharacterProfile) => void;
     onOpenGacha: () => void;
     onOpenCabinet: () => void;
     onOpenModuleShop: () => void;
-    onOpenFishingMarket: (entry: 'water' | 'board') => void;
+    onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
     fullPage?: boolean;
-}> = ({ npcEnabled, caianMet, onTalkToCaian, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => (
-    <div className="absolute inset-0 overflow-hidden">
-        <SARClubRoom onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} />
-        {npcEnabled && <div className="sar-club-npcs">
-            {caianMet ? <span>凯恩在活动室</span> : <button type="button" onClick={onTalkToCaian} aria-label="与凯恩交谈">！ 凯恩</button>}
-            <span>艾文在活动室</span>
-        </div>}
-    </div>
-);
+}> = ({fullPage:_,...props}) => <SARClubRoom {...props}/>;
+
 export const SARCaianDialogue: React.FC<{
     onClose: () => void;
     onComplete: (reaction?: SARIntroReaction) => void;
@@ -106,6 +75,8 @@ export const SARCaianDialogue: React.FC<{
     const line = node.lines[Math.min(lineIndex, Math.max(0, node.lines.length - 1))];
     const isLastLine = lineIndex >= node.lines.length - 1;
     const choices = isLastLine ? node.choices || [] : [];
+    const panel=useRef<HTMLDivElement>(null);
+    useEffect(()=>{panel.current?.scrollTo(0,0);},[nodeId,lineIndex]);
 
     const goTo = (next: string) => {
         setNodeId(next);
@@ -128,17 +99,15 @@ export const SARCaianDialogue: React.FC<{
     if (!line) return null;
     const speakerName = line.speaker === 'caian' ? '凯恩' : '艾文';
     return (
-        <div className="fixed inset-0 z-[370] overflow-hidden bg-[#090a12]/78 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-label="凯恩初次见面对话">
+        <div className="sar-npc-dialogue fixed inset-0 z-[370] overflow-hidden bg-[#090a12]/78 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-label="凯恩初次见面对话">
             <button type="button" onClick={onClose} aria-label="暂时离开对话" className="absolute right-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white/65 backdrop-blur-md active:bg-white/15" style={{ top: `calc(${SAFE_TOP} + .5rem)` }}><X size={17} /></button>
 
-            <div className="absolute inset-x-0 top-[7%] bottom-[32%] overflow-hidden">
-                <div className="absolute left-[14%] bottom-0"><NpcStandIn who="caian" active={line.speaker === 'caian'} /></div>
-                <div className="absolute right-[13%] bottom-0"><NpcStandIn who="aiven" active={line.speaker === 'aiven'} /></div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2" style={{ background: 'linear-gradient(180deg,transparent,rgba(8,8,16,.6))' }} />
+            <div className="sar-dialogue-portraits">
+                <SARDialogueCast speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions}/>
             </div>
 
-            <div className="absolute inset-x-3 bottom-0 z-10" style={{ paddingBottom: `calc(${SAFE_BOTTOM} + .8rem)` }}>
-                <div className="overflow-hidden rounded-[22px]" style={{ background: 'linear-gradient(165deg,rgba(29,27,48,.97),rgba(13,13,24,.98))', border: '1px solid rgba(210,205,255,.18)', boxShadow: '0 -10px 42px rgba(0,0,0,.42)' }}>
+            <div className="sar-dialogue-panel" ref={panel}>
+                <div>
                     <button type="button" onClick={advance} className="block min-h-[132px] w-full px-5 pb-4 pt-4 text-left active:bg-white/[0.025]"
                         aria-label={choices.length ? undefined : node.completes && isLastLine ? '结束对话' : '继续对话'}>
                         <div className="mb-2 flex items-center gap-2">
@@ -148,17 +117,11 @@ export const SARCaianDialogue: React.FC<{
                         <p className="text-[15px] leading-7 text-white/92">{line.text}</p>
                         {!choices.length && <div className="mt-2 flex items-center justify-end gap-1 text-[9px] tracking-[0.16em] text-white/28">{node.completes && isLastLine ? '结束对话' : '点击继续'} <CaretRight size={10} /></div>}
                     </button>
-                    {choices.length > 0 && (
-                        <div className="space-y-1.5 border-t border-white/[0.08] px-3 pb-3 pt-2.5">
-                            {choices.map(choice => (
-                                <button key={choice.label} type="button" onClick={() => choose(choice)} className="flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 text-left text-[12.5px] text-white/82 active:bg-white/10" style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.065)' }}>
-                                    <span className="flex-1">{choice.label}</span><CaretRight size={12} className="text-indigo-200/45" />
-                                </button>
-                            ))}
-                        </div>
-                    )}
                 </div>
             </div>
+            {choices.length > 0 && <SARDialogueChoices key={nodeId}>
+                {choices.map(choice=><button key={choice.label} type="button" onClick={()=>choose(choice)}>{choice.label}</button>)}
+            </SARDialogueChoices>}
         </div>
     );
 };

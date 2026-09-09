@@ -73,3 +73,10 @@ xiaohongshu-skills/
 /output/sar-diorama-qa/
 /output/sar-diorama-build/
 /output/sar-diorama-*.log
+/output/dino-cafe-qa/
+/output/dino-cafe-build/
+
+/output/dino-garden-qa/
+/output/dino-garden-build/
+/output/sar-art-qa/
+/output/sar-art-build/

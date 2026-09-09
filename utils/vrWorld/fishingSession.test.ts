@@ -5,6 +5,7 @@ import { safeFetchJson } from '../safeApi';
 import { buildChatRequestPayload } from '../chatRequestPayload';
 import { createFishingMarketState, ensureActorAccounts, createRequest, readFishingMarketState, saveFishingMarketState } from './fishingMarket';
 import { collectSARLocalBackup, restoreSARLocalBackup } from './sarBackup';
+import {ensureDinosaurGarden,setGardenVisits,editDino,gardenResidents,findGardenSpace} from './dinosaurGarden';
 const mocks=vi.hoisted(()=>({messages:[] as any[],board:{id:'board',messages:[] as any[],updatedAt:0}}));
 vi.mock('../db',()=>({DB:{
     getVRNovels:vi.fn(async()=>[]),getVRMusicRoom:vi.fn(async()=>null),getEmojis:vi.fn(async()=>[]),getEmojiCategories:vi.fn(async()=>[]),
@@ -63,4 +64,20 @@ it('preserves original no-water room prompt behavior and does not initialize fis
 it('backups preserve valid and malformed fishing data without blocking recovery exports',()=>{
     const s=readFishingMarketState();const backup=collectSARLocalBackup();localStorage.clear();restoreSARLocalBackup(backup,{replaceMissing:false});expect(readFishingMarketState()).toEqual(s);
     localStorage.setItem('vr_fishing_market_v1','corrupt-data');const corrupt=collectSARLocalBackup();expect(corrupt.fishingMarketRaw).toBe('corrupt-data');localStorage.clear();restoreSARLocalBackup(corrupt,{replaceMissing:false});expect(localStorage.getItem('vr_fishing_market_v1')).toBe('corrupt-data');
+});
+it('garden uses the real persona flow for one grid action and saves its factual event',async()=>{
+    const user={id:'user',name:'用户',kind:'user' as const};let s=setGardenVisits(ensureDinosaurGarden(readFishingMarketState(),user),true,user);
+    const id=gardenResidents(s)[0].catchId,spot=findGardenSpace(s,'new');saveFishingMarketState(s);
+    answer(JSON.stringify({action:'move',toyId:id,slotId:spot.slotId,words:'去桥边等吧。'}));
+    expect(await runVRSession({...deps,forcedSARActivity:'garden'})).toMatchObject({ok:true});expect(safeFetchJson).toHaveBeenCalledTimes(1);
+    s=readFishingMarketState();expect(s.dinosaurGarden!.toys[id].pose?.slotId).toBe(spot.slotId);
+    expect(mocks.messages.some(m=>m.content.includes('去桥边等吧。'))).toBe(true);
+    const body=JSON.parse((vi.mocked(safeFetchJson).mock.calls[0][1] as any).body);expect(body.messages[0].content).toContain('ORIGINAL PERSONA');expect(body.messages.at(-1).content).toContain('隐藏棋盘');expect(body.messages.at(-1).content).not.toContain('钱包');
+});
+it('garden rejects malformed output without a fake visit, and disabled co-editing does not call a model',async()=>{
+    const user={id:'user',name:'用户',kind:'user' as const};let s=ensureDinosaurGarden(readFishingMarketState(),user);saveFishingMarketState(s);
+    expect((await runVRSession({...deps,forcedSARActivity:'garden'})).ok).toBe(false);expect(safeFetchJson).not.toHaveBeenCalled();
+    s=setGardenVisits(s,true,user);saveFishingMarketState(s);const count=s.dinosaurGarden!.events.length;
+    answer('我已经把整张桌子卖掉了！');expect((await runVRSession({...deps,forcedSARActivity:'garden'})).ok).toBe(false);
+    expect(readFishingMarketState().dinosaurGarden!.events).toHaveLength(count);
 });

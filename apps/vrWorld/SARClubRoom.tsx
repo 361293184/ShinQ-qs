@@ -1,26 +1,69 @@
-import React from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
 import roomArt from '../../assets/sar-club-room.png';
+import TokenImg from '../../components/os/TokenImg';
+import type {CharacterProfile} from '../../types';
+import {getChibi} from '../../utils/vrWorld/chibi';
+import {arrangeSARRoomActors,SAR_ROOM_HOTSPOTS,SAR_ROOM_SIZE,type SARFacility,type SARRoomActor} from '../../utils/vrWorld/sarRoomLayout';
+import {SARNpcChibi} from './SARNpcArt';
 import './sar-club-room.css';
 
-/** Original portrait artwork, with the existing activity entrances kept below it. */
-const SARClubRoom: React.FC<{
-    onOpenGacha: () => void;
-    onOpenCabinet: () => void;
-    onOpenModuleShop: () => void;
-    onOpenFishingMarket: (entry: 'water' | 'board') => void;
-}> = ({ onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenFishingMarket }) => (
-    <div className="sar-club-room">
-        <div className="sar-club-art">
-            <img src={roomArt} alt="SAR 活动室原画" draggable={false} />
+interface Props {
+    onOpenGacha:()=>void;onOpenCabinet:()=>void;onOpenModuleShop:()=>void;
+    onOpenFishingMarket:(entry:'water'|'board'|'garden')=>void;
+    occupants?:CharacterProfile[];npcEnabled?:boolean;caianMet?:boolean;
+    onTalkToCaian?:()=>void;onTalkToAiven?:()=>void;onSelectCharacter?:(char:CharacterProfile)=>void;
+}
+export default function SARClubRoom({onOpenGacha,onOpenCabinet,onOpenModuleShop,onOpenFishingMarket,occupants=[],npcEnabled=false,caianMet=false,onTalkToCaian,onTalkToAiven,onSelectCharacter}:Props){
+    const viewport=useRef<HTMLDivElement>(null),[size,setSize]=useState({width:0,height:0}),[roster,setRoster]=useState(false);
+    useEffect(()=>{
+        if(!viewport.current)return;
+        const observer=new ResizeObserver(([entry])=>{
+            const width=Math.min(entry.contentRect.width,entry.contentRect.height*SAR_ROOM_SIZE.width/SAR_ROOM_SIZE.height);
+            setSize({width,height:width*SAR_ROOM_SIZE.height/SAR_ROOM_SIZE.width});
+        });observer.observe(viewport.current);return()=>observer.disconnect();
+    },[]);
+    const {placed,overflow}=useMemo(()=>{
+        const actors:SARRoomActor[]=occupants.map(char=>({id:char.id,zone:char.vrState?.sarActivity==='fishing'?'fishing':'common'}));
+        if(npcEnabled)actors.unshift({id:'sar-npc-caian',zone:'common',anchor:{x:740,y:945}},{id:'sar-npc-aiven',zone:'fishing',anchor:{x:880,y:1745}});
+        return arrangeSARRoomActors(actors);
+    },[occupants,npcEnabled]);
+    const open=(id:SARFacility)=>{
+        if(id==='gacha')onOpenGacha();else if(id==='cabinet')onOpenCabinet();else if(id==='modules')onOpenModuleShop();else onOpenFishingMarket(id);
+    };
+    return <div className="sar-club-room">
+        <div className="sar-room-viewport" ref={viewport}>
+            <div className="sar-room-canvas" style={{width:size.width,height:size.height}} data-art-width={SAR_ROOM_SIZE.width} data-art-height={SAR_ROOM_SIZE.height}>
+                <img className="sar-room-background" src={roomArt} alt="SAR 活动室" draggable={false}/>
+                {size.width>0&&placed.map(actor=>{
+                    const npc=actor.id==='sar-npc-caian'?'caian':actor.id==='sar-npc-aiven'?'aiven':null;
+                    const char=npc?undefined:occupants.find(c=>c.id===actor.id),chibi=char?getChibi(char):null;
+                    const name=npc==='caian'?'凯恩':npc==='aiven'?'艾文':char?.name||'';
+                    return <button key={actor.id} type="button" className={`sar-room-person ${npc?'is-npc':''}`}
+                        aria-label={npc?`与${name}交谈`:`查看 ${name}`} data-actor-id={actor.id} data-zone={actor.zone} data-foot-x={actor.x} data-foot-y={actor.y}
+                        style={{left:`${actor.x/SAR_ROOM_SIZE.width*100}%`,top:`${actor.y/SAR_ROOM_SIZE.height*100}%`,zIndex:20+Math.round(actor.y/SAR_ROOM_SIZE.height*30)}}
+                        onClick={()=>{if(npc==='caian')onTalkToCaian?.();else if(npc==='aiven')onTalkToAiven?.();else if(char&&char.id!=='user')onSelectCharacter?.(char);else setRoster(r=>!r);}}>
+                        <span className="sar-room-person__shadow"/>
+                        <span className={`sar-room-person__body ${chibi?.isFallback?'is-fallback':''}`}>
+                        {npc?<SARNpcChibi who={npc}/>:chibi?.img?<TokenImg value={chibi.img} alt={name} draggable={false}
+                            className={`sar-room-person__visitor ${chibi.isFallback?'is-fallback':''}`} style={{transform:`scale(${Math.min(1.5,Math.max(.6,chibi.scale))}) scaleX(${chibi.flip?-1:1}) translateY(${chibi.offsetY*size.width/SAR_ROOM_SIZE.width}px)`}}/>
+                            :<span className="sar-room-person__fallback">{name.slice(0,1)}</span>}
+                        </span>
+                        <span className="sar-room-person__name">{name}</span>
+                        {npc==='caian'&&!caianMet&&<span className="sar-room-person__quest" aria-hidden="true">!</span>}
+                    </button>;
+                })}
+                <nav className="sar-room-hotspots" aria-label="活动室设施">
+                    {SAR_ROOM_HOTSPOTS.map(point=><button type="button" key={point.id} className={`sar-room-hotspot align-${point.align}`} data-facility={point.id}
+                        style={{left:`${point.x/SAR_ROOM_SIZE.width*100}%`,top:`${point.y/SAR_ROOM_SIZE.height*100}%`}}
+                        aria-label={point.ariaLabel} onClick={()=>open(point.id)}><i aria-hidden="true"/><span>{point.label}</span></button>)}
+                </nav>
+            </div>
         </div>
-        <nav className="sar-club-facilities" aria-label="活动室设施">
-            <button type="button" aria-label="进入异世界扭蛋" onClick={onOpenGacha}>扭蛋</button>
-            <button type="button" aria-label="进入异界陈列柜" onClick={onOpenCabinet}>陈列柜</button>
-            <button type="button" aria-label="进入模块购买" onClick={onOpenModuleShop}>模块</button>
-            <button type="button" aria-label="进入水域" onClick={() => onOpenFishingMarket('water')}>水域</button>
-            <button type="button" aria-label="进入布告板" onClick={() => onOpenFishingMarket('board')}>布告板</button>
-        </nav>
-    </div>
-);
-
-export default SARClubRoom;
+        {occupants.length>0&&<div className="sar-room-roster">
+            <button type="button" aria-expanded={roster} onClick={()=>setRoster(r=>!r)}>在场 {occupants.length} 人{overflow.length>0?` · ${overflow.length} 人候位`:''}</button>
+            {roster&&<div className="sar-room-roster__list">{occupants.map(char=><button key={char.id} type="button" onClick={()=>{if(char.id!=='user')onSelectCharacter?.(char);}}>
+                <span>{char.name}</span><small>{char.vrState?.sarActivity==='fishing'?'钓鱼区':'活动室'}{overflow.includes(char.id)?' · 候位':''}</small>
+            </button>)}</div>}
+        </div>}
+    </div>;
+}

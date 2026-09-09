@@ -57,6 +57,8 @@ import {
     applyMarketPlan, buildFishingTurn, buildMarketTurn, flushMarketReceipts, parseFishingReaction,
     parseMarketPlan, settleFishingReaction,
 } from './fishingCharacter';
+import { readFishingMarketState } from './fishingMarket';
+import { prepareGardenVisit,parseGardenVisit,applyGardenVisit,gardenVisitAvailable,type GardenVisitSnapshot } from './dinosaurCharacter';
 
 /** 记忆管线所需配置的最小形状（避免从 OSContext 反向 import 造成循环依赖）。 */
 interface MemoryConfigLike {
@@ -79,7 +81,7 @@ export interface VRSessionDeps {
     /** 用户手动触发时指定的房间；省略 = 随机。不可用（如指定图书馆但无书）时自动回退随机。 */
     forcedRoom?: VRRoomId;
     /** 手动从水域入口出发时明确活动，不改变其它房间的随机规则。 */
-    forcedSARActivity?: 'fishing' | 'market';
+    forcedSARActivity?: 'fishing' | 'market' | 'garden';
     /** 用户在邮局指定要让该角色回复的来信 id（forcedRoom 应为 postoffice）。 */
     forcedLetterId?: string;
     /** 用户亲手点的（「让 ta 现在去逛一次」这类），不受自动登入的最小间隔闸限制。 */
@@ -325,7 +327,8 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
         let signalRolledLines = 0;
         let signalWhisper = '';
         let sarScenario: SARCharacterCabinetScenario | null = null;
-        let sarMode: 'cabinet' | 'module-shop' | 'fishing' | 'market' | null = null;
+        let sarMode: 'cabinet' | 'module-shop' | 'fishing' | 'market' | 'garden' | null = null;
+        let gardenSnapshot: GardenVisitSnapshot | null = null;
         let fishingCatch: FishingCatch | null = null;
         const fishingActor: MarketActor = { id: char.id, name: char.name, kind: 'character' };
         let sarShopModule: SARModuleDefinition | null = null;
@@ -437,7 +440,14 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             // 水域和布告板与既有设施同属 SAR，每次仍只调用一轮模型。
             const activityRoll = Math.random();
             sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
-            if (sarMode === 'fishing' || sarMode === 'market') {
+            if(!forcedSARActivity&&activityRoll>=.5&&activityRoll<.7&&gardenVisitAvailable(readFishingMarketState(),char.id))sarMode='garden';
+            if(sarMode==='garden'){
+                const market=readFishingMarketState();
+                if(!market.dinosaurGarden?.visitsEnabled)return {ok:false,room:'sar',reason:'共同摆弄还没有开启'};
+                gardenSnapshot=prepareGardenVisit(market,fishingActor);roomTurn=gardenSnapshot.prompt;
+                room={...room,name:'艾文的恐龙箱庭',blurb:'水域旁的一桌橡皮泥恐龙。用户和角色共同摆弄、留便签、续写小剧场。',affordance:'留便签、移动一只未固定的恐龙，或续写它的状态。'};
+                market.dinosaurGarden?.events.slice(-6).forEach(e=>recallExtra.push(e.summary+(e.words||'')));
+            } else if (sarMode === 'fishing' || sarMode === 'market') {
                 const actors = listMarketActors(userProfile, characters);
                 const market = await mutateFishingMarket(s => runLocalMarketPulse(ensureActorAccounts(s, actors)));
                 await flushMarketReceipts(characters);
@@ -539,7 +549,7 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             stripImages: true,
         });
         const systemPrompt = payload.systemPrompt + buildVRSystemAddendum(room, char.name,
-            sarMode === 'fishing' || sarMode === 'market' ? sarMode : undefined);
+            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined);
 
         // 调 LLM（记录一次调用，供"调用记录"对账）
         const baseUrl = vrApi.baseUrl.replace(/\/+$/, '');
@@ -724,6 +734,14 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             cardLines = [`「彼方 · ${room.name}」`, nameLine(char.name, activity)];
             if (parsed.roles.length) cardLines.push(`登场：${parsed.roles.map(r => r.name).join('、')}`);
             meta = { vrCard: true, room: 'theater', activity };
+        } else if(room.id==='sar'&&sarMode==='garden'&&gardenSnapshot){
+            const plan=parseGardenVisit(aiContent);if(!plan)return {ok:false,room:'sar',reason:'empty'};
+            try{const next=await mutateFishingMarket(s=>applyGardenVisit(s,fishingActor,plan,gardenSnapshot!));activity=next.dinosaurGarden!.events.at(-1)!.summary;}
+            catch(e){return {ok:false,room:'sar',reason:e instanceof Error?e.message:'箱庭改动未能保存'};}
+            await updateCharacter(char.id,{vrState:{...prevState,currentRoom:'sar',sarActivity:'garden',lastActiveAt:Date.now()}});
+            cardLines=['「彼方 · 艾文的橡皮泥恐龙箱庭」','程序事实：'+activity,'角色当时的便签（小剧场里的表达，不是现实债务或关系事实）：'+JSON.stringify(plan.words)];
+            meta={vrCard:true,room:'sar',activity,behavior:plan.words};
+            try{await flushMarketReceipts(characters);}catch{cardLines.push('箱庭已保存，事件回执下次进入时继续同步。');}
         } else if (room.id === 'sar' && (sarMode === 'fishing' || sarMode === 'market')) {
             let note = ''; let words = ''; let share: 'none' | 'guestbook' | 'dm' = 'none';
             let fishingMeta: VRCardMeta['fishing'];

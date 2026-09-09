@@ -16,7 +16,7 @@ import './fishing.css';
 type Tab = 'water' | 'catalog' | 'board' | 'archive';
 type Compose = 'listing' | 'item' | 'favor' | 'tip';
 type BoardPost = MarketListing | MarketRequest;
-const rarityLabel: Record<string,string> = {common:'常见',uncommon:'少见',rare:'稀有',epic:'奇珍',relic:'时层遗物'};
+const rarityLabel: Record<string,string> = {common:'常见',uncommon:'少见',rare:'稀有',epic:'奇珍',relic:'橡皮泥藏品'};
 const statusLabel: Record<string,string> = {open:'展板中',sold:'已售出',fulfilled:'已完成',removed:'主动撤下',expired:'已到期'};
 const ownerId = (p:BoardPost) => 'sellerId' in p ? p.sellerId : p.authorId;
 const ownerName = (p:BoardPost) => p.alias || ('sellerName' in p ? p.sellerName : p.authorName);
@@ -32,9 +32,10 @@ interface Props {
     initialEntry?:'water'|'board';
     characters:CharacterProfile[]; userProfile:UserProfile; realtimeConfig?:RealtimeConfig;
     addToast?:(message:string,type?:any)=>void; onClose:()=>void;
+    onOpenGarden?:()=>void;
     onCharacterTrip:(char:CharacterProfile,mode:'fishing'|'market')=>Promise<{ok:boolean;reason?:string}>;
 }
-export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',characters,userProfile,realtimeConfig,addToast,onClose,onCharacterTrip}) => {
+export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',characters,userProfile,realtimeConfig,addToast,onClose,onOpenGarden,onCharacterTrip}) => {
     const actors=useMemo(()=>listMarketActors(userProfile,characters),[userProfile.name,characters]);
     const user=actors[0];
     const [state,setState]=useState<FishingMarketState>(()=>{try{return ensureMarketDay(readFishingMarketState());}catch{return createFishingMarketState();}});
@@ -147,6 +148,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                     {characterTripControls('fishing')}
                 </>}
                 {tab==='catalog'&&<>
+                    {onOpenGarden&&<button className="fish-action primary w-full mb-4" onClick={onOpenGarden}>带橡皮泥恐龙去箱庭 →</button>}
                     {viewPicker}
                     <div className="mt-4 flex items-center justify-between"><h2 className="text-[14px]">{actor.name} 的收藏</h2><span className="fish-note">{owned.length} 件 · 研究 {state.research[actor.id]||0}</span></div>
                     {actor.id!=='user'&&<p className="fish-note mt-1">你可以回看 ta 的收藏；鱼获和交易由 ta 在自己的活动中决定。</p>}
@@ -154,7 +156,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                     {!owned.length&&<p className="fish-note py-7 text-center">水箱还空着。收藏从第一竿开始。</p>}
                     {owned.length>12&&<div className="mt-3 flex justify-between"><button className="fish-action" disabled={inventoryPage===0} onClick={()=>setInventoryPage(p=>p-1)}>上一页</button><span className="fish-note">{inventoryPage+1} / {Math.ceil(owned.length/12)}</span><button className="fish-action" disabled={(inventoryPage+1)*12>=owned.length} onClick={()=>setInventoryPage(p=>p+1)}>下一页</button></div>}
                     <div className="fish-divider mt-5 flex items-center justify-between pt-4"><h2 className="text-[14px]">水域图鉴</h2><span className="fish-note">{state.discovered.length} / {FISH_CATALOG.length}</span></div>
-                    <p className="fish-note mt-1">亮起的天气是今天；匹配时更容易钓到。恐龙属于时层漂流物。</p>
+                    <p className="fish-note mt-1">亮起的天气是今天；匹配时更容易钓到。恐龙都是橡皮泥模型，可以放进箱庭。</p>
                     <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-5">{FISH_CATALOG.map(f=>{const seen=state.discovered.includes(f.id);return <div key={f.id}><div className="flex h-24 items-center justify-center rounded-xl bg-[#c8e0ea04]"><FishArt speciesId={f.id} size={130} silhouette={!seen}/></div><div className="mt-2 text-[12px]">{seen?f.name:'未发现 · '+rarityLabel[f.rarity]}</div><div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">{f.weathers.map(w=><span className={weather?.kind===w?'text-[#bcdfbc]':'text-[#8096a1]'} key={w}>{WEATHER_LABELS[w]}{weather?.kind===w?' · 活跃':''}</span>)}</div>{seen&&<p className="fish-note mt-1">{f.blurb}</p>}</div>;})}</div>
                 </>}
                 {tab==='board'&&<>

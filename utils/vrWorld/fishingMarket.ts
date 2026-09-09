@@ -1,4 +1,6 @@
 import type { CharacterProfile, RealtimeConfig, UserProfile } from '../../types';
+import type { DinosaurGarden, DinoOrigin } from './dinosaurTypes';
+import { readDinosaurGarden } from './dinosaurStorage';
 
 // A leaf module: importing the backup adapter must not pull in DB/prompt execution.
 export const FISHING_MARKET_STORAGE_KEY = 'vr_fishing_market_v1';
@@ -12,6 +14,7 @@ export interface FishSpecies {
 }
 export interface MarketActor { id: string; name: string; kind: 'user' | 'character' | 'wanderer' }
 export interface FishingCatch {
+    origin?: DinoOrigin;
     id: string; speciesId: string; ownerId: string; ownerName: string; caughtAt: number;
     weather: FishingWeatherKind; weatherLabel: string; weatherSource: FishingWeather['source'];
     sizeCm: number; quality: 1 | 2 | 3; displayed?: boolean; studied?: boolean; incubatingUntil?: number;
@@ -35,6 +38,7 @@ export interface MarketLedgerItem {
     quotes?: { name: string; content: string }[];
 }
 export interface FishingMarketState {
+    dinosaurGarden?: DinosaurGarden;
     version: 1; seed: number; accounts: Record<string, number>; inventory: FishingCatch[]; discovered: string[];
     listings: MarketListing[]; requests: MarketRequest[]; ledger: MarketLedgerItem[];
     priceDate: string; prices: Record<string, number>; previousPrices: Record<string, number>;
@@ -53,18 +57,18 @@ export const FISH_CATALOG: FishSpecies[] = [
     { id: 'snow-lantern', name: '雪灯鱼', icon: '✧', category: 'fish', rarity: 'rare', basePrice: 118, difficulty: .55, weathers: ['snow'], blurb: '腹部微亮，像没来得及熄灭的小灯。' },
     { id: 'moon-envelope', name: '月皮信使', icon: '◒', category: 'fish', rarity: 'epic', basePrice: 238, difficulty: .72, weathers: ['clear', 'fog'], blurb: '鳍下夹着一片没有收件人的银色薄膜。' },
     { id: 'static-whale', name: '静电幼鲸', icon: '◜', category: 'fish', rarity: 'epic', basePrice: 286, difficulty: .78, weathers: ['storm', 'cloudy'], blurb: '其实只有手掌大，叫声却会让终端雪花一瞬。' },
-    { id: 'tyrannosaurus', name: '霸王龙', icon: '暴', category: 'time-relic', rarity: 'relic', basePrice: 880, difficulty: .9, weathers: ['storm', 'clear'], blurb: '艾文的时层漂流物。它看起来也很意外。' },
+    { id: 'tyrannosaurus', name: '霸王龙', icon: '暴', category: 'time-relic', rarity: 'relic', basePrice: 880, difficulty: .9, weathers: ['storm', 'clear'], blurb: '艾文捏的小霸王龙，圆肚子和短手都很认真。' },
     { id: 'triceratops', name: '三角龙', icon: '角', category: 'time-relic', rarity: 'relic', basePrice: 760, difficulty: .84, weathers: ['cloudy', 'rain'], blurb: '从水里冒出三只角，比鱼线更困惑。' },
     { id: 'stegosaurus', name: '剑龙', icon: '剑', category: 'time-relic', rarity: 'relic', basePrice: 720, difficulty: .82, weathers: ['clear', 'fog'], blurb: '背板卡住了水面的一小段晚霞。' },
-    { id: 'brachiosaurus', name: '腕龙', icon: '腕', category: 'time-relic', rarity: 'relic', basePrice: 940, difficulty: .92, weathers: ['fog', 'cloudy'], blurb: '你先看见脖子，然后鱼竿开始怀疑人生。' },
+    { id: 'brachiosaurus', name: '腕龙', icon: '腕', category: 'time-relic', rarity: 'relic', basePrice: 940, difficulty: .92, weathers: ['fog', 'cloudy'], blurb: '一根长脖子的小模型，脖子上还留着指腹的痕迹。' },
     { id: 'velociraptor', name: '迅猛龙', icon: '迅', category: 'time-relic', rarity: 'relic', basePrice: 810, difficulty: .94, weathers: ['storm', 'rain'], blurb: '不是被钓上来的，更像顺着线追了上来。' },
     { id: 'spinosaurus', name: '棘龙', icon: '棘', category: 'time-relic', rarity: 'relic', basePrice: 900, difficulty: .93, weathers: ['rain', 'storm'], blurb: '理论上，它才是来钓鱼的那个。' },
-    { id: 'ankylosaurus', name: '甲龙', icon: '甲', category: 'time-relic', rarity: 'relic', basePrice: 790, difficulty: .86, weathers: ['clear', 'cloudy'], blurb: '沉得像一只拒绝配合的保险箱。' },
+    { id: 'ankylosaurus', name: '甲龙', icon: '甲', category: 'time-relic', rarity: 'relic', basePrice: 790, difficulty: .86, weathers: ['clear', 'cloudy'], blurb: '圆滚滚的橡皮泥小甲龙，尾锤像一颗栗子。' },
     { id: 'parasaurolophus', name: '副栉龙', icon: '栉', category: 'time-relic', rarity: 'relic', basePrice: 735, difficulty: .8, weathers: ['fog', 'rain'], blurb: '有点荒谬。它还对鱼漂吹了一声。' },
     { id: 'pteranodon', name: '无齿翼龙', icon: '翼', category: 'time-relic', rarity: 'relic', basePrice: 850, difficulty: .9, weathers: ['clear', 'storm'], blurb: '从水下被钓到半空，过程学术上很柔软。' },
     { id: 'plesiosaur', name: '蛇颈龙', icon: '颈', category: 'time-relic', rarity: 'relic', basePrice: 980, difficulty: .96, weathers: ['rain', 'fog'], blurb: '含量正在稳步下降——艾文坚持这么说。' },
-    { id: 'dinosaur-egg', name: '恐龙蛋', icon: '蛋', category: 'time-relic', rarity: 'relic', basePrice: 620, difficulty: .74, weathers: ['clear', 'cloudy', 'rain'], blurb: '可以交给研究台，也可以先认真问问它熟没熟。' },
-    { id: 'dinosaur-fossil', name: '恐龙骨架', icon: '骨', category: 'time-relic', rarity: 'relic', basePrice: 690, difficulty: .76, weathers: ['fog', 'snow'], blurb: '罕见的完整时层残片，适合陈列与研究。' },
+    { id: 'dinosaur-egg', name: '恐龙蛋', icon: '蛋', category: 'time-relic', rarity: 'relic', basePrice: 620, difficulty: .74, weathers: ['clear', 'cloudy', 'rain'], blurb: '橡皮泥惊喜蛋，交给研究台后可以揭晓里面的小模型。' },
+    { id: 'dinosaur-fossil', name: '恐龙骨架', icon: '骨', category: 'time-relic', rarity: 'relic', basePrice: 690, difficulty: .76, weathers: ['fog', 'snow'], blurb: '罕见的橡皮泥骨架模型，骨头也是一根根捏的。' },
 ];
 
 
@@ -104,7 +108,7 @@ export const readFishingMarketState = (storage: Pick<Storage, 'getItem'> = local
     try { raw = JSON.parse(source); } catch { throw new Error('水域存档无法读取，请先导出备份；没有覆盖原存档'); }
     if (!raw || raw.version !== 1 || !Array.isArray(raw.inventory) || !Array.isArray(raw.listings) || !Array.isArray(raw.requests)
         || !Array.isArray(raw.ledger) || !raw.accounts || !Number.isFinite(raw.seed)) throw new Error('水域存档格式不兼容；没有覆盖原存档');
-    return { ...raw, research: raw.research || {}, discovered: raw.discovered || [],
+    return { ...raw, ...(raw.dinosaurGarden ? {dinosaurGarden:readDinosaurGarden(raw.dinosaurGarden)} : {}), research: raw.research || {}, discovered: raw.discovered || [],
         listings: raw.listings.map(p => ({ ...p, comments: p.comments || [] })),
         requests: raw.requests.map(p => ({ ...p, comments: p.comments || [], kind: p.kind || (p.speciesId ? 'item' : 'favor') })),
         ledger: raw.ledger.map(e => ({ ...e, participants: e.participants || [], deliveredTo: e.deliveredTo || [] })) };
@@ -149,9 +153,10 @@ export const ensureActorAccounts = (state: FishingMarketState, actors: MarketAct
 let writeChain: Promise<unknown> = Promise.resolve();
 /** Fresh read-modify-write. Web Locks serialize other tabs too; model calls never hold this lock. */
 export const mutateFishingMarket = (change: (state: FishingMarketState) => FishingMarketState): Promise<FishingMarketState> => {
-    const run = () => {
+    const run = async (): Promise<FishingMarketState> => {
         const perform = () => saveFishingMarketState(change(ensureMarketDay(readFishingMarketState())));
-        return typeof navigator !== 'undefined' && navigator.locks ? navigator.locks.request('vr-fishing-market', perform) : Promise.resolve().then(perform);
+        // Return a promise from the lock callback even when validation throws synchronously.
+        return typeof navigator !== 'undefined' && navigator.locks ? await navigator.locks.request('vr-fishing-market', async () => perform()) : perform();
     };
     const result = writeChain.then(run, run); writeChain = result.catch(() => {}); return result;
 };
@@ -187,14 +192,14 @@ export const rollFishingCatch = (owner: Pick<MarketActor, 'id' | 'name'>, weathe
     const entries = FISH_CATALOG.map(f => ({ f, w: rarityWeight[f.rarity] * (f.weathers.includes(weather.kind) ? 3.3 : f.category === 'time-relic' ? .28 : .42) }));
     let cursor = Math.max(0, Math.min(.999999, random())) * entries.reduce((sum, e) => sum + e.w, 0);
     const f = entries.find(e => (cursor -= e.w) <= 0)?.f || entries[0].f; const q = random();
-    return { id: marketId('catch'), speciesId: f.id, ownerId: owner.id, ownerName: owner.name, caughtAt: now,
+    return { id: marketId('catch'), speciesId: f.id, ownerId: owner.id, ownerName: owner.name, caughtAt: now, origin:{kind:'fished',actorId:owner.id,actorName:owner.name,at:now},
         weather: weather.kind, weatherLabel: weather.label, weatherSource: weather.source,
-        sizeCm: Math.round((f.category === 'time-relic' ? 88 + random() * 430 : 18 + random() * 96) * 10) / 10, quality: q > .93 ? 3 : q > .65 ? 2 : 1 };
+        sizeCm: Math.round((f.category === 'time-relic' ? 8 + random() * 14 : 18 + random() * 96) * 10) / 10, quality: q > .93 ? 3 : q > .65 ? 2 : 1 };
 };
 export const addCatchToState = (state: FishingMarketState, caught: FishingCatch): FishingMarketState => {
     if (state.inventory.some(c => c.id === caught.id) || state.ledger.some(e => e.id === 'caught_' + caught.id)) return state;
     const next = logMarketEvent({ ...state, inventory: [...state.inventory, caught], discovered: [...new Set([...state.discovered, caught.speciesId])] },
-        caught.ownerName + '在彼方水域钓到' + speciesById(caught.speciesId)?.name + '（' + caught.sizeCm + ' cm，' + caught.quality + ' 星）；天气：' + caught.weatherLabel + '，' + (caught.weatherSource === 'real' ? '同步真实天气' : '游戏模拟天气') + '。', [caught.ownerId], undefined, caught.caughtAt);
+        caught.origin?.kind==='gift' ? caught.ownerName+'收到了'+(caught.origin.actorName||'朋友')+'送出的'+speciesById(caught.speciesId)?.name+'橡皮泥模型。' : caught.ownerName + '在彼方水域钓到' + speciesById(caught.speciesId)?.name + '（' + caught.sizeCm + ' cm，' + caught.quality + ' 星）；天气：' + caught.weatherLabel + '，' + (caught.weatherSource === 'real' ? '同步真实天气' : '游戏模拟天气') + '。', [caught.ownerId], undefined, caught.caughtAt);
     next.ledger[next.ledger.length - 1].id = 'caught_' + caught.id;
     return next;
 };
@@ -287,7 +292,7 @@ export const handleCollection = (state: FishingMarketState, actor: MarketActor, 
         if (f.category !== 'time-relic' || c.studied) throw new Error('这件藏品无需重复研究');
         return logMarketEvent({ ...state, inventory: state.inventory.map(item => item.id === id ? { ...item, studied: true } : item),
             research: { ...state.research, [actor.id]: (state.research[actor.id] || 0) + 1 } },
-        actor.name + '为' + f.name + '制作时层观察记录，研究进度 +1；藏品仍保留，可陈列或交易。', [actor.id], undefined, now);
+        actor.name + '为' + f.name + '制作橡皮泥模型观察记录，研究进度 +1；藏品仍保留，可陈列或交易。', [actor.id], undefined, now);
     }
     if (action === 'incubate' && c.speciesId !== 'dinosaur-egg') throw new Error('只有恐龙蛋可以孵化');
     return logMarketEvent({ ...state, inventory: state.inventory.map(item => item.id === id ? action === 'display' ? { ...item, displayed: !item.displayed } : { ...item, incubatingUntil: now + 6 * 3_600_000 } : item) },

@@ -47,6 +47,38 @@ describe('SAR 活动室状态', () => {
         expect(mentioned.lines).toHaveLength(notMentioned.lines.length);
     });
 
+    it('艾文拆台当句就让旁边的凯恩尴尬，并延续到他的回应',()=>{
+        const punchlines=['这里似乎没有仿生人。','然后他就成立了 SAR。','结果是这样。','之一？','你又开始了。','实际上他把这里改造成了 SAR。','还贴了横幅。','这里可以抽卡、钓鱼、买道具给你的朋友们用。'];
+        let checked=0;
+        for(const id of Object.keys(SAR_CAIAN_INTRO_DIALOGUE)){
+            const {lines}=getSARDialogueNode(id,{mentionedCharacterCard:false});
+            for(const [index,line] of lines.entries())if(punchlines.includes(line.text)){
+                expect(line.speaker).toBe('aiven');
+                expect(line.castExpressions?.caian).toBe('embarrassed');
+                expect(lines[index+1].castExpressions?.caian).toBe('embarrassed');
+                checked++;
+            }
+        }
+        expect(checked).toBe(punchlines.length);
+        // Simply calling his name is an interruption, before the actual punchline.
+        expect(getSARDialogueNode('about-sar',{mentionedCharacterCard:false}).lines[3].castExpressions?.caian).toBe('serious');
+    });
+
+    it('双人表情随台词保留，分支切换与条件过滤不会带入上一段情绪',()=>{
+        const sad=getSARDialogueNode('about-aster',{mentionedCharacterCard:false});
+        expect(sad.lines[0].castExpressions).toEqual({caian:'aboutaster',aiven:'sad'});
+        expect(sad.lines[6].castExpressions).toEqual({caian:'shy',aiven:'sad'});
+        expect(sad.lines.at(-1)?.castExpressions).toEqual({caian:'embarrassed',aiven:'sad'});
+        expect(getSARDialogueNode('about-features',{mentionedCharacterCard:false}).lines[0].castExpressions).toEqual({caian:'happy',aiven:'normal'});
+        for(const mentionedCharacterCard of [true,false]){
+            const lines=getSARDialogueNode('about-character-card',{mentionedCharacterCard}).lines;
+            expect(lines[0].castExpressions).toEqual({caian:'happy',aiven:'normal'});
+            expect(lines[4].castExpressions).toEqual({caian:'serious',aiven:'interested'});
+        }
+        // Later reactions must not mutate earlier, already-resolved frames.
+        expect(sad.lines[0].castExpressions).toEqual({caian:'aboutaster',aiven:'sad'});
+    });
+
     it('剧情回档只重置凯恩初见，不重播公告也不改 NPC 偏好', () => {
         const storage = memoryStorage();
         patchSARClubState({

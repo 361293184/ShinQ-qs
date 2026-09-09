@@ -21,7 +21,7 @@ export const parseFishingReaction = (text: string): FishingReaction | null => {
 export const buildFishingTurn = (actor: MarketActor, caught: FishingCatch, state: FishingMarketState, userName: string) => `你现在在彼方的水域钓鱼。这是游戏内实际结算，不是临时芯片事故。
 程序判定的唯一鱼获（不能改写物种、大小、星级或金额）：
 ${JSON.stringify({ species: speciesById(caught.speciesId)?.name, sizeCm: caught.sizeCm, quality: caught.quality, weather: caught.weatherLabel, weatherSource: caught.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实', value: catchValue(state, caught) })}
-${speciesById(caught.speciesId)?.category === 'time-relic' ? '这是一件艾文的恐龙时层漂流物，可以陈列、观察、交易；不是普通鱼。' : ''}
+${speciesById(caught.speciesId)?.category === 'time-relic' ? '这是一只小型橡皮泥恐龙模型，可以在箱庭摆放、换色、陈列、观察与交易，不是真实活物。' : ''}
 按 ${actor.name} 的性格写刚才钓上来的反应，并在这同一轮决定去向。初始入库由程序处理。
 keep=保留；guestbook=保留并在本地留言簿炫耀；dm=保留并向 ${userName} 私聊分享；market=在内部布告板挂卖（不是已成交）；release=放生。
 请输出：

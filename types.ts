@@ -1295,7 +1295,7 @@ export interface VRWorldCharState {
     /** SAR 临时模块。真实人格不改，只改变前台对话的外显层。 */
     sarModule?: SARModuleRuntimeState;
     /** 最近一次 SAR 自由活动，供活动室和模块触发判断展示。 */
-    sarActivity?: 'cabinet' | 'module-shop' | 'fishing' | 'market';
+    sarActivity?: 'cabinet' | 'module-shop' | 'fishing' | 'market' | 'garden';
     /** 该角色专属 API 覆盖（用户可单独为「彼方」活动配 api）；不设则回落全局 apiConfig。 */
     api?: { baseUrl: string; apiKey: string; model: string };
     /**
