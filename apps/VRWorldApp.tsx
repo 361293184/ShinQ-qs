@@ -1,3 +1,5 @@
+import { flushFishingDeliveries } from '../utils/vrWorld/fishingDelivery';
+import { flushMarketReceipts } from '../utils/vrWorld/fishingCharacter';
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { useOS } from '../context/OSContext';
 import {
@@ -19,6 +21,7 @@ import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
 import { useResilientAssetUrl, attachAudioMirrorFallback } from '../utils/assetUrl';
 import { VRScheduler, VR_FAIL_LIMIT } from '../utils/vrWorld/scheduler';
+import { allowsAutomaticVR, joinVRState } from '../utils/vrWorld/participation';
 import { collectVRDiagnostics } from '../utils/vrWorld/diagnostics';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN, SIGNAL_EPIGRAPH, signalActFor, signalActRanges, SIGNAL_POEMS_PER_BOOKLET, SIGNAL_EVENT_ENDED, SIGNAL_MEMORIAL_CLOSING } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
@@ -132,6 +135,13 @@ const IDLE_QUIPS: Record<VRRoomId, string[]> = {
 
 const VRWorldApp: React.FC = () => {
     const { closeApp, characters, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig, memoryPalaceConfig } = useOS();
+    useEffect(() => {
+        const flush = () => { void flushFishingDeliveries(characters).then(() => flushMarketReceipts(characters)).catch(() => {}); };
+        flush();
+        window.addEventListener('vr-fishing-market-updated', flush);
+        return () => window.removeEventListener('vr-fishing-market-updated', flush);
+    }, [characters]);
+
     const userName = userProfile?.name || '我';
     const [tab, setTab] = useState<Tab>('world');
     const [novels, setNovels] = useState<VRWorldNovel[]>([]);
@@ -403,9 +413,8 @@ const VRWorldApp: React.FC = () => {
     const onUserBoardPost = useCallback(async (content: string, replyTo?: VRGuestbookMessage) => {
         const t = content.trim();
         if (!t) return;
-        const board = (await DB.getVRGuestbook()) || { id: 'board', messages: [], updatedAt: Date.now() };
         const id = `gb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-        board.messages = [...board.messages, {
+        await DB.appendVRGuestbookMessages([{
             id,
             authorId: 'user',
             authorName: userName,
@@ -413,9 +422,7 @@ const VRWorldApp: React.FC = () => {
             replyToId: replyTo?.id,
             replyToName: replyTo?.authorName,
             createdAt: Date.now(),
-        }];
-        board.updatedAt = Date.now();
-        await DB.saveVRGuestbook(board);
+        }]);
         const activity = replyTo
             ? `${userName} 在留言墙上回复 ${replyTo.authorName}：${t}`
             : `${userName} 在留言墙上发了：${t}`;
@@ -468,9 +475,10 @@ const VRWorldApp: React.FC = () => {
 
     // 启用某角色（带 chibi 设定门槛）
     const enableChar = (char: CharacterProfile) => {
-        const interval = char.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-        updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: true, intervalMinutes: interval } });
-        VRScheduler.start(char.id, interval);
+        const vrState = joinVRState(char.vrState);
+        updateCharacter(char.id, { vrState });
+        if (allowsAutomaticVR(vrState)) VRScheduler.start(char.id, vrState.intervalMinutes);
+        else VRScheduler.stop(char.id);
         trackEvent('开启角色接入彼方', { action: 'enable' });
     };
     const requestEnable = (char: CharacterProfile) => {
@@ -508,7 +516,7 @@ const VRWorldApp: React.FC = () => {
                         style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 300, background: 'linear-gradient(100deg,#dcd4ff,#fff,#c2ece6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 10px rgba(185,185,255,.35))' }}>彼方</span>
                 </div>
                 <span className="ml-auto text-[10.5px] tracking-[0.12em] text-white/45 font-light">
-                    {enabledCount > 0 ? `${enabledCount} 位漫游其中` : '尚无人接入'}
+                    {enabledCount > 0 ? `${enabledCount} 位已接入` : '尚无人接入'}
                 </span>
                 <button onClick={() => setShowHelp(true)} aria-label="玩法说明"
                     className="ml-2.5 h-7 w-7 rounded-full flex items-center justify-center text-white/70 active:bg-white/10 shrink-0"
@@ -677,10 +685,10 @@ const VRWorldApp: React.FC = () => {
                         setChibiEditChar(null);
                         if (wasPending) {
                             setPendingEnable(null);
-                            // 用最新 interval 启用
-                            const interval = charSnap.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-                            updateCharacter(charSnap.id, { vrState: { ...(charSnap.vrState || {}), chibi, enabled: true, intervalMinutes: interval } });
-                            VRScheduler.start(charSnap.id, interval);
+                            const vrState = { ...joinVRState(charSnap.vrState), chibi };
+                            updateCharacter(charSnap.id, { vrState });
+                            if (allowsAutomaticVR(vrState)) VRScheduler.start(charSnap.id, vrState.intervalMinutes);
+                            else VRScheduler.stop(charSnap.id);
                             addToast?.(`${charSnap.name} 已接入彼方`, 'success');
                             trackEvent('开启角色接入彼方', { action: 'enable' });
                         } else {
@@ -1120,7 +1128,7 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </Block>
 
                 <Block title="怎么开始" tone="rgba(245,208,138,.95)">
-                    <Step n={1}>去 <b>「接入」</b> 标签：给角色捏个小人形象，打开开关，设个登入间隔。</Step>
+                    <Step n={1}>去 <b>「接入」</b> 标签：给角色捏个小人形象，打开开关。默认<b>仅手动活动</b>；想让 ta 自己逛，再选「自动活动」和间隔。</Step>
                     <Step n={2}>想用图书馆，先去 <b>「书库」</b> 上传一本小说。</Step>
                     <Step n={3}>不想等？在「接入」里点 <b>「让 ta 现在去逛一次」</b>，可以<b className="text-amber-200">指定房间或随机</b>，立刻看效果。</Step>
                 </Block>
@@ -1453,7 +1461,7 @@ const WorldView: React.FC<{
                 )}
             </div>
             {feed.length === 0 ? (
-                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，ta 们到点会独自登入这里。</p>
+                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，邀请 ta 来逛一次，也可以开启自动活动。</p>
             ) : (
                 <>
                     {/* 翻页移到动态上方：底下翻页要滚到最后才够得着，放上方更顺手 */}
@@ -2656,7 +2664,7 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
                     </div>
                     <div className="flex-1 overflow-y-auto vr-reader-scroll px-3 py-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                         {(() => { const joined = characters.filter(c => c.vrState?.enabled); return joined.length === 0 ? (
-                            <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">还没有角色接入彼方。<br />先去「接入」页给 ta 开启自主登入。</p>
+                            <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">还没有角色接入彼方。<br />先去「接入」页启用角色，仅手动活动也可以。</p>
                         ) : joined.map(c => (
                             <button key={c.id} onClick={() => participate(c)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl active:bg-white/5" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' }}>
                                 {c.avatar ? <TokenImg value={c.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0 flex items-center justify-center text-[12px] text-white/90">{c.name.slice(0, 1)}</div>}
@@ -2710,7 +2718,8 @@ const RoomScene: React.FC<{
         void load();
         const onDone = () => { void load(); };
         window.addEventListener('vr-session-done', onDone);
-        return () => window.removeEventListener('vr-session-done', onDone);
+        window.addEventListener('vr-guestbook-updated', onDone);
+        return () => { window.removeEventListener('vr-session-done', onDone); window.removeEventListener('vr-guestbook-updated', onDone); };
     }, [isGuestbook]);
 
     const submitPost = async () => {
@@ -2844,7 +2853,7 @@ const RoomScene: React.FC<{
                     const groups: VRGuestbookMessage[][] = [];
                     for (const m of msgs) {
                         const g = groups[groups.length - 1];
-                        if (g && g[0].authorId === m.authorId && !m.replyToName && (m.createdAt - g[g.length - 1].createdAt) < 5 * 60 * 1000) g.push(m);
+                        if (g && g[0].authorId === m.authorId && !m.kind && !m.replyToName && (m.createdAt - g[g.length - 1].createdAt) < 5 * 60 * 1000) g.push(m);
                         else groups.push([m]);
                     }
                     return (
@@ -2868,18 +2877,20 @@ const RoomScene: React.FC<{
                                 ) : groups.map(g => {
                                     const head = g[0];
                                     const isUser = head.authorId === 'user';
+                                    const isAnnouncement = head.kind === 'collection-unlock';
                                     const ch = isUser ? null : characters.find(c => c.id === head.authorId);
                                     const name = isUser ? head.authorName : (ch?.name || head.authorName);
                                     const hue = (() => { let h = 0; for (let i = 0; i < head.authorId.length; i++) h = (h * 31 + head.authorId.charCodeAt(i)) % 360; return h; })();
-                                    const nameColor = isUser ? '#7dd3fc' : `hsl(${hue},72%,74%)`;
+                                    const nameColor = isAnnouncement ? '#e9cf9c' : isUser ? '#7dd3fc' : `hsl(${hue},72%,74%)`;
                                     return (
                                         <div key={head.id} className="flex gap-2.5">
                                             {ch?.avatar
                                                 ? <TokenImg value={ch.avatar} className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5" alt="" />
-                                                : <div className="h-8 w-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-[12px] font-bold text-white/95" style={{ background: isUser ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : `hsl(${hue},45%,42%)` }}>{name.slice(0, 1)}</div>}
+                                                : <div className="h-8 w-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-[12px] font-bold text-white/95" style={{ background: isUser ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : `hsl(${hue},45%,42%)` }}>{isAnnouncement ? '✧' : name.slice(0, 1)}</div>}
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-baseline gap-1.5">
                                                     <span className="text-[12px] font-bold" style={{ color: nameColor }}>{name}</span>
+                                                    {isAnnouncement && <span className="text-[9px] text-amber-200/70">图鉴解锁</span>}
                                                     <span className="text-[8.5px] text-white/30 tabular-nums">{new Date(head.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
                                                 <div className="mt-1 space-y-1">
@@ -3902,6 +3913,12 @@ const SettingsView: React.FC<{
     // 接入列表的分组筛选（characters 由 props 传入，这里单独取 characterGroups 即可）
     const { characterGroups } = useOS();
     const [settingsGroupId, setSettingsGroupId] = useState<string>(GROUP_FILTER_ALL);
+    const [settingsPage, setSettingsPage] = useState(0);
+    const groupedCharacters = useMemo(() => filterCharactersByGroup(characters, characterGroups, settingsGroupId), [characters, characterGroups, settingsGroupId]);
+    const pageCount = Math.max(1, Math.ceil(groupedCharacters.length / 5));
+    const currentPage = Math.min(settingsPage, pageCount - 1);
+    const visibleCharacters = groupedCharacters.slice(currentPage * 5, currentPage * 5 + 5);
+    useEffect(() => { setSettingsPage(0); }, [settingsGroupId]);
     const novelCount = novels.length;
     const validNovelIds = useMemo(() => new Set(novels.map(novel => novel.id)), [novels]);
     const go = (room?: VRRoomId) => {
@@ -3919,8 +3936,19 @@ const SettingsView: React.FC<{
     };
     const setInterval = (char: CharacterProfile, minutes: number) => {
         updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: char.vrState?.enabled ?? true, intervalMinutes: minutes } });
-        if (char.vrState?.enabled) VRScheduler.start(char.id, minutes);
+        if (allowsAutomaticVR(char.vrState)) VRScheduler.start(char.id, minutes);
     };
+    const setActivityMode = (char: CharacterProfile, activityMode: 'manual' | 'scheduled') => {
+        const vrState = { ...joinVRState(char.vrState), activityMode };
+        updateCharacter(char.id, { vrState });
+        if (allowsAutomaticVR(vrState)) VRScheduler.start(char.id, vrState.intervalMinutes);
+        else VRScheduler.stop(char.id);
+    };
+    const pageNavigation = pageCount > 1 && <nav className="flex items-center justify-between gap-2 py-2 text-[11px] text-indigo-200/70" aria-label="角色接入分页">
+        <button type="button" disabled={currentPage === 0} onClick={() => setSettingsPage(currentPage - 1)} className="min-h-10 rounded-xl bg-white/[0.06] px-3 disabled:opacity-25">上一页</button>
+        <span className="tabular-nums">{currentPage + 1} / {pageCount} 页 · 共 {groupedCharacters.length} 位</span>
+        <button type="button" disabled={currentPage >= pageCount - 1} onClick={() => setSettingsPage(currentPage + 1)} className="min-h-10 rounded-xl bg-white/[0.06] px-3 disabled:opacity-25">下一页</button>
+    </nav>;
 
     return (
         <div className="space-y-3">
@@ -3948,25 +3976,27 @@ const SettingsView: React.FC<{
                 </div>
             </div>
             <p className="text-[11px] text-indigo-300/60 leading-relaxed">
-                启用后，角色会按设定的间隔自己登入「彼方」自由活动：读书写批注、逛公共房间，也可能进入 SAR 给别人装两枚随机芯片并留下自己的随笔。每次活动会在 ta 的聊天里留下动态卡片，也会被记忆总结捕捉。
-                连着 {VR_FAIL_LIMIT} 次调不通模型（比如 API 令牌失效了）会自动暂停这个角色，不会一直空跑下去。
+                接入后，角色会知道「彼方」，小人可以挂在房间里。默认仅手动活动：等你选房间、邀请钓鱼或玩箱庭时才行动，不设置间隔、不自动调用模型。
+                想让 ta 自己逛，再开启自动活动。每次实际活动会留下动态卡片；自动活动连着 {VR_FAIL_LIMIT} 次调不通模型会暂停。
                 {novelCount === 0 && <span className="text-amber-300/80"> 书库还空着，先去「书库」上传一本。</span>}
             </p>
             {characters.length === 0 && <p className="text-[11px] text-indigo-300/50 py-4 text-center">还没有角色。</p>}
             {/* 分组筛选（没建分组时不渲染）：深色底 */}
             <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark
                 value={settingsGroupId} onChange={setSettingsGroupId} />
-            {characters.length > 0 && filterCharactersByGroup(characters, characterGroups, settingsGroupId).length === 0 &&
+            {pageNavigation}
+            {characters.length > 0 && groupedCharacters.length === 0 &&
                 <p className="text-[11px] text-indigo-300/50 py-4 text-center">该分组下没有角色</p>}
-            {filterCharactersByGroup(characters, characterGroups, settingsGroupId).map(char => {
+            {visibleCharacters.map(char => {
                 const st = char.vrState;
                 const enabled = !!st?.enabled;
+                const automatic = allowsAutomaticVR(st);
                 const interval = st?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
                 const chibi = getChibi(char);
                 const failStreak = VRScheduler.getFailStreak(char.id);
                 const preferredNovelCount = (st?.preferredNovelIds || []).filter(id => validNovelIds.has(id)).length;
                 return (
-                    <div key={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <div key={char.id} data-vr-character={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
                         <div className="flex items-center gap-2.5">
                             {/* chibi 缩略 */}
                             <button onClick={() => onEditChibi(char)} className="relative h-12 w-12 rounded-xl overflow-hidden bg-black/20 flex items-end justify-center shrink-0 active:opacity-80">
@@ -3977,28 +4007,38 @@ const SettingsView: React.FC<{
                                 <div className="text-[13px] font-bold truncate">{char.name}</div>
                                 {enabled ? (
                                     <div className="text-[10px] text-indigo-300/60">
-                                        每 {interval >= 60 ? `${formatHours(interval)} 小时` : `${interval} 分`}登入一次
+                                        {automatic ? `每 ${interval >= 60 ? `${formatHours(interval)} 小时` : `${interval} 分`}自动活动一次` : '仅手动活动 · 等你邀请'}
                                         {st?.sarModule && <span className="text-emerald-200/70"> · {st.sarModule.moduleTitle} {st.sarModule.phase === 'active' ? `${st.sarModule.remainingTurns}/${st.sarModule.totalTurns}` : `稳定 ${st.sarModule.afterglowTurns}/3`}</span>}
                                         {/* 后台失败本来一点声响都没有，攒到熔断前先让用户看见 */}
-                                        {failStreak > 0 && <span className="text-amber-300/80"> · 已连续 {failStreak} 次没调通</span>}
+                                        {automatic && failStreak > 0 && <span className="text-amber-300/80"> · 已连续 {failStreak} 次没调通</span>}
                                     </div>
                                 ) : <div className="text-[10px] text-indigo-300/40">{chibi.isFallback ? '未设形象 · 未接入' : '未接入'}</div>}
                             </div>
-                            <button onClick={() => enabled ? disable(char) : onRequestEnable(char)}
+                            <button type="button" role="switch" aria-checked={enabled} aria-label={`${char.name}的彼方接入`} onClick={() => enabled ? disable(char) : onRequestEnable(char)}
                                 className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-indigo-400' : 'bg-white/15'}`}>
                                 <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : ''}`} />
                             </button>
                         </div>
                         {enabled && (
                             <>
-                                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label={`${char.name}的活动方式`}>
+                                    <button type="button" aria-pressed={!automatic} onClick={() => setActivityMode(char, 'manual')}
+                                        className={`rounded-xl px-3 py-2.5 text-left border ${!automatic ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-100' : 'border-white/10 text-indigo-200/60'}`}>
+                                        <b className="block text-[12px]">仅手动活动</b><span className="text-[10px]">你选择时才行动</span>
+                                    </button>
+                                    <button type="button" aria-pressed={automatic} onClick={() => setActivityMode(char, 'scheduled')}
+                                        className={`rounded-xl px-3 py-2.5 text-left border ${automatic ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-100' : 'border-white/10 text-indigo-200/60'}`}>
+                                        <b className="block text-[12px]">自动活动</b><span className="text-[10px]">按间隔自己去逛</span>
+                                    </button>
+                                </div>
+                                {automatic && <div className="flex flex-wrap gap-1.5 mt-2.5" aria-label="自动活动间隔">
                                     {INTERVAL_OPTIONS.map(opt => (
                                         <button key={opt} onClick={() => setInterval(char, opt)}
                                             className={`text-[10.5px] rounded-full px-2.5 py-1 font-semibold ${interval === opt ? 'bg-indigo-400 text-white' : 'bg-white/10 text-indigo-200/70'}`}>
                                             {opt >= 60 ? `${formatHours(opt)}h` : `${opt}min`}
                                         </button>
                                     ))}
-                                </div>
+                                </div>}
                                 <button onClick={() => setPickFor(char)}
                                     className="mt-2.5 text-[11px] text-amber-200 font-semibold flex items-center gap-1 active:opacity-70">
                                     <Play size={12} weight="fill" /> 让 ta 现在去逛一次
@@ -4017,6 +4057,7 @@ const SettingsView: React.FC<{
                     </div>
                 );
             })}
+            {pageNavigation}
             <ActionSheet open={!!pickFor} title={pickFor ? `让 ${pickFor.name} 现在去哪个房间？` : ''}
                 actions={[
                     { label: '随机一个房间', onClick: () => go() },

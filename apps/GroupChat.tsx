@@ -1,3 +1,4 @@
+import { avatarDecorationImageStyle, isAnniversaryFrame } from '../utils/anniversaryGifts';
 
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -306,6 +307,7 @@ const GroupMessageItem = React.memo(({
                 <>
                     <TokenImg
                         value={avatar}
+                        style={isAnniversaryFrame(styleConfig.avatarDecoration) ? { borderRadius: "50%" } : undefined}
                         className={`sully-chat-message-avatar-img w-full h-full ${avatarRadiusClass} object-cover shadow-sm ring-1 ring-black/5 relative z-0`}
                         alt="avatar"
                         loading="lazy"
@@ -315,13 +317,7 @@ const GroupMessageItem = React.memo(({
                         <TokenImg
                             value={styleConfig.avatarDecoration}
                             className="absolute pointer-events-none z-10 max-w-none"
-                            style={{
-                                left: `${styleConfig.avatarDecorationX ?? 50}%`,
-                                top: `${styleConfig.avatarDecorationY ?? 50}%`,
-                                width: `${avatarSizePx * (styleConfig.avatarDecorationScale ?? 1)}px`,
-                                height: 'auto',
-                                transform: `translate(-50%, -50%) rotate(${styleConfig.avatarDecorationRotate ?? 0}deg)`,
-                            }}
+                            style={avatarDecorationImageStyle(styleConfig, avatarSizePx)}
                             alt=""
                         />
                     )}

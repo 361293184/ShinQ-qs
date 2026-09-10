@@ -9,7 +9,7 @@ export interface DinoToy {
   catchId:string; speciesId:string; name:string; paint:DinoPaint; pose:DinoPose|null; mapId:string|null; fixed:boolean;
   revision:number; userStage:DinoStage; stage:DinoStage; origin:DinoOrigin;
 }
-export type GardenPropKind = 'tree'|'rock'|'tent'|'stump'|'volcano'|'fence'|'sign'|'house';
+export type GardenPropKind = 'tree'|'rock'|'tent'|'stump'|'volcano'|'fence'|'sign'|'house'|'picnic'|'puddle'|'flowers';
 export interface GardenProp extends DinoPose { id:string; kind:GardenPropKind }
 export interface GardenEvent {
   id:string; at:number; actorId:string; actorName:string; actorKind:'user'|'character'|'system'; mapId?:string;

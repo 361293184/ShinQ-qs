@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, BookOpenText, CircleNotch, Compass, DownloadSimple, Moon, PaperPlaneRight, SealCheck, SealWarning, ShareNetwork, Sun, WifiHigh, X } from '@phosphor-icons/react';
+import { Archive, BookOpenText, CircleNotch, Compass, DownloadSimple, Moon, PaperPlaneRight, SealCheck, SealWarning, ShareNetwork, Sun, X } from '@phosphor-icons/react';
 import type { APIConfig, CharacterProfile, Message, UserProfile } from '../../types';
 import TokenImg from '../../components/os/TokenImg';
 import { shareOrDownloadBlob } from '../../utils/shareExport';
@@ -14,7 +14,6 @@ import {
     runSARSimulationTurn,
     shareSARArchiveWithCharacter,
     type SARIdentityCard,
-    type SARInteractionMode,
     type SARSimulationRun,
 } from '../../utils/vrWorld/sarSimulation';
 
@@ -26,12 +25,7 @@ export const readSARSessionTheme = (): SARSessionTheme => {
     catch { return 'light'; }
 };
 
-const modeCopy: Record<SARInteractionMode, { label: string; note: string }> = {
-    online: { label: '线上', note: '文字联系' },
-    offline: { label: '线下', note: '同场相处' },
-};
-
-const messageMode = (message: Message): SARInteractionMode => message.metadata?.sarMode === 'offline' ? 'offline' : 'online';
+const messageScene = (message: Message) => `第 ${Number(message.metadata?.sarTurn) || 0} 幕`;
 
 export const SARSimulationSession: React.FC<{
     card: SARIdentityCard;
@@ -43,7 +37,6 @@ export const SARSimulationSession: React.FC<{
     onThemeChange?: (theme: SARSessionTheme) => void;
 }> = ({ card, run, char, apiConfig, userProfile, onRunChange, onThemeChange }) => {
     const [messages, setMessages] = useState<Message[]>([]);
-    const [mode, setMode] = useState<SARInteractionMode>('offline');
     const [draft, setDraft] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
@@ -74,12 +67,12 @@ export const SARSimulationSession: React.FC<{
         status: run.status,
         archiveReason: run.archiveReason || null,
         progress: { used: run.interactionsUsed, max: run.maxInteractions },
-        interactionMode: mode,
+        interactionMode: 'offline',
         readingTheme: theme,
         sending,
         archiveConfirm,
         archiveActions: active ? [] : ['reread', 'download', run.sharedAt ? 'shared' : 'share-to-character'],
-        visibleMessages: messages.slice(-4).map(message => ({ role: message.role, mode: messageMode(message), worldNarration: getSARWorldNarration(message).slice(0, 140) || null, text: message.content.slice(0, 180) })),
+        visibleMessages: messages.slice(-4).map(message => ({ role: message.role, scene: messageScene(message), worldNarration: getSARWorldNarration(message).slice(0, 140) || null, text: message.content.slice(0, 180) })),
         input: { enabled: active && Boolean(char) && !sending, draftLength: draft.length },
     });
 
@@ -143,7 +136,6 @@ export const SARSimulationSession: React.FC<{
                 char,
                 apiConfig,
                 userProfile,
-                mode,
                 userText: text,
                 onDelta: setStreamText,
             });
@@ -232,15 +224,8 @@ export const SARSimulationSession: React.FC<{
                         {progress.map((filled, index) => <i key={index} className={filled ? 'is-used' : ''} />)}
                     </div>
                 </div>
-                <div className="sars-mode-row">
-                    <div className="sars-mode-switch" aria-label="交互方式">
-                        {(Object.keys(modeCopy) as SARInteractionMode[]).map(value => (
-                            <button type="button" key={value} className={mode === value ? 'is-active' : ''} disabled={!active || sending} onClick={() => setMode(value)}>
-                                {value === 'online' ? <WifiHigh size={12} /> : <span className="sars-mode-dot" />}
-                                <b>{modeCopy[value].label}</b><small>{modeCopy[value].note}</small>
-                            </button>
-                        ))}
-                    </div>
+                <div className="sars-scene-row">
+                    <span>{active ? '你就在故事现场，说话或行动来推进剧情' : '故事已封存，可重读或保存档案'}</span>
                     {active && <button type="button" className="sars-archive-button" disabled={sending} onClick={() => setArchiveConfirm(true)}><Archive size={13} /> 紧急封存</button>}
                 </div>
             </section>
@@ -254,16 +239,16 @@ export const SARSimulationSession: React.FC<{
 
                 {loading ? <div className="sars-loading"><CircleNotch className="animate-spin" size={17} /> 正在调取演算记录</div> : messages.map(message => <React.Fragment key={message.id}>
                     {message.role === 'assistant' && getSARWorldNarration(message) && <article className="sars-gm">
-                        <header><span><Compass size={13} weight="duotone" /> 世界意志</span><i>{modeCopy[messageMode(message)].label} · {String(message.metadata?.sarTurn || '').padStart(2, '0')}</i></header>
+                        <header><span><Compass size={13} weight="duotone" /> 世界意志</span><i>{messageScene(message)}</i></header>
                         <p>{getSARWorldNarration(message)}</p>
                     </article>}
                     <article className={`sars-message is-${message.role}`}>
-                        <header><span>{message.role === 'user' ? userProfile.name : card.charName}</span><i>{modeCopy[messageMode(message)].label} · {String(message.metadata?.sarTurn || '').padStart(2, '0')}</i></header>
+                        <header><span>{message.role === 'user' ? userProfile.name : card.charName}</span><i>{messageScene(message)}</i></header>
                         <p>{message.content}</p>
                     </article>
                 </React.Fragment>)}
 
-                {pendingText && <article className="sars-message is-user is-pending"><header><span>{userProfile.name}</span><i>{modeCopy[mode].label} · {(run.interactionsUsed + 1).toString().padStart(2, '0')}</i></header><p>{pendingText}</p></article>}
+                {pendingText && <article className="sars-message is-user is-pending"><header><span>{userProfile.name}</span><i>第 {run.interactionsUsed + 1} 幕</i></header><p>{pendingText}</p></article>}
                 {sending && <><article className="sars-gm is-generating"><header><span><Compass size={13} weight="duotone" /> 世界意志</span><i>WORLD IN MOTION</i></header><div><i /><i /><i /><span>场景、倒计时与返航航线正在变化</span></div></article><article className="sars-message is-assistant is-generating"><header><span>{card.charName}</span><i>等待演出</i></header>{streamText ? <p>{streamText}</p> : <div><i /><i /><i /><span>角色正在作出回应</span></div>}</article></>}
 
                 {!active && <section className={`sars-sealed is-${run.archiveReason || 'emergency'}`}>
@@ -288,7 +273,7 @@ export const SARSimulationSession: React.FC<{
                         value={draft}
                         maxLength={4000}
                         disabled={sending || !char}
-                        placeholder={char ? (mode === 'online' ? '在危机中发给这个异格……' : '回应眼前正在发生的事……') : '原角色资料已不存在，无法继续推演'}
+                        placeholder={char ? '写下你说的话，或想做的动作……' : '原角色资料已不存在，无法继续推演'}
                         onChange={event => setDraft(event.target.value)}
                         onKeyDown={event => {
                             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -314,7 +299,8 @@ const SARSessionStyle = () => <style>{`
     .sars-console-head{padding:12px 16px 9px;border-bottom:1px solid #58768144;background:radial-gradient(circle at 86% 0,#3d68751c,transparent 35%),#081115}.sars-subject{display:flex;align-items:center;gap:10px}.sars-subject__portrait{position:relative;width:39px;height:39px;flex:0 0 39px;display:grid;place-items:center;overflow:hidden;border:1px solid #7197a3;border-radius:50%;background:#13242b;color:#bcd3d9;font:500 13px/1 "Noto Serif SC",serif}.sars-subject__portrait img{width:100%;height:100%;object-fit:cover}.sars-subject__portrait i{position:absolute;right:1px;bottom:2px;width:6px;height:6px;border-radius:50%;background:#83c8ca;box-shadow:0 0 8px #83c8ca}.sars-subject small{font:5.5px/1 monospace;letter-spacing:.18em;color:#6f8c96}.sars-subject h2{margin:5px 0 0;font:500 14px/1.2 "Noto Serif SC",serif;letter-spacing:.1em}
     .sars-crisis{position:relative;margin-top:11px;padding:10px 11px 9px;overflow:hidden;border-left:1px solid #b17a70;border-right:1px solid #5f464155;background:linear-gradient(90deg,#3d201d4f,#161416 64%,#0d1518)}.sars-crisis:before{content:"";position:absolute;left:0;top:0;width:34%;height:1px;background:#c38b80;box-shadow:0 0 8px #a85f54;animation:sars-crisis-line 2.4s ease-in-out infinite}.sars-crisis header{display:flex;align-items:center;justify-content:space-between;gap:8px}.sars-crisis header small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#97716b;font:5.5px/1 monospace;letter-spacing:.13em}.sars-crisis header b{flex:0 0 auto;color:#d7b8b1;font:500 8px/1 "Noto Serif SC",serif;letter-spacing:.1em}.sars-crisis>p{margin:7px 0 8px;color:#d6c6c2;font:500 9px/1.6 "Noto Serif SC",serif}.sars-crisis>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;border-top:1px solid #7656503b;padding-top:7px}.sars-crisis>div span{min-width:0;color:#8e7d79;font-size:6.5px;line-height:1.45}.sars-crisis>div i{display:block;margin-bottom:3px;color:#9f746d;font:5.5px/1 monospace;font-style:normal;letter-spacing:.12em}
     .sars-life{margin-top:9px}.sars-life>div:first-child{display:flex;align-items:end;justify-content:space-between;color:#71909a;font-size:7px;letter-spacing:.09em}.sars-life b{font:500 17px/1 monospace;color:#c8dce1}.sars-life b i{margin:0 2px;font-style:normal;font-size:8px;color:#58727b}.sars-life__ticks{display:grid;grid-template-columns:repeat(25,1fr);gap:2px;margin-top:6px}.sars-life__ticks i{height:3px;background:#21343b}.sars-life__ticks i.is-used{background:#7db5bd;box-shadow:0 0 5px #62a8b455}
-    .sars-mode-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}.sars-mode-switch{display:grid;grid-template-columns:1fr 1fr;width:174px;border:1px solid #496671;background:#060c0f}.sars-mode-switch button{height:31px;display:grid;grid-template-columns:14px auto 1fr;align-items:center;gap:4px;padding:0 7px;color:#5f7a84;border:0;background:none;text-align:left}.sars-mode-switch button+button{border-left:1px solid #496671}.sars-mode-switch button.is-active{color:#d5e7ea;background:#294b5766}.sars-mode-switch b{font-size:8px}.sars-mode-switch small{font-size:5.5px;color:currentColor;opacity:.64}.sars-mode-dot{width:7px;height:7px;border:1px solid currentColor;border-radius:50%}.sars-archive-button{height:31px;display:flex;align-items:center;gap:5px;padding:0 9px;color:#a77f78;border:1px solid #795b5659;background:#2f171544;font-size:7px}
+    .sars-archive-button{height:31px;display:flex;align-items:center;gap:5px;padding:0 9px;color:#a77f78;border:1px solid #795b5659;background:#2f171544;font-size:7px}
+    .sars-scene-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.sars-scene-row>span{max-width:230px;color:var(--sars-muted);font-size:10px;line-height:1.6}.sars-scene-row .sars-archive-button{flex-shrink:0}
     .sars-log{overflow-y:auto;padding:13px 16px 22px;scrollbar-width:none;scroll-behavior:smooth}.sars-log::-webkit-scrollbar{display:none}.sars-prologue{margin:0 0 21px;padding:0 0 17px;border-bottom:1px solid #5876813d}.sars-prologue small{font:5.5px/1 monospace;letter-spacing:.2em;color:#6d8993}.sars-prologue>p{margin:9px 0 12px;color:#879ba2;font:400 9px/1.8 "Noto Serif SC",serif}.sars-prologue blockquote{margin:0;padding:9px 11px;border-left:1px solid #79a3ae;background:#14242a;color:#d5e5e8;font:500 10.5px/1.7 "Noto Serif SC",serif}.sars-prologue blockquote b{display:block;margin-bottom:3px;color:#77959f;font:5.5px/1 monospace;letter-spacing:.15em}
     .sars-message{position:relative;margin:0 0 18px;padding-left:15px}.sars-message:before{content:"";position:absolute;left:0;top:3px;bottom:0;width:1px;background:#496671}.sars-message header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.sars-message header span{color:#9bb4bb;font:600 7px/1 monospace;letter-spacing:.13em}.sars-message header i{font:5.5px/1 monospace;font-style:normal;letter-spacing:.12em;color:#526b74}.sars-message p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:#c9d7da;font-size:10.5px;line-height:1.75}.sars-message.is-user{margin-left:36px;padding:10px 11px 10px 14px;border:1px solid #4d6b7555;background:#11212999}.sars-message.is-user:before{background:#77a5b1}.sars-message.is-user p{color:#b6c9ce}.sars-message.is-pending{opacity:.55}.sars-message.is-assistant{margin-right:20px}.sars-message.is-assistant:before{box-shadow:0 0 8px #6fa9b544}.sars-message.is-generating>div{display:flex;align-items:center;gap:5px;color:#66818b;font-size:7px}.sars-message.is-generating>div>i{width:4px;height:4px;border-radius:50%;background:#7aaab3;animation:sars-pulse 1.1s infinite}.sars-message.is-generating>div>i:nth-child(2){animation-delay:.16s}.sars-message.is-generating>div>i:nth-child(3){animation-delay:.32s}.sars-message.is-generating>div>span{margin-left:4px}
     .sars-loading{display:flex;align-items:center;justify-content:center;gap:7px;padding:30px;color:#6e8790;font-size:8px}.sars-sealed{margin:25px 0 8px;padding:24px 12px;text-align:center;border-top:1px solid #73575055;border-bottom:1px solid #73575055;color:#9e7c75;background:linear-gradient(90deg,transparent,#3e201d33,transparent)}.sars-sealed small{display:block;margin-top:9px;font:5.5px/1 monospace;letter-spacing:.2em}.sars-sealed h3{margin:7px 0 6px;color:#d2bbb6;font:500 12px/1.4 "Noto Serif SC",serif}.sars-sealed p{max-width:260px;margin:auto;color:#816f6b;font-size:7.5px;line-height:1.6}
@@ -329,7 +315,7 @@ const SARSessionStyle = () => <style>{`
     .sars-theme{height:36px;min-width:58px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 9px;color:var(--sars-cyan);border:1px solid var(--sars-line);border-radius:2px;background:transparent;font-size:10px}.sars-theme:active{background:var(--sars-cyan-soft)}
     .sars-crisis{margin-top:12px;padding:11px 12px 10px;border:0;border-left:3px solid var(--sars-rust);background:var(--sars-rust-soft);box-shadow:none}.sars-crisis:before{width:38%;height:2px;background:var(--sars-rust);box-shadow:none}.sars-crisis header small{color:var(--sars-rust);font-size:8px}.sars-crisis header b{color:var(--sars-rust);font-size:10px}.sars-crisis>p{margin:8px 0;color:var(--sars-ink);font-size:12px;line-height:1.55}.sars-crisis>div{gap:12px;border-top-color:color-mix(in srgb,var(--sars-rust) 24%,transparent);padding-top:8px}.sars-crisis>div span{color:var(--sars-muted);font-size:9px;line-height:1.45}.sars-crisis>div i{margin-bottom:3px;color:var(--sars-rust);font-size:8px}
     .sars-life{margin-top:10px}.sars-life>div:first-child{color:var(--sars-muted);font-size:9px}.sars-life b{color:var(--sars-ink);font-size:19px}.sars-life b i{color:var(--sars-faint);font-size:10px}.sars-life__ticks{gap:2px;margin-top:6px}.sars-life__ticks i{height:4px;background:color-mix(in srgb,var(--sars-line) 55%,transparent)}.sars-life__ticks i.is-used{background:var(--sars-cyan);box-shadow:none}
-    .sars-mode-row{margin-top:10px}.sars-mode-switch{width:190px;border-color:var(--sars-line);background:transparent}.sars-mode-switch button{height:36px;color:var(--sars-muted);grid-template-columns:15px auto 1fr;padding:0 8px}.sars-mode-switch button+button{border-left-color:var(--sars-line)}.sars-mode-switch button.is-active{color:var(--sars-cyan);background:var(--sars-cyan-soft)}.sars-mode-switch b{font-size:10px}.sars-mode-switch small{font-size:8px}.sars-archive-button{height:36px;padding:0 10px;color:var(--sars-rust);border-color:color-mix(in srgb,var(--sars-rust) 45%,transparent);background:transparent;font-size:10px}
+    .sars-archive-button{height:36px;padding:0 10px;color:var(--sars-rust);border-color:color-mix(in srgb,var(--sars-rust) 45%,transparent);background:transparent;font-size:10px}
     .sars-log{padding:20px 17px 30px;background-image:linear-gradient(color-mix(in srgb,var(--sars-line) 16%,transparent) 1px,transparent 1px);background-size:100% 29px}
     .sars-gm{position:relative;margin:0 0 13px;padding:13px 14px;border-left:3px solid var(--sars-gm);background:var(--sars-gm-soft);box-shadow:0 7px 18px var(--sars-shadow);animation:sars-paper-in .28s ease-out both}.sars-gm--prologue{margin-bottom:16px}.sars-gm header,.sars-message header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.sars-gm header span{display:flex;align-items:center;gap:5px;color:var(--sars-gm);font:700 9px/1 monospace;letter-spacing:.08em}.sars-gm header i,.sars-message header i{color:var(--sars-faint);font:8px/1 monospace;font-style:normal;letter-spacing:.08em}.sars-gm p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--sars-ink);font:400 13px/1.78 "Noto Serif SC",serif}
     .sars-message{margin:0 12px 19px 4px;padding:3px 0 3px 15px}.sars-message:before{width:2px;background:var(--sars-cyan)}.sars-message header span{color:var(--sars-cyan);font-size:10px}.sars-message p{color:var(--sars-ink);font:400 14px/1.8 "Noto Serif SC",serif}.sars-message.is-user{margin:0 0 19px 42px;padding:12px 13px;border:1px solid var(--sars-line);border-right:3px solid var(--sars-cyan);background:var(--sars-cyan-soft);box-shadow:0 6px 16px var(--sars-shadow)}.sars-message.is-user:before{display:none}.sars-message.is-user p{color:var(--sars-ink)}.sars-message.is-assistant{margin-right:18px}.sars-message.is-assistant:before{box-shadow:none}.sars-opening-line{margin-bottom:24px}.sars-opening-line p{font-weight:550}

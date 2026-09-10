@@ -2,6 +2,7 @@
 import React, { useRef, useState } from 'react';
 import Modal from '../os/Modal';
 import TokenImg from '../os/TokenImg';
+import AnniversaryWallpaperPicker from '../os/AnniversaryWallpaperPicker';
 import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
@@ -69,6 +70,7 @@ interface ChatModalsProps {
     onSaveSettings: () => void;
     onBgUpload: (file: File) => void;
     onRemoveBg: () => void;
+    onSelectBuiltinBg: (url: string) => void;
     onClearHistory: () => void;
     onArchive: () => void;
     onCreatePrompt: () => void;
@@ -255,7 +257,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     allHistoryMessages = [],
     contextRangeSnapshot,
     onTransfer, onImportEmoji, onSaveSettings,
-    onBgUpload, onRemoveBg, onClearHistory,
+    onBgUpload, onRemoveBg, onSelectBuiltinBg, onClearHistory,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
     onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory,
     allCharacters = [], onSaveCategoryVisibility,
@@ -424,6 +426,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          </div>
                          <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && onBgUpload(e.target.files[0])} />
                          {activeCharacter.chatBackground && <button onClick={onRemoveBg} className="text-[10px] text-red-400 mt-1">移除背景</button>}
+                         <AnniversaryWallpaperPicker value={activeCharacter.chatBackground} onSelect={onSelectBuiltinBg} />
                      </div>
                      <div>
                          {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && settingsContextRangeMode === 'adaptive' ? (

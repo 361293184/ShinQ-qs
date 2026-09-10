@@ -22,6 +22,7 @@ import { encodeVectorsForBackup, encodeVectorsForBackupChunked } from '../utils/
 import { ProactiveChat } from '../utils/proactiveChat';
 import { VRScheduler, type VRSessionOutcome } from '../utils/vrWorld/scheduler';
 import { runVRSession } from '../utils/vrWorld/runSession';
+import { allowsAutomaticVR } from '../utils/vrWorld/participation';
 import { logVRApiCall } from '../utils/vrWorld/vrApi';
 import { VR_DEFAULT_INTERVAL_MIN } from '../utils/vrWorld/constants';
 import { WorldScheduler, toTickEntries } from '../utils/worldHome/scheduler';
@@ -2607,12 +2608,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 调度表里还排着队，角色却已经不接入了（或者压根被删了）：这条调度不该继续存在。
           // 就地撤掉并留一行记录 —— 不撤的话它会一直空转，而空转是完全静默的，
           // 用户那边只看得到「明明全关了，调用记录还在涨」，谁也说不清是哪一边错了。
-          if (!char || !char.vrState?.enabled) {
+          if (!char || !char.vrState?.enabled || (!manual && !allowsAutomaticVR(char.vrState))) {
               VRScheduler.stop(charId);
               void logVRApiCall({
                   ts: Date.now(), charId, charName: char?.name, ok: false, ms: 0,
                   kind: 'skipped', charEnabled: !!char?.vrState?.enabled,
-                  note: char ? '角色未接入彼方，已撤掉这条残留调度' : '角色已不存在，已撤掉这条残留调度',
+                  note: char?.vrState?.enabled ? '角色仅手动活动，已撤掉这条残留调度' : char ? '角色未接入彼方，已撤掉这条残留调度' : '角色已不存在，已撤掉这条残留调度',
               });
               return;
           }
@@ -2640,6 +2641,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               outcome = 'failed';
           }
 
+          if (!allowsAutomaticVR(charactersRef.current.find(c => c.id === charId)?.vrState)) return;
           const { tripped, streak } = VRScheduler.report(charId, outcome);
           if (!tripped) return;
           // 熔断了：调度已经被掐掉，这里把角色一并落回未接入，让界面和实际跑的东西对上，
@@ -2661,7 +2663,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       // 导入备份后角色虽 enabled 但调度表为空，这里补建/清理使其按时触发。
       VRScheduler.reconcile(
           charactersRef.current
-              .filter(c => c.vrState?.enabled)
+              .filter(c => allowsAutomaticVR(c.vrState))
               .map(c => ({ charId: c.id, intervalMinutes: c.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN }))
       );
 

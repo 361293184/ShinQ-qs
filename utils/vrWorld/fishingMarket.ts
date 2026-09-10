@@ -37,8 +37,24 @@ export interface MarketLedgerItem {
     id: string; at: number; text: string; participants: string[]; deliveredTo: string[];
     quotes?: { name: string; content: string }[];
 }
+export interface FishingCollectionEntry {
+    actorId: string; actorName: string; speciesId: string;
+    firstObtainedAt: number; acquisitionIds: string[];
+    /** Old saves can only reconstruct evidenced acquisitions, never invented totals. */
+    historicalIncomplete?: boolean;
+    announcement?: { id: string; published: boolean };
+}
+export interface FishingReaction {
+    disposition: 'keep' | 'release'; reaction: string; shareToUser: { text: string } | null;
+}
+export interface FishingTrip {
+    catch: FishingCatch; status: 'pending' | 'settled';
+    result?: FishingReaction; settledAt?: number; cardSent?: boolean; shareSent?: boolean;
+}
 export interface FishingMarketState {
     dinosaurGarden?: DinosaurGarden;
+    collectionEntries?: FishingCollectionEntry[];
+    fishingTrips?: FishingTrip[];
     version: 1; seed: number; accounts: Record<string, number>; inventory: FishingCatch[]; discovered: string[];
     listings: MarketListing[]; requests: MarketRequest[]; ledger: MarketLedgerItem[];
     priceDate: string; prices: Record<string, number>; previousPrices: Record<string, number>;
@@ -99,7 +115,7 @@ const localDate = (at = Date.now()) => {
 };
 export const createFishingMarketState = (seed = Math.floor(Math.random() * 0x7fffffff)): FishingMarketState => ({
     version: 1, seed, accounts: {}, inventory: [], discovered: [], listings: [], requests: [], ledger: [],
-    priceDate: '', prices: {}, previousPrices: {}, research: {},
+    priceDate: '', prices: {}, previousPrices: {}, research: {}, collectionEntries: [], fishingTrips: [],
 });
 export const readFishingMarketState = (storage: Pick<Storage, 'getItem'> = localStorage): FishingMarketState => {
     const source = storage.getItem(FISHING_MARKET_STORAGE_KEY);
@@ -108,10 +124,12 @@ export const readFishingMarketState = (storage: Pick<Storage, 'getItem'> = local
     try { raw = JSON.parse(source); } catch { throw new Error('水域存档无法读取，请先导出备份；没有覆盖原存档'); }
     if (!raw || raw.version !== 1 || !Array.isArray(raw.inventory) || !Array.isArray(raw.listings) || !Array.isArray(raw.requests)
         || !Array.isArray(raw.ledger) || !raw.accounts || !Number.isFinite(raw.seed)) throw new Error('水域存档格式不兼容；没有覆盖原存档');
-    return { ...raw, ...(raw.dinosaurGarden ? {dinosaurGarden:readDinosaurGarden(raw.dinosaurGarden)} : {}), research: raw.research || {}, discovered: raw.discovered || [],
+    if (raw.collectionEntries !== undefined && (!Array.isArray(raw.collectionEntries) || raw.collectionEntries.some(e => !e || typeof e.actorId !== 'string' || !speciesById(e.speciesId) || !Number.isFinite(e.firstObtainedAt) || !Array.isArray(e.acquisitionIds) || e.acquisitionIds.some(id => typeof id !== 'string') || (e.announcement && (typeof e.announcement.id !== 'string' || typeof e.announcement.published !== 'boolean'))))) throw new Error('个人图鉴存档无法读取；没有覆盖原存档');
+    if (raw.fishingTrips !== undefined && (!Array.isArray(raw.fishingTrips) || raw.fishingTrips.some(t => !t?.catch?.id || typeof t.catch.ownerId !== 'string' || !speciesById(t.catch.speciesId) || !Number.isFinite(t.catch.caughtAt) || !['pending', 'settled'].includes(t.status) || (t.status === 'settled' && (!t.result || !['keep', 'release'].includes(t.result.disposition) || typeof t.result.reaction !== 'string' || (t.result.shareToUser !== null && typeof t.result.shareToUser?.text !== 'string')))))) throw new Error('钓鱼记录无法读取；没有覆盖原存档');
+    return migrateFishingCollection({ ...raw, ...(raw.dinosaurGarden ? {dinosaurGarden:readDinosaurGarden(raw.dinosaurGarden)} : {}), research: raw.research || {}, discovered: raw.discovered || [],
         listings: raw.listings.map(p => ({ ...p, comments: p.comments || [] })),
         requests: raw.requests.map(p => ({ ...p, comments: p.comments || [], kind: p.kind || (p.speciesId ? 'item' : 'favor') })),
-        ledger: raw.ledger.map(e => ({ ...e, participants: e.participants || [], deliveredTo: e.deliveredTo || [] })) };
+        ledger: raw.ledger.map(e => ({ ...e, participants: e.participants || [], deliveredTo: e.deliveredTo || [] })) });
 };
 export const saveFishingMarketState = (state: FishingMarketState, storage: Pick<Storage, 'setItem'> = localStorage) => {
     // Never truncate earned assets or archives. Storage exhaustion must fail visibly.
@@ -201,12 +219,12 @@ export const addCatchToState = (state: FishingMarketState, caught: FishingCatch)
     const next = logMarketEvent({ ...state, inventory: [...state.inventory, caught], discovered: [...new Set([...state.discovered, caught.speciesId])] },
         caught.origin?.kind==='gift' ? caught.ownerName+'收到了'+(caught.origin.actorName||'朋友')+'送出的'+speciesById(caught.speciesId)?.name+'橡皮泥模型。' : caught.ownerName + '在彼方水域钓到' + speciesById(caught.speciesId)?.name + '（' + caught.sizeCm + ' cm，' + caught.quality + ' 星）；天气：' + caught.weatherLabel + '，' + (caught.weatherSource === 'real' ? '同步真实天气' : '游戏模拟天气') + '。', [caught.ownerId], undefined, caught.caughtAt);
     next.ledger[next.ledger.length - 1].id = 'caught_' + caught.id;
-    return next;
+    return recordFishingAcquisition(next, { id: caught.ownerId, name: caught.ownerName }, caught.speciesId, 'caught_' + caught.id, caught.caughtAt);
 };
 export const catchValue = (state: FishingMarketState, c: FishingCatch) =>
     Math.max(1, Math.round((state.prices[c.speciesId] || speciesById(c.speciesId)?.basePrice || 1) * [0, 1, 1.2, 1.55][c.quality]));
 export const availableCatches = (state: FishingMarketState, actorId: string, now = Date.now()) =>
-    state.inventory.filter(c => c.ownerId === actorId && !c.incubatingUntil && !state.listings.some(l => l.catchId === c.id && l.status === 'open' && l.expiresAt > now));
+    state.inventory.filter(c => c.ownerId === actorId && !c.incubatingUntil && !state.fishingTrips?.some(t => t.catch.id === c.id && t.status === 'pending') && !state.listings.some(l => l.catchId === c.id && l.status === 'open' && l.expiresAt > now));
 const requireCatch = (state: FishingMarketState, actor: MarketActor, id: string, now = Date.now()) => {
     const c = availableCatches(state, actor.id, now).find(c => c.id === id);
     if (!c) throw new Error('这件藏品不在手里、正在孵化，或已挂板'); return c;
@@ -234,6 +252,8 @@ export const buyListing = (state: FishingMarketState, id: string, buyer: MarketA
     if (!p) throw new Error('这张挂单已失效或已成交');
     if (p.catchId && !state.inventory.some(c => c.id === p.catchId && c.ownerId === p.sellerId)) throw new Error('卖家已没有这件东西');
     const accounts = transfer(state, buyer.id, p.sellerId, p.price);
+    const acquired = p.catchId ? state.inventory.find(c => c.id === p.catchId) : undefined;
+    state = acquired ? recordFishingAcquisition(state, buyer, acquired.speciesId, 'purchase_' + p.id, now) : state;
     return logMarketEvent({ ...state, accounts, inventory: state.inventory.map(c => c.id === p.catchId ? { ...c, ownerId: buyer.id, ownerName: buyer.name, displayed: false } : c),
         listings: state.listings.map(l => l.id === id ? { ...l, status: 'sold', buyerId: buyer.id, buyerName: buyer.name, closedAt: now } : l),
     }, buyer.name + '向' + (p.alias || p.sellerName) + '支付 ' + p.price + ' 鳞币，买下「' + p.itemLabel + '」' + (p.catchId ? '；道具已转移。' : '（玩笑商品，仅文字约定）。'),
@@ -268,6 +288,7 @@ export const fulfillRequest = (state: FishingMarketState, id: string, actor: Mar
     if (p.kind === 'item' && !c) throw new Error('手里没有对方要的东西');
     if (p.kind === 'favor' && !txt(submission)) throw new Error('写下你交付的内容');
     const accounts = p.kind === 'tip' ? transfer(state, actor.id, p.authorId, p.offer) : transfer(state, p.authorId, actor.id, p.offer);
+    if (c) state = recordFishingAcquisition(state, { id: p.authorId, name: p.authorName }, c.speciesId, 'fulfillment_' + p.id, now);
     return logMarketEvent({ ...state, accounts, inventory: state.inventory.map(item => item.id === c?.id ? { ...item, ownerId: p.authorId, ownerName: p.authorName, displayed: false } : item),
         requests: state.requests.map(item => item.id === id ? { ...item, status: 'fulfilled', fulfillerId: actor.id, fulfillerName: actor.name, submission: txt(submission), closedAt: now } : item),
     }, p.kind === 'tip' ? actor.name + '真的给' + (p.alias || p.authorName) + '打赏了 ' + p.offer + ' 鳞币。'
@@ -282,6 +303,7 @@ export const removeMarketPost = (state: FishingMarketState, id: string, actorId:
 };
 export const handleCollection = (state: FishingMarketState, actor: MarketActor, id: string, action: 'sell' | 'release' | 'display' | 'study' | 'incubate', now = Date.now()): FishingMarketState => {
     const c = requireCatch(state, actor, id, now); const f = speciesById(c.speciesId)!;
+    if (action === 'release' && f.category !== 'fish') throw new Error('橡皮泥模型不能放生，可以收藏、赠送或交易');
     if (action === 'sell' || action === 'release') {
         const value = action === 'sell' ? catchValue(state, c) : 0;
         return logMarketEvent({ ...state, inventory: state.inventory.filter(item => item.id !== id),
@@ -303,6 +325,7 @@ export const hatchEgg = (state: FishingMarketState, actor: MarketActor, id: stri
     if (!egg?.incubatingUntil || egg.speciesId !== 'dinosaur-egg' || egg.incubatingUntil > now) throw new Error('蛋还没有孵化完成');
     const species = FISH_CATALOG.filter(f => f.category === 'time-relic' && !['dinosaur-egg', 'dinosaur-fossil'].includes(f.id));
     const f = species[marketHash(id) % species.length];
+    state = recordFishingAcquisition(state, actor, f.id, 'hatch_' + id, now);
     return logMarketEvent({ ...state, inventory: state.inventory.map(c => c.id === id ? { ...c, speciesId: f.id, incubatingUntil: undefined, studied: false, displayed: false } : c),
         discovered: [...new Set([...state.discovered, f.id])] }, actor.name + '的恐龙蛋孵出了' + f.name + '，可陈列、观察或交易。', [actor.id], undefined, now);
 };
@@ -328,3 +351,60 @@ export const runLocalMarketPulse = (input: FishingMarketState, _actors: MarketAc
     }
     return { ...state, lastPulseAt: now };
 };
+
+/** Acquisition history is independent of current ownership and the shared species checklist. */
+export function recordFishingAcquisition(state: FishingMarketState, actor: Pick<MarketActor, 'id' | 'name'>, speciesId: string, acquisitionId: string, at: number, legacy = false): FishingMarketState {
+    const entries = state.collectionEntries || [];
+    const old = entries.find(e => e.actorId === actor.id && e.speciesId === speciesId);
+    if (old?.acquisitionIds.includes(acquisitionId)) return state;
+    const entry: FishingCollectionEntry = old ? { ...old, actorName: actor.name, firstObtainedAt: Math.min(old.firstObtainedAt, at), acquisitionIds: [...old.acquisitionIds, acquisitionId] } : {
+        actorId: actor.id, actorName: actor.name, speciesId, firstObtainedAt: at, acquisitionIds: [acquisitionId],
+        ...(legacy ? { historicalIncomplete: true } : actor.id !== 'user' && !actor.id.startsWith('wanderer:') ? { announcement: { id: marketId('discovery'), published: false } } : {}),
+    };
+    return { ...state, discovered: [...new Set([...state.discovered, speciesId])], collectionEntries: old ? entries.map(e => e === old ? entry : e) : [...entries, entry] };
+}
+export function migrateFishingCollection(state: FishingMarketState): FishingMarketState {
+    if (state.collectionEntries !== undefined) return state;
+    let next: FishingMarketState = { ...state, collectionEntries: [], fishingTrips: state.fishingTrips || [] };
+    const evidenced = new Set<string>();
+    for (const event of state.ledger) {
+        if (!event.id.startsWith('caught_') || !event.participants[0]) continue;
+        const species = FISH_CATALOG.find(f => event.text.includes('在彼方水域钓到' + f.name + '（') || event.text.includes('送出的' + f.name + '橡皮泥模型。'));
+        if (!species) continue;
+        const ownerId = event.participants[0];
+        const ownerName = event.text.split(/在彼方水域钓到|收到了/)[0];
+        next = recordFishingAcquisition(next, { id: ownerId, name: ownerName }, species.id, event.id, event.at, true);
+        evidenced.add(ownerId + ':' + event.id.slice(7) + ':' + species.id);
+    }
+    for (const item of state.inventory) {
+        if (evidenced.has(item.ownerId + ':' + item.id + ':' + item.speciesId)) continue;
+        // A transferred old item has no trustworthy acquisition date: its catch date is not the buyer's date.
+        const originalOwner = item.origin?.kind === 'fished' && item.origin.actorId === item.ownerId;
+        if (!speciesById(item.speciesId)) continue;
+        next = recordFishingAcquisition(next, { id: item.ownerId, name: item.ownerName }, item.speciesId, 'legacy_' + item.id, originalOwner ? item.caughtAt : 0, true);
+    }
+    return next;
+}
+export const personalFishingCollection = (state: FishingMarketState, actorId: string) =>
+    (state.collectionEntries || []).filter(e => e.actorId === actorId);
+export const pendingFishingTrip = (state: FishingMarketState, actorId: string) =>
+    state.fishingTrips?.find(t => t.catch.ownerId === actorId && t.status === 'pending');
+export function beginFishingTrip(state: FishingMarketState, actor: MarketActor, weather: FishingWeather, random = Math.random): FishingMarketState {
+    if (pendingFishingTrip(state, actor.id)) return state;
+    const caught = rollFishingCatch(actor, weather, random);
+    const next = addCatchToState(state, caught);
+    return { ...next, fishingTrips: [...(next.fishingTrips || []), { catch: caught, status: 'pending' }] };
+}
+export function settleFishingTrip(state: FishingMarketState, actor: MarketActor, catchId: string, result: FishingReaction, at = Date.now()): FishingMarketState {
+    const trip = state.fishingTrips?.find(t => t.catch.id === catchId && t.catch.ownerId === actor.id);
+    if (!trip) throw new Error('这不是该角色正在处理的鱼获');
+    if (trip.status === 'settled') return state;
+    if (result.disposition === 'release' && speciesById(trip.catch.speciesId)?.category !== 'fish') throw new Error('橡皮泥模型不能放生');
+    if (!state.inventory.some(c => c.id === catchId && c.ownerId === actor.id)) throw new Error('本次鱼获已不在收藏中');
+    const next = { ...state, fishingTrips: state.fishingTrips!.map(t => t === trip ? { ...t, status: 'settled' as const, result, settledAt: at } : t) };
+    const settled = result.disposition === 'release' ? handleCollection(next, actor, catchId, 'release', at) : next;
+    if (result.disposition === 'release') settled.ledger[settled.ledger.length - 1].id = 'fishing_release_' + catchId;
+    const recorded = logMarketEvent(settled, actor.name + '完成这一竿：' + speciesById(trip.catch.speciesId)!.name + (result.disposition === 'release' ? '已放生' : '已保留在自己的收藏柜') + '。' + (result.shareToUser ? '分享原话等待发送。' : '没有选择私聊分享。'), [actor.id], [{ name: actor.name, content: result.reaction }], at);
+    recorded.ledger[recorded.ledger.length - 1].id = 'fishing_result_' + catchId;
+    return recorded;
+}

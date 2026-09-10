@@ -2,33 +2,35 @@ import type { CharacterProfile } from '../../types';
 import { DB } from '../db';
 import {
     FISH_CATALOG, availableCatches, buyListing, catchValue, commentOnPost, createListing, createRequest, fulfillRequest,
-    handleCollection, logMarketEvent, mutateFishingMarket, readFishingMarketState, removeMarketPost, speciesById,
+    logMarketEvent, mutateFishingMarket, readFishingMarketState, removeMarketPost, speciesById,
     type FishingCatch, type FishingMarketState, type MarketActor, type MarketLedgerItem,
 } from './fishingMarket';
 
-export type FishingDecision = 'keep' | 'guestbook' | 'dm' | 'market' | 'release';
-export interface FishingReaction { note: string; words: string; decision: FishingDecision; price?: number }
+export type { FishingReaction } from './fishingMarket';
+import { personalFishingCollection, type FishingReaction } from './fishingMarket';
 const tag = (text: string, key: string) => text.match(new RegExp(`<${key}>\\s*([\\s\\S]*?)\\s*</${key}>`, 'i'))?.[1]?.trim() || '';
 export const parseFishingReaction = (text: string): FishingReaction | null => {
-    const note = tag(text, 'NOTE').slice(0, 1800);
-    if (!note) return null;
-    const pick = tag(text, 'DECISION').toLowerCase();
-    const decision = ['keep', 'guestbook', 'dm', 'market', 'release'].includes(pick) ? pick as FishingDecision : 'keep';
-    const raw = tag(text, 'PRICE'); const price = raw === '' ? undefined : Number(raw);
-    return { note, decision, words: tag(text, 'WORDS').slice(0, 600), price: Number.isSafeInteger(price) && price! >= 0 && price! <= 1_000_000 ? price : undefined };
+    try {
+        const value = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+        if (!value || !['keep', 'release'].includes(value.disposition) || typeof value.reaction !== 'string' || !value.reaction.trim()) return null;
+        if (value.shareToUser !== null && (!value.shareToUser || typeof value.shareToUser.text !== 'string' || !value.shareToUser.text.trim())) return null;
+        return { disposition: value.disposition, reaction: value.reaction.trim().slice(0, 1800), shareToUser: value.shareToUser === null ? null : { text: value.shareToUser.text.trim().slice(0, 600) } };
+    } catch { return null; }
 };
-
-export const buildFishingTurn = (actor: MarketActor, caught: FishingCatch, state: FishingMarketState, userName: string) => `你现在在彼方的水域钓鱼。这是游戏内实际结算，不是临时芯片事故。
-程序判定的唯一鱼获（不能改写物种、大小、星级或金额）：
-${JSON.stringify({ species: speciesById(caught.speciesId)?.name, sizeCm: caught.sizeCm, quality: caught.quality, weather: caught.weatherLabel, weatherSource: caught.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实', value: catchValue(state, caught) })}
-${speciesById(caught.speciesId)?.category === 'time-relic' ? '这是一只小型橡皮泥恐龙模型，可以在箱庭摆放、换色、陈列、观察与交易，不是真实活物。' : ''}
-按 ${actor.name} 的性格写刚才钓上来的反应，并在这同一轮决定去向。初始入库由程序处理。
-keep=保留；guestbook=保留并在本地留言簿炫耀；dm=保留并向 ${userName} 私聊分享；market=在内部布告板挂卖（不是已成交）；release=放生。
-请输出：
-<NOTE>第一人称真实反应，40～180字；别编造交易已完成</NOTE>
-<DECISION>keep/guestbook/dm/market/release，只选一个</DECISION>
-<WORDS>要发出的原话；选择留言/私聊/挂板时写，其余可空；可以夸张，但不得把它当作程序事实</WORDS>
-<PRICE>market 时的非负整数开价（可以0，也可以低价扰乱市场）；其他选择留空</PRICE>`;
+export const buildFishingTurn = (actor: MarketActor, caught: FishingCatch, state: FishingMarketState, userName: string) => {
+    const species = speciesById(caught.speciesId)!;
+    const entry = personalFishingCollection(state, actor.id).find(e => e.speciesId === caught.speciesId);
+    const previousOwned = state.inventory.filter(c => c.ownerId === actor.id && c.speciesId === caught.speciesId && c.id !== caught.id).length;
+    return `你现在在彼方的水域钓鱼。这是游戏内实际结算，不是临时芯片事故。
+程序判定的唯一鱼获（已经暂存，不可改写物种、大小或星级）：
+${JSON.stringify({ species: species.name, material: species.category === 'fish' ? '鱼' : '橡皮泥模型', sizeCm: caught.sizeCm, quality: caught.quality, description: species.blurb, weather: caught.weatherLabel, weatherSource: caught.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实' })}
+你自己的相关收藏：${JSON.stringify({ previouslyOwned: previousOwned, obtainedIncludingThisCatch: entry?.acquisitionIds.length || 1, firstDiscovery: !entry?.historicalIncomplete && entry?.acquisitionIds.length === 1, historicalCountIncomplete: !!entry?.historicalIncomplete })}。这不是其他角色的库存。
+按 ${actor.name} 的性格完成这一竿：反应、保留或放生，以及是否私聊分享给 ${userName}。不需要每次都分享；首次发现、特别喜欢或与最近聊天有关时，可以自然地想起对方。是否分享与保留/放生独立。
+${species.category === 'fish' ? 'disposition 只能 keep（保留）或 release（放生），只处理这一件鱼获。' : '这是橡皮泥模型，不是活物；disposition 只能 keep（收藏），不能放生。'}
+分享只是发消息，不是赠送；本轮没有挂卖、定价或交易动作。个人图鉴首次解锁由程序自动在彼方公共留言簿播报，不需要你另外发帖。
+只输出一个 JSON 对象，不附加说明；不分享时 shareToUser 为 null。语言遵循你原有设定。反应和分享必须与所选去向一致，不能声称已经赠送或成交。
+{"disposition":"keep","reaction":"你对这次鱼获的真实反应","shareToUser":{"text":"直接发给用户的原话"}}`;
+};
 
 export interface MarketPlan {
     action: 'browse' | 'buy' | 'fulfill' | 'comment' | 'list' | 'request' | 'remove';
@@ -88,11 +90,7 @@ export const applyMarketPlan = (state: FishingMarketState, actor: MarketActor, p
     }
     return logMarketEvent(state,actor.name+'看过内部布告板，没有交易。',[actor.id]);
 };
-export const settleFishingReaction = (state: FishingMarketState, actor: MarketActor, caught: FishingCatch, p: FishingReaction): FishingMarketState => {
-    if(p.decision==='release')return handleCollection(state,actor,caught.id,'release');
-    if(p.decision==='market')return createListing(state,actor,caught,p.price??catchValue(state,caught),p.words);
-    return state;
-};
+
 
 export const marketReceiptContent = (event: MarketLedgerItem) => [
     '「彼方 · 水域与布告板 · 事件回执」',
@@ -106,12 +104,13 @@ export const flushMarketReceipts = (characters: CharacterProfile[]): Promise<voi
     const run = async () => {
         const state=readFishingMarketState();
         for(const char of characters) {
-            const pending=state.ledger.filter(e=>e.participants.includes(char.id)&&!e.deliveredTo.includes(char.id));
+            const tripEvents = new Set((state.fishingTrips || []).flatMap(t => ['caught_' + t.catch.id, 'fishing_result_' + t.catch.id, 'fishing_release_' + t.catch.id]));
+            const pending=state.ledger.filter(e=>!tripEvents.has(e.id)&&e.participants.includes(char.id)&&!e.deliveredTo.includes(char.id));
             if(!pending.length)continue;
             const existing=await DB.getVRCardsByCharId(char.id);
             const known=new Set(existing.map(m=>m.metadata?.marketEventId).filter(Boolean));
             for(const e of pending) {
-                if(!known.has(e.id))await DB.saveMessage({charId:char.id,role:'assistant',type:'vr_card',content:marketReceiptContent(e),metadata:{vrCard:true,room:'sar',activity:e.text,marketEventId:e.id}});
+                if(!known.has(e.id))await DB.saveMessageOnce('market_receipt_' + e.id, {charId:char.id,role:'assistant',type:'vr_card',content:marketReceiptContent(e),metadata:{vrCard:true,room:'sar',activity:e.text,marketEventId:e.id}});
                 await mutateFishingMarket(s=>({...s,ledger:s.ledger.map(item=>item.id===e.id?{...item,deliveredTo:[...new Set([...item.deliveredTo,char.id])]}:item)}));
             }
         }

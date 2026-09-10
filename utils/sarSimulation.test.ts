@@ -126,6 +126,7 @@ describe('SAR 推演与备份状态', () => {
         expect(text).toContain('完全替代 User 的现实 bio');
         expect(text).toContain('不提供任何可调用的事件记忆');
         expect(text).not.toContain('memoryFuse');
+        expect(text).toContain('用户与角色身处同一现场');
     });
 
     it('运行提示会把完整身份卡和钢印固定注入每一轮', () => {
@@ -170,24 +171,25 @@ describe('SAR 推演与备份状态', () => {
         expect(buildSARIdentityRuntimePrompt(card)).toContain('旧版卡的补铸世界线');
     });
 
-    it('正式推演分别约束线上文字与线下同场，但保持同一条世界线', () => {
+    it('正式推演统一为现场行动，保留旧剧情连续性与用户自主权', () => {
         const card = {
             id: 'card', charId: 'c', charName: 'C', variantId: 'variant-01', storyId: 'story-01', createdAt: 1, updatedAt: 1,
             profile: { title: '异格', logline: '钩子', identity: '身份', lifePatch: '补丁', relationship: '关系', memoryStance: '记忆', steelSeal: '钢印', patchCost: '代价', behaviorShift: '偏移', openingScene: '场景', openingLine: '台词', playerPrompt: '回应' },
         } as any;
         const run = { id: 'run', cardId: 'card', createdAt: 1, updatedAt: 1, status: 'active', interactionsUsed: 3, maxInteractions: 50 } as any;
-        const online = buildSARSimulationTurnPrompt(card, run, 'online');
-        const offline = buildSARSimulationTurnPrompt(card, run, 'offline');
-        expect(online).toContain('线上文字');
-        expect(online).toContain('不要写小说旁白');
-        expect(offline).toContain('线下同场');
-        expect(offline).toContain('环境变化、动作、停顿');
-        expect(online).toContain('同一条连续世界线');
-        expect(offline).toContain('不替用户行动');
-        expect(offline).toContain('世界意志｜旁白与航向');
-        expect(offline).toContain('让玩家不必自己承担剧本规划');
-        expect(offline).toContain('{"worldNarration"');
-        expect(offline).not.toContain('SAR 航标 / GM');
+        const prompt = buildSARSimulationTurnPrompt(card, run);
+        expect(prompt).toContain('现场演出｜线下剧情');
+        expect(prompt).toContain('用户输入代表此刻在故事现场说的话');
+        expect(prompt).toContain('环境变化、动作、停顿');
+        expect(prompt).toContain('同一条连续世界线');
+        expect(prompt).toContain('历史记录若包含远程通讯');
+        expect(prompt).toContain('不凭空传送');
+        expect(prompt).toContain('不替用户行动');
+        expect(prompt).toContain('世界意志｜旁白与航向');
+        expect(prompt).toContain('让玩家不必自己承担剧本规划');
+        expect(prompt).toContain('{"worldNarration"');
+        expect(prompt).not.toContain('保持文字联系');
+        expect(prompt).not.toContain('切换方式');
     });
 
     it('正式推演把世界意志旁白和角色演出分开解析，并兼容旧字段与纯文本回应', () => {

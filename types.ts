@@ -1275,8 +1275,10 @@ export interface SARModuleRuntimeState {
 }
 
 export interface VRWorldCharState {
-    /** 是否启用该角色的自主登入（独立于主动发消息 proactiveConfig） */
+    /** 是否接入彼方；接入后知道游戏设定，也可由用户邀请参与。 */
     enabled: boolean;
+    /** manual 仅响应用户邀请；scheduled 定时活动。旧存档缺省仍按 scheduled。 */
+    activityMode?: 'manual' | 'scheduled';
     /** 自主登入间隔（分钟，30 对齐；默认 120 = 2h） */
     intervalMinutes: number;
     /**
@@ -1807,6 +1809,7 @@ export interface VRMusicQueueItem {
 
 /** 留言簿（共享版聊墙）的一条留言。 */
 export interface VRGuestbookMessage {
+    kind?: 'collection-unlock';
     id: string;
     /** 'user' = 用户本人，其余为 charId */
     authorId: string;

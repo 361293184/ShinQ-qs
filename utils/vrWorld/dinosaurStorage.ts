@@ -1,6 +1,6 @@
 import { DINO_ACTIONS, type DinosaurGarden, type DinoPose, type DinoStage } from './dinosaurTypes';
 import { createGardenMaps, dinoDefinition, PROP_LABELS } from './dinosaurCatalog';
-import { PROP_RADIUS } from './dinosaurCatalog';
+import { PROP_RADIUS, GARDEN_FLOOR_PROPS } from './dinosaurCatalog';
 import { DINO_GRID, snapDinoPose } from './dinosaurGrid';
 import { gardenSceneryBlocked } from './dinosaurTerrain';
 
@@ -35,7 +35,7 @@ export function readDinosaurGarden(value: unknown): DinosaurGarden {
     for(const map of g.maps){
       const occupied=new Set<string>();
       for(const t of Object.values(toys) as any[]){if(!t.pose||t.mapId!==map.id)continue;
-        const old=t.pose,cell=[...DINO_GRID].sort((a,b)=>Math.hypot(a.x-old.x,a.z-old.z)-Math.hypot(b.x-old.x,b.z-old.z)).find(c=>!occupied.has(c.id)&&!gardenSceneryBlocked(map.theme,c,.56)&&!map.props.some((p:any)=>Math.hypot(c.x-p.x,c.z-p.z)<.56+PROP_RADIUS[p.kind as keyof typeof PROP_RADIUS]));
+        const old=t.pose,cell=[...DINO_GRID].sort((a,b)=>Math.hypot(a.x-old.x,a.z-old.z)-Math.hypot(b.x-old.x,b.z-old.z)).find(c=>!occupied.has(c.id)&&!gardenSceneryBlocked(map.theme,c,.56)&&!map.props.some((p:any)=>!GARDEN_FLOOR_PROPS.includes(p.kind)&&Math.hypot(c.x-p.x,c.z-p.z)<.56+PROP_RADIUS[p.kind as keyof typeof PROP_RADIUS]));
         if(cell){t.pose=snapDinoPose({...cell,slotId:cell.id,rotation:old.rotation});occupied.add(cell.id);}
         else {t.pose=null;t.mapId=null;}
         t.revision++;

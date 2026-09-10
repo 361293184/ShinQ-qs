@@ -9,7 +9,7 @@ import type {CharacterProfile,UserProfile} from '../../types';
 const user={id:'user',name:'我',kind:'user' as const},sample={id:'sample-visitor',name:'示例来客',kind:'character' as const};
 if(!localStorage.getItem(FISHING_MARKET_STORAGE_KEY)){
   let s=ensureDinosaurGarden(ensureActorAccounts(createFishingMarketState(20260909),[user,sample]),user);
-  DINO_CATALOG.slice(1).forEach((d,i)=>{s=addCatchToState(s,{id:'sample-'+d.id,speciesId:d.id,ownerId:'user',ownerName:'我',caughtAt:Date.now(),weather:'clear',weatherLabel:'试玩赠礼',weatherSource:'simulated',quality:1,sizeCm:12,origin:{kind:'gift',actorName:'试玩盒子',at:Date.now()}});s=ensureDinosaurGarden(s,user);if(i<3)s=editDino(s,user,'sample-'+d.id,{pose:findGardenSpace(s,'sample-'+d.id,{x:i%2?2:-1.6,z:-1.4})});});saveFishingMarketState(s);
+  DINO_CATALOG.slice(1).forEach((d,i)=>{s=addCatchToState(s,{id:'sample-'+d.id,speciesId:d.id,ownerId:'user',ownerName:'我',caughtAt:Date.now(),weather:'clear',weatherLabel:'试玩赠礼',weatherSource:'simulated',quality:1,sizeCm:12,origin:{kind:'gift',actorName:'试玩盒子',at:Date.now()}});s=ensureDinosaurGarden(s,user);if(i<3)s=editDino(s,user,'sample-'+d.id,{pose:{...findGardenSpace(s,'sample-'+d.id,{x:i===2?-2.6:i%2?2:-1.6,z:i===2?-1.85:-1.4}),rotation:i===2?Math.PI/2:0}});});saveFishingMarketState(s);
 }
 // Upgrade only the clearly marked local art-demo collection. Never seed production catches.
 if(!localStorage.getItem('clay-demo-maps-v2')){

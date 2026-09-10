@@ -1,5 +1,6 @@
-import { addCatchToState, logMarketEvent, marketId, speciesById, type FishingMarketState, type MarketActor, type FishingCatch } from './fishingMarket';
-import { createGardenMaps, PROP_LABELS, PROP_RADIUS, defaultDinoPaint, dinoDefinition } from './dinosaurCatalog';
+import { recordFishingAcquisition, addCatchToState, logMarketEvent, marketId, speciesById, type FishingMarketState, type MarketActor, type FishingCatch } from './fishingMarket';
+import { createGardenMaps, GARDEN_FLOOR_PROPS, PROP_LABELS, PROP_RADIUS, defaultDinoPaint, dinoDefinition } from './dinosaurCatalog';
+import { gardenActivityAt } from './dinosaurActivities';
 import { activeGardenMap, DINO_ACTIONS, type DinoToy, type DinoPose, type DinoPaint, type DinoAction, type GardenEvent, type GardenPropKind } from './dinosaurTypes';
 import { DINO_GRID, snapDinoPose } from './dinosaurGrid';
 import { gardenSceneryBlocked } from './dinosaurTerrain';
@@ -7,7 +8,7 @@ export { DINO_ACTIONS } from './dinosaurTypes';
 export const MAX_GARDEN_TOYS=6, MAX_GARDEN_PROPS=12;
 const trim=(value:string,max:number)=>String(value||'').trim().slice(0,max);
 const garden=(s:FishingMarketState)=>{if(!s.dinosaurGarden)throw new Error('请先打开恐龙箱庭');return s.dinosaurGarden;};
-export const gardenCatchAvailable=(s:FishingMarketState,id:string,owner='user',now=Date.now())=>s.inventory.some(c=>c.id===id&&c.ownerId===owner&&!!dinoDefinition(c.speciesId)&&!c.incubatingUntil)&&!s.listings.some(l=>l.catchId===id&&l.status==='open'&&l.expiresAt>now);
+export const gardenCatchAvailable=(s:FishingMarketState,id:string,owner='user',now=Date.now())=>s.inventory.some(c=>c.id===id&&c.ownerId===owner&&!!dinoDefinition(c.speciesId)&&!c.incubatingUntil&&!s.fishingTrips?.some(t=>t.catch.id===id&&t.status==='pending'))&&!s.listings.some(l=>l.catchId===id&&l.status==='open'&&l.expiresAt>now);
 const catchOwner=(s:FishingMarketState,id:string)=>s.inventory.find(c=>c.id===id)?.ownerId||'';
 export const gardenResidents=(s:FishingMarketState,mapId=s.dinosaurGarden?.activeMapId)=>Object.values(s.dinosaurGarden?.toys||{}).filter(t=>t.pose&&t.mapId===mapId&&gardenCatchAvailable(s,t.catchId,catchOwner(s,t.catchId)));
 export function ensureDinosaurGarden(s:FishingMarketState,user:MarketActor,now=Date.now()):FishingMarketState {
@@ -41,8 +42,10 @@ export function assertGardenPose(s:FishingMarketState,pose:DinoPose,skipId:strin
   if(![pose.x,pose.z,pose.rotation].every(Number.isFinite)||Math.abs(pose.x)>3.4||Math.abs(pose.z)>3.65)throw new Error('请摆在沙盘里面');
   if(!isProp){const snapped=snapDinoPose(pose);if(snapped.x!==pose.x||snapped.z!==pose.z||Math.abs(snapped.rotation-pose.rotation)>1e-6)throw new Error('恐龙只能放在固定落点，转向每次 45 度');}
   const map=activeGardenMap(garden(s)),radius=isProp?(PROP_RADIUS[typeof isProp==='string'?isProp:map.props.find(p=>p.id===skipId)?.kind||'rock']):.56;
-  if(gardenResidents(s).some(t=>t.catchId!==skipId&&Math.hypot(t.pose!.x-pose.x,t.pose!.z-pose.z)<radius+.55))throw new Error('离另一只恐龙太近了');
-  if(map.props.some(p=>p.id!==skipId&&Math.hypot(p.x-pose.x,p.z-pose.z)<radius+PROP_RADIUS[p.kind]))throw new Error('这里有摆件，换一块空地吧');
+  if(!(typeof isProp==='string'&&GARDEN_FLOOR_PROPS.includes(isProp))&&gardenResidents(s).some(t=>t.catchId!==skipId&&Math.hypot(t.pose!.x-pose.x,t.pose!.z-pose.z)<radius+.55))throw new Error('离另一只恐龙太近了');
+  if(map.props.some(p=>p.id!==skipId&&(isProp||!GARDEN_FLOOR_PROPS.includes(p.kind))&&Math.hypot(p.x-pose.x,p.z-pose.z)<radius+PROP_RADIUS[p.kind]))throw new Error('这里有摆件，换一块空地吧');
+  if(!isProp&&map.props.some(p=>p.id!==skipId&&p.kind==='stump'&&Math.hypot(p.x-pose.x,p.z-pose.z)<.91&&Math.hypot(p.x-pose.x,p.z-pose.z)>.32))throw new Error('要站在木桩中央，或离它远一点。');
+  if(isProp==='stump'&&gardenResidents(s).some(t=>Math.hypot(t.pose!.x-pose.x,t.pose!.z-pose.z)<.91&&Math.hypot(t.pose!.x-pose.x,t.pose!.z-pose.z)>.32))throw new Error('把木桩放在恐龙脚下，或离它远一点。');
   if(gardenSceneryBlocked(map.theme,pose,radius))throw new Error('这里有场景摆设，换一块空地吧');
 }
 export function findGardenSpace(s:FishingMarketState,id:string,anchor={x:0,z:1},isProp:boolean|GardenPropKind=false):DinoPose {
@@ -54,7 +57,7 @@ export function findGardenSpace(s:FishingMarketState,id:string,anchor={x:0,z:1},
 export function gardenSlots(s:FishingMarketState,skipId='') {
   return DINO_GRID.map(c=>{let available=true;try{assertGardenPose(s,{...c,slotId:c.id,rotation:0},skipId);}catch{available=false;}return {...c,available};});
 }
-export function editDino(s:FishingMarketState,actor:MarketActor,id:string,patch:{name?:string;paint?:DinoPaint;pose?:DinoPose|null;fixed?:boolean;stage?:{action:DinoAction;text:string;targetId?:string}},now=Date.now()):FishingMarketState {
+export function editDino(s:FishingMarketState,actor:MarketActor,id:string,patch:{name?:string;paint?:DinoPaint;pose?:DinoPose|null;fixed?:boolean;stage?:{action?:DinoAction;text:string;targetId?:string}},now=Date.now()):FishingMarketState {
   s=syncGardenToys(s);const g=garden(s),map=activeGardenMap(g),toy=g.toys[id];
   if(patch.pose)patch={...patch,pose:snapDinoPose(patch.pose)};
   // The shared tabletop can arrange a character's catch without transferring ownership.
@@ -64,9 +67,9 @@ export function editDino(s:FishingMarketState,actor:MarketActor,id:string,patch:
   if(patch.paint){for(const color of Object.values(patch.paint))if(!/^#[0-9a-f]{6}$/i.test(color))throw new Error('请选择有效的橡皮泥颜色');next.paint={...patch.paint};kind='paint';summary=`${actor.name}给「${toy.name}」换了一身橡皮泥配色。`;}
   if(patch.pose!==undefined){if(patch.pose){if((!toy.pose||toy.mapId!==map.id)&&gardenResidents(s).length>=MAX_GARDEN_TOYS)throw new Error('这张地图最多放六只，可以去另一张地图摆放');assertGardenPose(s,patch.pose,id);}next.pose=patch.pose;next.mapId=patch.pose?map.id:null;kind='move';summary=`${actor.name}${patch.pose?'在'+map.name+'摆好了':'收起了'}「${toy.name}」。`;}
   if(patch.fixed!==undefined){next.fixed=patch.fixed;kind='fixed';summary=`${actor.name}${patch.fixed?'固定了':'允许角色摆弄'}「${toy.name}」。`;}
-  if(patch.stage){if(!DINO_ACTIONS.includes(patch.stage.action))throw new Error('请选择它正在做什么');const target=patch.stage.targetId;
+  if(patch.stage){const action=patch.stage.action||(toy.pose?gardenActivityAt(map,toy.pose).action:'发呆');if(!DINO_ACTIONS.includes(action))throw new Error('请选择它正在做什么');const target=patch.stage.targetId;
     if(target&&target!==id&&!gardenResidents(s).some(t=>t.catchId===target)&&!map.props.some(p=>p.id===target))throw new Error('指定的对象已不在这张地图');
-    next.userStage={...patch.stage,text:trim(patch.stage.text,160),targetId:target===id?undefined:target,byId:actor.id,byName:actor.name,at:now};next.stage={...next.userStage};kind='stage';summary=`${actor.name}写下「${toy.name}」正在${next.stage.action}。`;
+    next.userStage={...patch.stage,action,text:trim(patch.stage.text,160),targetId:target===id?undefined:target,byId:actor.id,byName:actor.name,at:now};next.stage={...next.userStage};kind='stage';summary=next.stage.text?`${actor.name}给「${toy.name}」写下了一句话。`:`${actor.name}让「${toy.name}」继续自己的小日常。`;
   }
   return record({...s,dinosaurGarden:{...g,toys:{...g.toys,[id]:next}}},{...actorFields(actor),kind,toyId:id,toyName:next.name,speciesId:toy.speciesId,summary,words:patch.stage?next.stage.text:undefined},now);
 }
@@ -91,6 +94,7 @@ export function editGardenProp(s:FishingMarketState,actor:MarketActor,input:{id?
 }
 export function giftDino(s:FishingMarketState,actor:MarketActor,id:string,to:MarketActor,now=Date.now()) {
   if(actor.id===to.id||!gardenCatchAvailable(s,id,actor.id,now))throw new Error('这件藏品现在不能赠送');const c=s.inventory.find(c=>c.id===id)!;
+  s=recordFishingAcquisition(s,to,c.speciesId,marketId('gift'),now);
   const summary=`${actor.name}把${speciesById(c.speciesId)?.name}送给了${to.name}，原来的名字、配色和经历都保留。`;
   return logMarketEvent(record(syncGardenToys({...s,inventory:s.inventory.map(t=>t.id===id?{...t,ownerId:to.id,ownerName:to.name,displayed:false}:t)}),{...actorFields(actor),kind:'gift',toyId:id,toyName:garden(s).toys[id]?.name,speciesId:c.speciesId,summary},now),summary,[actor.id,to.id],undefined,now);
 }

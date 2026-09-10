@@ -80,3 +80,10 @@ xiaohongshu-skills/
 /output/dino-garden-build/
 /output/sar-art-qa/
 /output/sar-art-build/
+
+# Local anniversary browser QA and build output.
+/output/anniversary-qa/
+/output/anniversary-build/
+
+# Local generated previews, browser QA and isolated build artifacts.
+/output/

@@ -104,7 +104,7 @@ const a = (text:string,expression:AivenExpression,reaction?:CaianExpression):SAR
 export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
     start: {
         lines: [
-            c('啊，你好！', 'happy'),
+            c('你好！', 'happy'),
             c('你也是彼方的玩家吗？我是刚上任的管理员。', 'normal'),
             c('我把这里布置成了 SAR 的活动空间！啊，你还不知道 SAR 是什么吧，我们——', 'happy'),
         ],

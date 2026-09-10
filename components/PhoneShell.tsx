@@ -1,3 +1,5 @@
+import AnniversaryGiftPopup from './os/AnniversaryGiftPopup';
+import { shouldShowAnniversaryGift, markAnniversaryGiftSeen } from '../utils/anniversaryGifts';
 
 
 
@@ -703,6 +705,17 @@ const PhoneShell: React.FC = () => {
     }
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, showInstantPushSunset, showWorkerUpdateReminder, isDataLoaded, isLocked]);
 
+  const [showAnniversaryGift, setShowAnniversaryGift] = useState(false);
+  const anniversaryAsked = useRef(false);
+  const anniversaryBlocked = showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup || showInstantPushSunset || showWorkerUpdateReminder || showBackupReminder;
+  useEffect(() => {
+    if (anniversaryAsked.current || anniversaryBlocked || !isDataLoaded || isLocked || (!bootDone && bootAnimationEnabled)) return;
+    if (shouldShowAnniversaryGift()) {
+      anniversaryAsked.current = true;
+      setShowAnniversaryGift(true);
+    }
+  }, [anniversaryBlocked, isDataLoaded, isLocked, bootDone, bootAnimationEnabled]);
+
   const dismissBackupReminder = () => {
     markBackupReminderShown();
     setShowBackupReminder(false);
@@ -826,7 +839,7 @@ const PhoneShell: React.FC = () => {
     const wallpaper = theme.wallpaper;
     const backgroundValue = !wallpaper
       ? '#0f1115'
-      : (wallpaper.startsWith('http') || wallpaper.startsWith('data:') || wallpaper.startsWith('blob:'))
+      : (wallpaper.startsWith('http') || wallpaper.startsWith('data:') || wallpaper.startsWith('blob:') || wallpaper.startsWith('./') || wallpaper.startsWith('/'))
         ? `url(${wallpaper})`
         : wallpaper;
 
@@ -850,7 +863,7 @@ const PhoneShell: React.FC = () => {
   }
 
   const getBgStyle = (wp: string) => {
-      const isUrl = wp.startsWith('http') || wp.startsWith('data:') || wp.startsWith('blob:');
+      const isUrl = wp.startsWith('http') || wp.startsWith('data:') || wp.startsWith('blob:') || wp.startsWith('./') || wp.startsWith('/');
       return isUrl ? `url(${wp})` : wp;
   };
 
@@ -1094,6 +1107,12 @@ const PhoneShell: React.FC = () => {
        />
 
        {/* First-time disclaimer popup */}
+       {!anniversaryBlocked && !isLocked && showAnniversaryGift && (
+         <AnniversaryGiftPopup onClose={() => {
+           markAnniversaryGiftSeen();
+           setShowAnniversaryGift(false);
+         }} />
+       )}
        {showDisclaimer && <DisclaimerPopup onAccept={handleAcceptDisclaimer} />}
 
        {/* Interrupted import recovery reminder */}

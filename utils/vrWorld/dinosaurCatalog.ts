@@ -20,12 +20,16 @@ export const DINO_PALETTES = [
   {name:'蓝莓酪',body:'#9295bf',accent:'#dab2c2'}, {name:'小奶油',body:'#dec48e',accent:'#b38488'},
   {name:'雨天蓝',body:'#8dabbc',accent:'#e8e0ce'}, {name:'可可豆',body:'#aa8a72',accent:'#e5c9a2'},
 ];
-export const PROP_LABELS:Record<GardenPropKind,string>={tree:'小树',rock:'小石头',tent:'小帐篷',stump:'木桩',volcano:'火山',fence:'栅栏',sign:'路牌',house:'玩具小屋'};
-export const PROP_RADIUS:Record<GardenPropKind,number>={tree:.43,rock:.42,tent:.65,stump:.35,volcano:.9,fence:.55,sign:.26,house:.6};
+export const PROP_LABELS:Record<GardenPropKind,string>={tree:'小树',rock:'小石头',tent:'小帐篷',stump:'木桩',volcano:'火山',fence:'栅栏',sign:'路牌',house:'玩具小屋',picnic:'野餐垫',puddle:'小水洼',flowers:'花丛'};
+export const PROP_RADIUS:Record<GardenPropKind,number>={tree:.43,rock:.42,tent:.65,stump:.35,volcano:.9,fence:.55,sign:.26,house:.6,picnic:.65,puddle:.65,flowers:.46};
+/** Ground mats and the small perch support a dinosaur; other solid scenery blocks placement. */
+export const GARDEN_FLOOR_PROPS:readonly GardenPropKind[]=['picnic','puddle','flowers','stump'];
+export const PROP_ACTIVITIES:Record<GardenPropKind,string>={tree:'够一够树叶',rock:'靠着歇一会儿',tent:'在门口蜷起来睡觉',stump:'爬上去放哨',volcano:'装饰 · 探险小景',fence:'装饰 · 围出小院',sign:'装饰 · 指个方向',house:'装饰 · 一间小屋',picnic:'守着饼干吃点心',puddle:'踩水玩',flowers:'低头闻花，花朵轻晃'};
 export const DEFAULT_PROPS:GardenProp[]=[
   {id:'tree-a',kind:'tree',x:-3.25,z:-3.35,rotation:0},{id:'tree-b',kind:'tree',x:-2.15,z:-3.55,rotation:.6},
   {id:'tent-a',kind:'tent',x:-1.05,z:-3.3,rotation:.2},{id:'rock-a',kind:'rock',x:3.15,z:1.7,rotation:0},
   {id:'stump-a',kind:'stump',x:-3.25,z:.1,rotation:0},{id:'sign-a',kind:'sign',x:-3.05,z:3.5,rotation:0},
+  {id:'picnic-a',kind:'picnic',x:-1.3,z:1.9,rotation:0},{id:'flowers-a',kind:'flowers',x:0,z:-.6,rotation:0},
 ];
 export const createGardenMaps = (): GardenMap[] => [
   {id:'grassland',name:'溪边草原',theme:'grassland',artVersion:3,props:DEFAULT_PROPS.map(p=>({...p})).concat([{id:'grass-house',kind:'house',x:3.15,z:-2.8,rotation:-.3}])},

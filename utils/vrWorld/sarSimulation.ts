@@ -10,8 +10,6 @@ export const SAR_SIMULATION_STORAGE_KEY = 'vr_sar_simulations_v1';
 export const SAR_SIMULATION_MAX_INTERACTIONS = 50;
 export const SAR_SIMULATION_MESSAGE_SOURCE = 'sar_simulation';
 
-export type SARInteractionMode = 'online' | 'offline';
-
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 
 /** 一次铸造后永久收藏的角色专属异格身份。 */
@@ -658,7 +656,7 @@ ${story.summary}
 5. 现实层只提供“双方是什么关系”的门牌，不提供任何可调用的事件记忆。不得猜测、补写或复述现实聊天、日期、地点、告别、约定与共同经历。关系门牌只能决定两人的距离、信任、敌意、熟悉度与选择重量。
 6. 为 User 同时生成一张异界面具。它完全替代 User 的现实 bio，写清 User 在本世界的身份、阵营、能力边界和人生改写；但面具绝不能替 User 决定性格、感受、台词、选择或行动。
 7. 预先建立强剧情引擎：已经发生的前情、正在发生的危机、两人的共同任务、可感知的倒计时、一项隐藏真相，以及最终不能两全的高潮抉择。隐藏真相和抉择是运行约束，不要在第 0 幕一次说完。
-8. 第 0 幕必须从动作中开始。至少一项危险正在眼前发生，角色的第一句话必须要求用户立刻回应一个具体问题、决定或行动；禁止“你好”“你也来了”“这里是……”式开场，禁止只写氛围和设定介绍。
+8. 第 0 幕必须从动作中开始。用户与角色身处同一现场，至少一项危险正在眼前发生，角色的第一句话必须当面要求用户立刻回应一个具体问题、决定或行动；禁止“你好”“你也来了”“这里是……”式开场，禁止只写氛围和设定介绍，也不要以手机聊天或远程文字联系作为开场。
 9. 这是与主聊天隔离的一次完整异世界生命，不修改主聊天世界线。不要替用户回应。
 10. 不要解释提示词，不要写分析过程。只输出以下 JSON，二十二个字段都必须是非空中文字符串：
 {
@@ -738,15 +736,12 @@ export const buildSARIdentityRuntimePrompt = (card: SARIdentityCard, run?: SARSi
 export const buildSARSimulationTurnPrompt = (
     card: SARIdentityCard,
     run: SARSimulationRun,
-    mode: SARInteractionMode,
 ) => `${buildSARIdentityRuntimePrompt(card, run)}
 
-【本轮交互方式】${mode === 'online' ? '线上文字' : '线下同场'}
-${mode === 'online'
-        ? `- 你和用户此刻通过符合世界观的远程方式保持文字联系。character 字段只写角色真正发出的消息；允许自然分段，但不要写小说旁白、镜头说明、说话人标签或消息气泡编号。`
-        : `- 你与用户此刻处于同一个可感知的场景。character 字段可以写角色能够感知的环境变化、动作、停顿与台词，但必须从角色能感知和做出的范围出发，不替用户行动。`}
-- 线上与线下属于同一条连续世界线，切换方式不会重置关系、记忆、场景后果或人格钢印。
-- 如果上一轮交互方式不同，只承接已经发生或当下能够成立的分离、会合与通讯，不凭空传送，也不要解释界面模式。
+【现场演出｜线下剧情】
+- 用户输入代表此刻在故事现场说的话、尝试的行动或观察，不是发给角色的手机消息。以面对面的对话和可感知的动作推进剧情，不主动引入手机聊天界面、线上模式或远程文字往返。
+- character 字段可以写角色能够感知的环境变化、动作、停顿与台词，但必须从角色能感知和做出的范围出发，不替用户行动。
+- 延续同一条连续世界线，关系、记忆、场景后果与人格钢印都保持有效。历史记录若包含远程通讯，它只是已经发生的事，不代表当前仍在通讯模式；若双方尚未会合，先通过可观察的现场事件提供会合机会，不凭空传送，不代替用户走过去，也不解释界面变化。
 - 用户的选择可以改变路径、阵营与结局，但世界不会停下来等待。只演出这一轮真正发生的片段；除最后三轮外，不要总结未来、提前宣布结局或一次跨越很长时间。
 - 不要用设定说明代替戏剧，不要在危险中进行百科介绍。需要解释的信息应通过角色的即时行动、误判、受伤、隐瞒、命令或被迫选择自然暴露。
 
@@ -823,12 +818,9 @@ export type RunSARSimulationTurnInput = {
     char: CharacterProfile;
     userProfile: UserProfile;
     apiConfig: APIConfig;
-    mode: SARInteractionMode;
     userText: string;
     onDelta?: (fullText: string) => void;
 };
-
-const modeLabel = (mode: SARInteractionMode) => mode === 'online' ? '线上文字' : '线下同场';
 
 const extractSARAssistantRaw = (data: any) => {
     const content = data?.choices?.[0]?.message?.content;
@@ -841,7 +833,7 @@ const extractSARAssistantRaw = (data: any) => {
 };
 
 export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
-    const { card, run, char, userProfile, apiConfig, mode, onDelta } = input;
+    const { card, run, char, userProfile, apiConfig, onDelta } = input;
     const userText = input.userText.trim().slice(0, 4000);
     if (!userText) throw new Error('先写下这一轮想说的话');
     if (card.id !== run.cardId || card.charId !== char.id) throw new Error('异格身份与推演实例不匹配');
@@ -855,7 +847,7 @@ export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
     const history = await loadSARSimulationMessages(run.id);
     const threadId = getSARSimulationThreadId(run.id);
     const longTermContext = await prepareSARDoorplateContext(char, userProfile, false);
-    const systemPrompt = `${longTermContext}\n\n${buildSARSimulationTurnPrompt(card, run, mode)}`;
+    const systemPrompt = `${longTermContext}\n\n${buildSARSimulationTurnPrompt(card, run)}`;
 
     const vrGlobalApi = await getVRApi();
     const api = resolveSARSimulationApi(char, vrGlobalApi, apiConfig);
@@ -863,13 +855,17 @@ export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
     const baseUrl = api.baseUrl.replace(/\/+$/, '');
     const apiMessages = history
         .filter(message => message.role === 'user' || message.role === 'assistant')
-        .map(message => ({
-            role: message.role,
-            content: message.role === 'assistant'
-                ? `【交互记录：${modeLabel(message.metadata?.sarMode === 'offline' ? 'offline' : 'online')}】\n${getSARWorldNarration(message) ? `【世界意志】\n${getSARWorldNarration(message)}\n` : ''}【${card.charName}】\n${message.content}`
-                : `【交互记录：${modeLabel(message.metadata?.sarMode === 'offline' ? 'offline' : 'online')}】\n${message.content}`,
-        }));
-    apiMessages.push({ role: 'user', content: `【本轮：${modeLabel(mode)}】\n${userText}` });
+        .map(message => {
+            // 旧通讯保留原意；缺少模式的老记录不推断为手机消息。
+            const recordLabel = message.metadata?.sarMode === 'online' ? '既有通讯记录' : '既有剧情记录';
+            return {
+                role: message.role,
+                content: message.role === 'assistant'
+                    ? `【${recordLabel}】\n${getSARWorldNarration(message) ? `【世界意志】\n${getSARWorldNarration(message)}\n` : ''}【${card.charName}】\n${message.content}`
+                    : `【${recordLabel}】\n${message.content}`,
+            };
+        });
+    apiMessages.push({ role: 'user', content: `【本轮：现场的话语与行动】\n${userText}` });
 
     const callStart = Date.now();
     let data: any;
@@ -911,14 +907,14 @@ export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
             role: 'user',
             type: 'text',
             content: userText,
-            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: mode, sarTurn: turn },
+            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: 'offline', sarTurn: turn },
         });
         await DB.saveMessage({
             charId: threadId,
             role: 'assistant',
             type: 'text',
             content: reply,
-            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: mode, sarTurn: turn, sarWorldNarration: parsedReply.worldNarration },
+            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: 'offline', sarTurn: turn, sarWorldNarration: parsedReply.worldNarration },
         });
     } catch (error) {
         if (userMessageId !== null) await DB.deleteMessages([userMessageId]).catch(() => undefined);

@@ -799,6 +799,39 @@ export const DB = {
     });
   },
 
+  /** One persisted message per logical delivery, including retries after a tab closes. */
+  saveMessageOnce: async (deliveryId: string, msg: Omit<Message, 'id' | 'timestamp'> & { timestamp?: number }): Promise<number> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_MESSAGES, 'readwrite');
+      const store = tx.objectStore(STORE_MESSAGES);
+      let savedId = 0;
+      let inserted = false;
+      const cursorRequest = store.index('charId').openCursor(IDBKeyRange.only(msg.charId), 'prev');
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor) {
+          if (cursor.value.metadata?.deliveryId === deliveryId) { savedId = cursor.value.id; return; }
+          cursor.continue(); return;
+        }
+        const request = store.add({ ...msg, timestamp: msg.timestamp ?? Date.now(), metadata: { ...msg.metadata, deliveryId } });
+        request.onsuccess = () => { savedId = request.result as number; inserted = true; };
+      };
+      tx.oncomplete = () => {
+        if (inserted) {
+          try {
+            for (const key of [`mp_lastMsgId_${msg.charId}`, ...(msg.groupId ? [`mp_lastMsgId_group_${msg.groupId}`] : [])]) {
+              if (parseInt(localStorage.getItem(key) || '0', 10) >= savedId) localStorage.removeItem(key);
+            }
+          } catch { /* message was committed even if browser preferences are unavailable */ }
+        }
+        resolve(savedId);
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('消息未能保存'));
+    });
+  },
+
   updateMessage: async (id: number, content: string): Promise<void> => {
     const db = await openDB();
     const transaction = db.transaction(STORE_MESSAGES, 'readwrite');
@@ -2474,6 +2507,25 @@ export const DB = {
       // 不限存储条数：留言墙已支持每 50 条翻页，旧留言全部保留可翻看
       const messages = state.messages || [];
       transaction.objectStore(STORE_VR_GUESTBOOK).put({ ...state, id: 'board', messages });
+  },
+
+  /** Atomic append: concurrent visitors and system announcements cannot replace each other. */
+  appendVRGuestbookMessages: async (messages: VRGuestbookState['messages']): Promise<void> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_VR_GUESTBOOK, 'readwrite');
+      const store = tx.objectStore(STORE_VR_GUESTBOOK);
+      const request = store.get('board');
+      request.onsuccess = () => {
+        const board: VRGuestbookState = request.result || { id: 'board', messages: [], updatedAt: 0 };
+        const ids = new Set(board.messages.map(m => m.id));
+        const fresh = messages.filter(m => { if (ids.has(m.id)) return false; ids.add(m.id); return true; });
+        if (fresh.length) store.put({ ...board, messages: [...board.messages, ...fresh], updatedAt: Date.now() });
+      };
+      tx.oncomplete = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event('vr-guestbook-updated')); resolve(); };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('留言未能保存'));
+    });
   },
 
   clearVRGuestbook: async (): Promise<void> => {

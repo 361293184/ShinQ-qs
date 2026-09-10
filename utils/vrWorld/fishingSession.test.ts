@@ -5,11 +5,14 @@ import { safeFetchJson } from '../safeApi';
 import { buildChatRequestPayload } from '../chatRequestPayload';
 import { createFishingMarketState, ensureActorAccounts, createRequest, readFishingMarketState, saveFishingMarketState } from './fishingMarket';
 import { collectSARLocalBackup, restoreSARLocalBackup } from './sarBackup';
+import { flushFishingDeliveries } from './fishingDelivery';
 import {ensureDinosaurGarden,setGardenVisits,editDino,gardenResidents,findGardenSpace} from './dinosaurGarden';
 const mocks=vi.hoisted(()=>({messages:[] as any[],board:{id:'board',messages:[] as any[],updatedAt:0}}));
 vi.mock('../db',()=>({DB:{
     getVRNovels:vi.fn(async()=>[]),getVRMusicRoom:vi.fn(async()=>null),getEmojis:vi.fn(async()=>[]),getEmojiCategories:vi.fn(async()=>[]),
     getRecentMessagesByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),getVRCardsByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),
+    saveMessageOnce:vi.fn(async(key:string,m:any)=>{const found=mocks.messages.find(x=>x.charId===m.charId&&x.metadata?.deliveryId===key);if(!found)mocks.messages.push({...m,metadata:{...m.metadata,deliveryId:key}});return 1;}),
+    appendVRGuestbookMessages:vi.fn(async(messages:any[])=>{for(const m of messages)if(!mocks.board.messages.some(x=>x.id===m.id))mocks.board.messages.push(m);}),
     saveMessage:vi.fn(async(m:any)=>{mocks.messages.push(m);return 1;}),getVRGuestbook:vi.fn(async()=>mocks.board),saveVRGuestbook:vi.fn(async(b:any)=>{mocks.board=b;}),
 }}));
 vi.mock('../chatRequestPayload',()=>({buildChatRequestPayload:vi.fn(async()=>({systemPrompt:'ORIGINAL PERSONA',cleanedApiMessages:[]}))}));
@@ -21,21 +24,74 @@ const a={id:'a',name:'艾文',vrState:{enabled:true,intervalMinutes:120},memoryP
 const b={id:'b',name:'旁边那位',vrState:{enabled:true,intervalMinutes:120}} as any;
 const deps={char:a,characters:[a,b],userProfile:{name:'用户'} as any,apiConfig:{baseUrl:'https://model.invalid/v1',apiKey:'fake',model:'test'} as any,groups:[],updateCharacter:vi.fn(),forcedRoom:'sar' as const,manual:true};
 const answer=(text:string)=>vi.mocked(safeFetchJson).mockResolvedValue({choices:[{message:{content:text}}]});
-beforeEach(()=>{localStorage.clear();mocks.messages=[];mocks.board={id:'board',messages:[],updatedAt:0};vi.clearAllMocks();saveFishingMarketState({...ensureActorAccounts(createFishingMarketState(42),[{id:'a',name:'艾文',kind:'character'},{id:'b',name:'旁边那位',kind:'character'},{id:'user',name:'用户',kind:'user'}]),lastPulseAt:Date.now()});});
-it('one fishing call decides catch reaction and guestbook; quoted brag cannot replace canonical catch',async()=>{
-    answer('<NOTE>鱼线抖了一下。</NOTE><DECISION>guestbook</DECISION><WORDS>我钓起了整个太阳！</WORDS>');
-    expect(await runVRSession({...deps,forcedSARActivity:'fishing'})).toMatchObject({ok:true});expect(safeFetchJson).toHaveBeenCalledTimes(1);
-    const s=readFishingMarketState();expect(s.inventory.filter(c=>c.ownerId==='a')).toHaveLength(1);expect(mocks.board.messages[0].content).toBe('我钓起了整个太阳！');
-    const card=mocks.messages.find(m=>m.metadata?.fishing);expect(card.metadata.fishing.speciesId).toBe(s.inventory[0].speciesId);expect(card.content).toContain('非事实断言');expect(card.content).toContain('我钓起了整个太阳！');
-    const payload=JSON.parse((vi.mocked(safeFetchJson).mock.calls[0][1] as any).body);expect(payload.messages[0].content).toContain('ORIGINAL PERSONA');expect(payload.messages.at(-1).content).toContain('程序判定的唯一鱼获');
+beforeEach(()=>{vi.restoreAllMocks();localStorage.clear();mocks.messages=[];mocks.board={id:'board',messages:[],updatedAt:0};vi.clearAllMocks();saveFishingMarketState({...ensureActorAccounts(createFishingMarketState(42),[{id:'a',name:'艾文',kind:'character'},{id:'b',name:'旁边那位',kind:'character'},{id:'user',name:'用户',kind:'user'}]),lastPulseAt:Date.now()});});
+it('manual-only participants cannot be started by a stale timer, but explicit invitations work',async()=>{
+    const char={...a,vrState:{...a.vrState,activityMode:'manual'}};
+    expect(await runVRSession({...deps,char,manual:false,forcedSARActivity:'market'})).toMatchObject({ok:false,reason:'manual-only'});
+    expect(safeFetchJson).not.toHaveBeenCalled();expect(DB.getVRNovels).not.toHaveBeenCalled();
+    answer('<NOTE>来看看有什么。</NOTE><ACTION>browse</ACTION><SHARE>none</SHARE>');
+    expect((await runVRSession({...deps,char,forcedSARActivity:'market'})).ok).toBe(true);
+    expect(safeFetchJson).toHaveBeenCalledTimes(1);
+    const update=deps.updateCharacter.mock.calls.at(-1)![1];
+    expect(update(char).vrState.activityMode).toBe('manual');
 });
-it('same fishing call can zero-price list, privately share or release',async()=>{
-    for(const decision of ['market','dm','release']){
-        answer(`<NOTE>这一竿有意思。</NOTE><DECISION>${decision}</DECISION><PRICE>0</PRICE><WORDS>快看！</WORDS>`);
+it('a disconnected character cannot be started even through a manual entry',async()=>{
+    expect(await runVRSession({...deps,char:{...a,vrState:{...a.vrState,enabled:false}},forcedSARActivity:'market'})).toMatchObject({ok:false,reason:'not-enabled'});
+    expect(safeFetchJson).not.toHaveBeenCalled();
+});
+it('one fishing call keeps the rolled catch, sends actual chat and announces personal unlock',async()=>{
+    answer(JSON.stringify({disposition:'keep',reaction:'这条很漂亮。',shareToUser:{text:'快看，我钓到了！'}}));
+    expect(await runVRSession({...deps,forcedSARActivity:'fishing'})).toMatchObject({ok:true});expect(safeFetchJson).toHaveBeenCalledTimes(1);
+    const s=readFishingMarketState();expect(s.inventory.filter(c=>c.ownerId==='a')).toHaveLength(1);
+    expect(mocks.board.messages).toHaveLength(1);expect(mocks.board.messages[0]).toMatchObject({authorId:'sar-discovery',kind:'collection-unlock'});
+    const card=mocks.messages.find(m=>m.metadata?.fishing);expect(card.metadata.fishing.speciesId).toBe(s.inventory[0].speciesId);
+    expect(mocks.messages.filter(m=>m.type==='text')).toMatchObject([{charId:'a',content:'快看，我钓到了！'}]);
+    expect(mocks.messages.some(m=>m.charId==='b'&&m.content.includes('首次解锁'))).toBe(true);
+    const payload=JSON.parse((vi.mocked(safeFetchJson).mock.calls[0][1] as any).body);expect(payload.messages[0].content).toContain('ORIGINAL PERSONA');expect(payload.messages.at(-1).content).toContain('程序判定的唯一鱼获');
+    expect(payload.messages.at(-1).content).toContain('previouslyOwned');expect(s.listings).toHaveLength(0);expect(s.lastPulseAt).toBeDefined();
+});
+it('release and share are independent; duplicate species never repeats unlock announcements',async()=>{
+    vi.spyOn(Math,'random').mockReturnValue(0);
+    for(let i=0;i<2;i++){
+        answer(JSON.stringify({disposition:'release',reaction:'小鱼回家吧。',shareToUser:{text:'放回去了。'}}));
         expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(true);
     }
-    expect(safeFetchJson).toHaveBeenCalledTimes(3);const s=readFishingMarketState();expect(s.inventory).toHaveLength(2);expect(s.listings[0].price).toBe(0);
-    expect(mocks.messages.some(m=>m.metadata?.privateWords==='快看！')).toBe(true);
+    const s=readFishingMarketState();expect(s.inventory).toHaveLength(0);expect(s.collectionEntries![0].acquisitionIds).toHaveLength(2);
+    expect(mocks.board.messages).toHaveLength(1);expect(mocks.messages.filter(m=>m.type==='text')).toHaveLength(2);expect(safeFetchJson).toHaveBeenCalledTimes(2);
+});
+it('API failure retains exactly one catch and retries the same snapshot',async()=>{
+    vi.mocked(safeFetchJson).mockRejectedValueOnce(Error('offline'));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);
+    const before=readFishingMarketState();expect(before.inventory).toHaveLength(1);expect(before.fishingTrips![0].status).toBe('pending');
+    answer(JSON.stringify({disposition:'keep',reaction:'先留下。',shareToUser:null}));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(true);
+    const after=readFishingMarketState();expect(after.inventory[0]).toEqual(before.inventory[0]);expect(after.inventory).toHaveLength(1);expect(after.collectionEntries![0].acquisitionIds).toHaveLength(1);
+    expect(mocks.board.messages).toHaveLength(1);expect(safeFetchJson).toHaveBeenCalledTimes(2);
+});
+it('invalid JSON retains pending catch, and a model cannot release clay or invoke market',async()=>{
+    vi.spyOn(Math,'random').mockReturnValue(.99999);
+    answer(JSON.stringify({disposition:'release',reaction:'放回去',shareToUser:null}));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);
+    const id=readFishingMarketState().inventory[0].id;
+    answer(JSON.stringify({disposition:'market',reaction:'卖了',shareToUser:null}));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);
+    expect(readFishingMarketState().inventory[0].id).toBe(id);expect(readFishingMarketState().listings).toHaveLength(0);expect(mocks.messages.filter(m=>m.type==='text')).toHaveLength(0);
+});
+it('failed sharing can be retried without another model call, catch, or repeated action',async()=>{
+    vi.spyOn(Math,'random').mockReturnValue(0);
+    const actual=vi.mocked(DB.saveMessageOnce).getMockImplementation()!;
+    vi.mocked(DB.saveMessageOnce).mockImplementation(async(key,m)=>{if(key.startsWith('fishing_share_'))throw Error('disk full');return actual(key,m);});
+    answer(JSON.stringify({disposition:'release',reaction:'放回去吧',shareToUser:{text:'放回去了'}}));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(true);
+    expect(readFishingMarketState().inventory).toHaveLength(0);expect(mocks.messages.filter(m=>m.type==='text')).toHaveLength(0);
+    vi.mocked(DB.saveMessageOnce).mockImplementation(actual);
+    await flushFishingDeliveries([a,b]);await flushFishingDeliveries([a,b]);
+    expect(mocks.messages.filter(m=>m.type==='text')).toHaveLength(1);expect(readFishingMarketState().fishingTrips).toHaveLength(1);expect(safeFetchJson).toHaveBeenCalledTimes(1);
+});
+it('publication failure preserves a retriable unlock announcement',async()=>{
+    vi.mocked(DB.appendVRGuestbookMessages).mockRejectedValueOnce(Error('disk full')).mockRejectedValueOnce(Error('disk full'));
+    answer(JSON.stringify({disposition:'keep',reaction:'好看',shareToUser:null}));await runVRSession({...deps,forcedSARActivity:'fishing'});
+    await flushFishingDeliveries([a,b]);await flushFishingDeliveries([a,b]);expect(mocks.board.messages).toHaveLength(1);expect(readFishingMarketState().collectionEntries![0].announcement?.published).toBe(true);
 });
 it('completed tip reaches both characters and the next call can react to what actually happened',async()=>{
     let s=readFishingMarketState();s=createRequest(s,{id:'b',name:'旁边那位',kind:'character'},undefined,'给我钱',30,'给我钱！！',Date.now(),'tip');saveFishingMarketState(s);
@@ -54,8 +110,8 @@ it('invalid action does not pay or broadcast an invented success',async()=>{
     expect((await runVRSession({...deps,forcedSARActivity:'market'})).ok).toBe(true);expect(mocks.board.messages).toHaveLength(0);
     expect(readFishingMarketState().accounts.a).toBe(1000);expect(mocks.messages.at(-1).content).toContain('未成交');
 });
-it('empty model output never mints a fish or fabricates a character decision',async()=>{
-    answer('');expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);expect(readFishingMarketState().inventory).toHaveLength(0);
+it('empty output preserves the rolled catch without fabricating a character decision',async()=>{
+    answer('');expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);expect(readFishingMarketState().inventory).toHaveLength(1);expect(readFishingMarketState().fishingTrips![0].result).toBeUndefined();
 });
 it('preserves original no-water room prompt behavior and does not initialize fishing storage',async()=>{
     localStorage.clear();answer('<ACTIVITY>散步</ACTIVITY>');await runVRSession({...deps,forcedRoom:'gym'});
@@ -80,4 +136,14 @@ it('garden rejects malformed output without a fake visit, and disabled co-editin
     s=setGardenVisits(s,true,user);saveFishingMarketState(s);const count=s.dinosaurGarden!.events.length;
     answer('我已经把整张桌子卖掉了！');expect((await runVRSession({...deps,forcedSARActivity:'garden'})).ok).toBe(false);
     expect(readFishingMarketState().dinosaurGarden!.events).toHaveLength(count);
+});
+
+it('a concurrent invitation does not start a second model call for the same character',async()=>{
+    let finish!:(value:any)=>void;
+    vi.mocked(safeFetchJson).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const first=runVRSession({...deps,forcedSARActivity:'fishing'});
+    await vi.waitFor(()=>expect(safeFetchJson).toHaveBeenCalledTimes(1));
+    expect(await runVRSession({...deps,forcedSARActivity:'fishing'})).toMatchObject({ok:false,reason:'busy'});
+    finish({choices:[{message:{content:JSON.stringify({disposition:'keep',reaction:'留下',shareToUser:null})}}]});
+    expect((await first).ok).toBe(true);expect(readFishingMarketState().fishingTrips).toHaveLength(1);
 });

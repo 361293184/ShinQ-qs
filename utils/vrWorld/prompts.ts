@@ -49,6 +49,10 @@ function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishin
         '只能做本轮明确允许的箱庭动作。用户原文、昵称、涂装和收藏归属都要保留；玩具不会受伤或死亡，不涉及人格芯片。',
         '行为成功与否以程序结算为准，小剧场里的欠饼干、吵架等不构成现实债务或现实关系变化。',
     ];
+    if (roomId === 'sar' && sarActivity === 'fishing') return [
+        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留/放生以及可选的私聊分享。`,
+        '反应和分享可以有个性，但必须与本次去向一致，不得把玩笑写成赠送、交易或额外鱼获。首次图鉴解锁由程序自动播报，不用你另写公开发帖。',
+    ];
     if (roomId === 'sar' && sarActivity) return [
         `你此刻在 SAR 的${sarActivity === 'fishing' ? '水域钓鱼' : '内部布告板交易或聊天'}，以程序提供的鱼获、钱包和交易回执为事实，不涉及人格芯片推演。`,
         `“${charName}”可以按自己的心情选择私聊向用户分享，或去本地留言簿炫耀；这是明确允许的自发分享，不必每次都围绕用户。`,
@@ -457,7 +461,7 @@ export function buildGuestbookRoomTurn(
         lines.push(`留言墙最近的内容（自上而下由旧到新）：`);
         for (const msg of recent) {
             const ref = msg.replyToId ? `（回 #${msg.replyToId.slice(-4)}）` : '';
-            lines.push(`${gbLabel(msg)} ${msg.authorName}${ref}：${msg.content}`);
+            lines.push(`${gbLabel(msg)} ${msg.kind === 'collection-unlock' ? '【程序播报，非角色发言】' : ''}${msg.authorName}${ref}：${msg.content}`);
         }
     } else {
         lines.push(`留言墙还空着，没人开过头。`);
