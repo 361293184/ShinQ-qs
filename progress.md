@@ -1,5 +1,15 @@
 Original prompt: 先继续优化都市人生 simsapp：去掉 pics 里的丑像素家具/房屋贴图，改成自己画的像素图；并把“吃瓜”从单纯调用 API 引导 char 行动，升级为随机触发“角色剧情”或“主线剧情”，主线剧情要有明显标题和附件栏，附件可包含图片、道具、证据、同人文等。
 
+2026-09-10 — SAR bulletin-board gameplay audit
+- Current request: inspect the remaining SAR bulletin-board gameplay. Baseline: 60 fishing/market/session/real-DB tests pass.
+- Reproduced by inspection: anonymous owners lose their alias when replying; item requests automatically surrender the first matching specimen; model listings omit whether goods are real or textual. Adding focused regressions and explicit specimen selection, with archive details retained.
+- Existing pnpm launcher tries to reinstall dependencies and then cannot resolve the test binary with verification disabled; direct Node execution of the already-installed Vitest works without changing dependencies.
+- Browser checks use isolated fixtures and mocked data, with no real model calls or user storage.
+- Completed: owner replies inherit the post alias; item fulfillment accepts an exact catch ID and rejects missing/stale/ambiguous selections; model and UI expose real/text goods plus specimen size, quality and nickname. New listings and fulfilled requests retain specimen snapshots; detail sheets show transaction counterparties. Legacy archives remain readable without invented specimen history.
+- Validation: all 162 tests in the VR-related run pass (14 suites), including five new market regressions. Dedicated market browser checks cover purchase, tips, favor fulfillment, chosen/stale specimens, anonymous replies, expiry, archive and reload at 390/320 px. Real OS/SAR entry/water/board round trips pass after repairing the old room-image test selector. Official game client state/screenshot and stable mobile detail screenshots inspected; no UI errors in the isolated checks.
+- Vite production build passes (6,227 modules, 48.66 s) into ignored output/fishing-qa/market-build. Full TypeScript check still reports errors in other files; no diagnostics in the changed feature files. Existing chunk-cycle/pdf.js build warnings remain.
+- Boundaries retained: request prices are not escrowed; market DM share remains inside the activity card. Real LLM behavior was not evaluated. Changes are local and uncommitted; no push/deployment. No remaining blockers for this audit.
+
 2026-03-19
 - Removed the hardcoded building PNG override in `utils/tinyTownTiles.ts` so LifeSim now uses generated pixel-style town tiles instead of `pics` house textures.
 - Added story attachment types, world-drama prompt helpers, fallback attachment generation, and `materializeStoryAttachments` so main-plot events can drop image/item/evidence/fanfic payloads.
@@ -657,3 +667,92 @@ TODO — Qixi rewrite
 - Updated docs/sar-user-guide.md with manual access and honest board boundaries (no escrow; private share still lives inside activity card; bounded model view).
 - Final branch checks: 219 tests across 22 suites passed, including SAR/garden/fishing/market, chat prompts and anniversary changes; production build passed (37.82s on the previous pass, final pagination build also successful). Scoped TypeScript has the same 8 pre-existing diagnostics, no new feature errors.
 - User requested committing/pushing the entire current branch. Include all current product/source/assets/docs/tests; exclude generated output/. Remote codex/dino-cafe-art fetched and matched local HEAD before committing.
+
+2026-09-10 — Quiet bulletin-board pages
+- User request: simplify the cluttered board UI and move operations into subpages.
+- Visual thesis: warm paper, dark ink, one muted green action; a readable board with generous space.
+- Content plan: one combined note feed and one write action; detail/publish pages; quotes, history and invitations under More.
+- Interaction thesis: short page entrance, subtle note hover, preserved reading position; respect reduced motion.
+- Implemented page hierarchy and explicit pay/receive button labels. Preserve the existing ledger and real/text item rules. Browser verification pending.
+- Final validation: market browser regression passes transactions, all four publish paths, exact/stale specimens, aliases, scroll restoration, Escape/cancel, collection-to-publish round trip, archives and reload at 320/390/1024 px. Real SAR entry regression passes. Zero browser page errors; no real model calls or user data used.
+- Official web-game client ran after layout changes; inspected current screenshots and text state. Production build passed (16.28 s). Full TypeScript still reports unrelated pre-existing errors; none in FishingMarketOverlay.
+- New screenshot gallery: output/fishing-qa/board-clean/gallery.html, with nine current screens and a link to the earlier screenshots. Verified every image loads and all gallery navigation works.
+- UI work complete; no commit or push. The earlier discussion of character cancellation/retry/settlement boundaries remains separate from this presentation change.
+
+2026-09-10 — World will and simulation reading surfaces
+- User authorized the narrative principles discussed above and simultaneous UI refinement.
+- Visual thesis: a quiet book-like reading surface, warm paper/dark ink, one muted green accent; story takes the screen.
+- Content plan: readable scene and character text first; opening preview and one start/continue action; identities/background/details on demand. No permanent crisis dashboard or spoiler panel.
+- Interaction thesis: gentle message arrival, unobtrusive new-message affordance while rereading, short subpage transitions; reduced-motion support.
+- Narrative work: replace coercive forge/runtime/phase instructions; distinguish story time from turn budget; allow quiet narration; persist bounded director facts in the same response, with no extra model calls.
+- Implemented shared narrative principles for forge and runtime, quieter phase guidance, optional narration, and bounded director facts persisted with assistant messages. Reject malformed structured output without spending a turn; preserve legacy plain text and previous valid continuity. Director facts stay out of the reader and exported archive.
+- Rebuilt identity previews and simulation reading pages in warm paper/ink with a persisted dark theme. Move progress, background, settings and early seal into a details page; hide spoilers and duplicate headers. New replies respect rereading position. Ordinary return pauses; sealing explains that it ends the run.
+- Validation: 22 narrative/simulation unit tests passed. Browser regression passed quiet replies, private continuity across reload, legacy replies, malformed JSON/retry, rereading scroll, theme persistence, archive download, early seal, and the final 50th interaction at 320/390/1100 px. All model replies were mocked in isolated fixture storage; zero real model calls and zero browser page errors.
+- Official web-game client rerun shows the actual reader with matching sar-simulation text state. Inspected mobile card/reading/detail/archive screenshots and desktop reading. Final production build passed (31.47 s); full TypeScript has existing unrelated diagnostics, with none in this feature on the scoped check. git diff --check passed.
+- Screenshot gallery: output/fishing-qa/sar-reader/gallery.html. Ten images, page navigation and overview verified. User-facing gallery contains static screenshots only and does not seed user storage.
+- Implementation and UI pass complete. Real-model narrative quality still needs a live reading session; mock tests verify the protocol and UI, not the model's long-term storytelling compliance. No commit or push performed.
+
+2026-09-10 — Refine the story composer
+- User request: make the sending field feel more considered and less dated.
+- Visual thesis: one quiet ivory writing surface with an integrated, muted green send action.
+- Content plan: text first, one short placeholder, one send button; no extra tools or helper copy.
+- Interaction thesis: focus gently reveals the boundary; text grows within a bounded height; the send button gains color when ready and responds subtly to hover/press, respecting reduced motion.
+- Replaced separate textarea box and round paper-plane button with a unified writing bar, borderless auto-growing text and an inset arrow key. Kept a 44 px send target and Chinese composition-safe keyboard handling. New-content control follows the actual composer height.
+- Browser regression passed auto-grow/clear, long draft scrolling, same-width viewport shrink, whitespace disabled state, Chinese IME confirmation, Shift+Enter newline and Enter send, plus all prior reader/retry/archive checks. Found and fixed draft overflow becoming hidden when only viewport height shrinks.
+- Inspected idle, writing, dark, long-draft and 320 px screenshots. Official skill client rerun and text state verified; no browser errors or real model calls. Final production build passed (15.50 s), git diff --check clean.
+- Updated the existing reader screenshots and added a six-view comparison gallery at output/fishing-qa/sar-reader/composer-gallery.html; every image and navigation verified. No commit or push.
+- Follow-up: vertically centered the send button inside the writing bar, including multi-line drafts. Refreshed the gallery screenshots, reran browser checks and the official client, and inspected the centered two-line input.
+
+2026-09-10 — Connect SAR purchases to the shared game wallet
+- User request: end unlimited gacha and free module claiming now that the feature is ready. Found hard-coded development flags in both screens and unused shop credits.
+- Asked about currency/pricing while auditing storage; after the optional response window proceeded with stated defaults: shared existing 鳞币, one free draw per pool per local day, then 30 coins, catalog module prices unchanged. No real-money integration or model calls.
+- Atomic commerce stores paid inventory and wallet in one fishing-market write, serialized with existing market mutations and Web Locks where available. Stable request IDs prevent duplicate charges. Stale free quotes do not silently become paid; each mutation reads current wallet, offers and inventory. Storage failure does not publish a grant.
+- Existing inventories migrate once without retroactive fees; canonical reads and backups preserve the migrated record. Removed paid-inventory truncation, kept legacy credits as unused history, and made helper storage errors explicit. Corrupt wallet data remains exportable as raw backup.
+- UI shows balance, exact cost, insufficient balance and saved receipts; refreshes across pages. Module use reads fresh inventory before applying a module so stale UI cannot clone a consumed item.
+- Validation so far: 78 focused unit tests pass, including 12 commerce cases; browser payments pass double click, free/paid draws, buy/reload, closing before reveal, shared wallet updates, insufficient balance and quota failure at 390/320 px. Scoped TypeScript has no changed-feature diagnostics; full project still has unrelated existing errors.
+- Final validation: 79 focused tests pass (13 commerce cases, including partial legacy restore after migration). Browser also verified two pages racing for the final 30 coins, and buying then installing on a real fixture character: exactly one inventory unit consumed, no second charge, persisted runtime active. Official client screenshot/text state inspected; no browser page errors or real model calls.
+- Added an eight-screen gallery at output/fishing-qa/sar-commerce/gallery.html; images and navigation verified. Production build passed. No commit/push or live user-store edits; all browser checks used isolated fixture contexts.
+
+2026-09-10 — SAR room, personal warehouse and economy
+- Visual thesis: a continuous light surface from Kanata header to the illustrated SAR room, with quiet moss-green controls.
+- Content plan: two top-right game buttons, NPC settings and a personal warehouse; balances and inventory live inside the warehouse with an owner selector.
+- Interaction thesis: tactile icon presses, short sheet entrance and inventory selection; keyboard focus, back/escape and reduced-motion support.
+- Economy plan: new wallets 120, two free daily draws then 30, modules 18–34, lower fish valuations and 180 daily system buyback per actor. Preserve legacy money/items. Character spending must use its own wallet and owned inventory.
+
+- User refined navigation during implementation: SAR belongs beside World as a primary entry and opens as an independent full-screen room. Removed the nested World page, global header/tabs and SAR pagination; added return to Kanata. World now has rooms + archives, with its archive return corrected. Settings/warehouse remain inside SAR.
+
+- Completed: independent SAR primary entrance beside World, full-screen light room, return to Kanata, settings/warehouse tools, and World archive navigation. Settings reuse the NPC preference; warehouse switches all characters with actual ownership, statuses, filters, details and active effect display.
+- Economy implemented: new wallets 120; common fish bases 8–12, all bases 8–90, ±10% daily variation, quality 1/1.15/1.3; per-actor system buyback 180 per local day; incoming wallet cap 999,999 while legacy balances/assets are preserved. Refused income leaves the item intact.
+- Character module purchases now choose browse/buy using their own wallet, 60 daily purchase budget and 30 reserve. Owned units are reused and actually consumed for user effects; reverse install cannot generate a free unit. Model-only claims do not grant items.
+- Validation: 116 focused unit tests passed, including 13 new economy/ownership tests and a 366-day all-species/all-quality bound. Real provider browser checks passed for 320/390/1100 px, NPC persistence, full-screen entrance/return, archives, independent wallets/bags, cross-tab updates, empty states, focus/escape and four mocked character shop sessions. Existing commerce and Kanata integration also passed; zero page errors or real model calls.
+- Official game client rerun after the navigation change; current screenshot and text state inspected (tab=sar). Final production build passed in 31.75 s; git diff --check clean. Earlier scoped TypeScript check had no changed-feature errors, while the full project retains unrelated diagnostics.
+- New gallery: output/fishing-qa/sar-hub/gallery.html, eleven screenshots including primary entrance, full-screen room, NPC settings and user/character warehouse. Every image and gallery navigation verified. docs/sar-economy.md records the numerical plan and sampled valuation ranges; user/implementation docs updated.
+- No commit, push, live payment integration or live user-store changes performed. Runtime effect persistence still follows the existing OS profile storage lifecycle; the economic atomic guarantee covers wallet plus purchased inventory, not an IndexedDB/localStorage cross-store install transaction.
+
+
+2026-09-10 — Collection atlas and Kanata titles
+- User requests: warehouse atlas for fish/dinosaurs/chips/modules with per-owner progress; distinguish facility controls from character names; optional custom titles above characters, names below, and titles known/editable during the actor's own Kanata activities.
+- Visual thesis: retain the light moss/ivory warehouse; atlas enters from one small header button, with four progress rows and category pages. Facilities use solid green plaques/icons, character names use quiet foot labels, titles use a small warm accent above the avatar.
+- Content plan: current inventory remains separate from distinct historical collection; preserve legacy items in a small collection journal before consumption, with no duplicate-copy inflation. Title editing lives with the selected owner in the warehouse.
+- Interaction thesis: bounded atlas pages/search/status filtering and nested back navigation; deliberate title save/cancel; skip motion under reduced motion. Title updates share the existing activity model response and protect intervening user edits with a revision.
+
+- Completed: warehouse atlas with four category totals (9/12/49/46), personal historical collection/current quantities, search/status filtering/pagination/detail views and nested keyboard/system back. Legacy module ownership is journaled before final-unit consumption, persisted with the market and backup. No historical dates or temporary-chip ownership invented.
+- Completed: facility green icon plaques, quiet foot names, optional warm head titles, label-aware placement and title offsets for enlarged chibis. Warehouse supports self/character title edits, 12 Unicode characters, save/cancel/clear. Existing enable settings are preserved.
+- Completed: current title in ordinary chat and all Kanata activity prompts. Optional XML/JSON self-title metadata stripped before original parsers; successful activities apply guarded changes only to their actor. Empty/malformed activities do not rename; manual edits, edit-and-revert revisions and disabling participation defeat stale updates. Optional title-save failure does not misreport a committed activity as failed. Scheduled fire-pack templates omit a potentially stale title.
+- Validation: 143 focused unit tests passed across 14 files, including 15 new collection/title tests. Existing full-provider SAR hub check passed; new 320/390/1100 browser checks passed with zero page errors and six mocked model activities (XML edit, JSON edit, malformed activity rejection, in-flight manual priority, title-only rejection, clear). Manual title persistence/clear, owner isolation, last-unit consumption, missing/search/pagination, nested focus/back and phone label collision checks passed. No real model calls or live user storage modifications.
+- Final production build passed in 31.00 s. Full TypeScript check still has pre-existing errors in MemoryPalaceApp, CompanionHome, old output audit/tests and Vite config; no diagnostics in this feature's source or tests. git diff --check passed.
+- Official game client ran; screenshot and state show tab=sar. Its unmocked initial world screen reports blocked pre-existing remote room thumbnails (jsDelivr and fallback hosts, ERR_NETWORK_ACCESS_DENIED); traced independently. SAR art and the feature UI use local assets and render correctly. Dedicated feature browser checks mock external requests.
+- Delivered gallery: output/fishing-qa/sar-collection/gallery.html, 15 verified images with phone/desktop layouts, room labels, title editor, four atlas categories and a consumed module still collected. Opened via Codex browser panel (queued). No commit or push.
+
+- User visual correction: dislikes green specifically on facility entrances. Changed board/modules/chips/gacha/fishing/garden plaques to warm ivory with coffee text, tan markers and a fine wooden-tone edge. Preserved icon/shape distinction from character labels. Re-captured all 15 gallery views; full collection/title browser verification still passed. The 31 s production build above precedes this final CSS palette adjustment; no logic changed.
+
+
+2026-09-11 — Hide SAR room overlays
+- User asks for a toggle beside settings that hides character names, titles and facility controls together.
+- Visual thesis: keep the room illustration and avatars in place; one eye button reveals or removes the room labels, with the existing warm ivory facilities unchanged.
+- Content plan: a third compact top-right tool, hidden-state recovery always available; names, titles, markers, NPC exclamation and occupant roster disappear together.
+- Interaction thesis: instant reversible toggle without avatar repositioning; preserve preference across reload and retain the existing pressed-button feedback. Hidden facility controls are removed from pointer/keyboard interaction.
+
+- Implemented persisted labelsHidden preference in SAR club state, Eye/EyeSlash control beside settings, and CSS hiding for room labels, title text, facility/nav markers, NPC quest badge, roster and text-only avatar initials. Avatars and positions remain stable; visible top controls remain available. Compact header spacing supports 320 px.
+- Verified both real-provider browser suites: toggle/hide/show, keyboard activation, hidden facility non-interactivity, visible avatars/unchanged feet, settings access, persistence in both directions after reload, 320 px header fit, existing atlas/title and six mocked activity sessions, and existing hub economic flows. Zero page errors in isolated suites. Six SAR club unit tests passed. Production build passed in 1m 1s.
+- Updated gallery with two hide-state screenshots (17 total). No live model calls, production user-store edits, commit or push.

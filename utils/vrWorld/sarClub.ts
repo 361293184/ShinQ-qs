@@ -11,6 +11,7 @@ export interface SARClubState {
     updateSeenVersion: number;
     npcPreference: SARNpcPreference | null;
     caianMet: boolean;
+    labelsHidden?: boolean;
     introReaction?: SARIntroReaction;
 }
 
@@ -38,6 +39,7 @@ export function readSARClubState(storage: StorageLike | undefined = browserStora
             updateSeenVersion: Number.isFinite(raw.updateSeenVersion) ? Math.max(0, raw.updateSeenVersion) : 0,
             npcPreference: raw.npcPreference === 'show' || raw.npcPreference === 'hide' ? raw.npcPreference : null,
             caianMet: raw.caianMet === true,
+            ...(raw.labelsHidden === true ? { labelsHidden: true } : {}),
             introReaction: raw.introReaction === 'direct' || raw.introReaction === 'character-card' || raw.introReaction === 'silent'
                 ? raw.introReaction
                 : undefined,

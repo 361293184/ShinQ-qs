@@ -1275,6 +1275,9 @@ export interface SARModuleRuntimeState {
 }
 
 export interface VRWorldCharState {
+    /** 游戏内自定义称号；与角色姓名、人格及临时模块分开。 */
+    title?: string;
+    titleRevision?: string;
     /** 是否接入彼方；接入后知道游戏设定，也可由用户邀请参与。 */
     enabled: boolean;
     /** manual 仅响应用户邀请；scheduled 定时活动。旧存档缺省仍按 scheduled。 */
@@ -3259,6 +3262,8 @@ export interface UserProfile {
 }
 
 export interface UserVRState {
+    title?: string;
+    titleRevision?: string;
     /** 是否接入彼方（登出后不再向角色注入"用户在彼方"提示） */
     enabled: boolean;
     /** 用户此刻把自己挂在哪个房间 */

@@ -1,3 +1,5 @@
+import { readSARCommerceValue } from './sarCommerceStorage';
+
 export type SARModulePool = 'variant' | 'story';
 export type SARModuleAccent = 'blue' | 'red' | 'olive' | 'violet' | 'ivory' | 'graphite' | 'rose' | 'teal';
 
@@ -138,8 +140,8 @@ export const getSARLocalDayKey = (date = new Date()) => {
 };
 
 export const readSARGachaState = (storage?: StorageLike): SARGachaState => {
+    const raw = readSARCommerceValue(SAR_GACHA_STORAGE_KEY, storage || localStorage);
     try {
-        const raw = (storage || localStorage).getItem(SAR_GACHA_STORAGE_KEY);
         if (!raw) return { ...DEFAULT_SAR_GACHA_STATE, freeDrawDate: {}, collection: {}, history: [] };
         const parsed = JSON.parse(raw) as Partial<SARGachaState>;
         const collection = parsed.collection && typeof parsed.collection === 'object'
@@ -159,7 +161,7 @@ export const readSARGachaState = (storage?: StorageLike): SARGachaState => {
 };
 
 export const writeSARGachaState = (state: SARGachaState, storage?: StorageLike) => {
-    try { (storage || localStorage).setItem(SAR_GACHA_STORAGE_KEY, JSON.stringify(state)); } catch { /* 私密浏览或存储已满时仅保留当前会话 */ }
+    (storage || localStorage).setItem(SAR_GACHA_STORAGE_KEY, JSON.stringify(state));
     return state;
 };
 

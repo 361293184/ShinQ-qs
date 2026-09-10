@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, CaretLeft, Check, CircleNotch, Eye, Fingerprint, Play, Sparkle, X } from '@phosphor-icons/react';
+import { BookOpen, CaretLeft, Check, CircleNotch, Eye, Fingerprint, Play, X } from '@phosphor-icons/react';
 import type { APIConfig, CharacterProfile, GroupProfile, RealtimeConfig, SARCharacterCabinetNoteMeta, UserProfile } from '../../types';
 import TokenImg from '../../components/os/TokenImg';
 import { DB } from '../../utils/db';
@@ -12,7 +12,6 @@ import {
 } from '../../utils/vrWorld/sarGacha';
 import {
     forgeSARIdentityCard,
-    getSARSimulationPhase,
     readSARSimulationState,
     resolveSARUserMaskProfile,
     resolveSARWorldlineProfile,
@@ -86,9 +85,6 @@ const ModulePicker: React.FC<{
     );
 };
 
-const CardDetailSection: React.FC<{ en: string; title: string; children: React.ReactNode }> = ({ en, title, children }) => (
-    <section className="sarc-card-section"><small>{en}</small><h3>{title}</h3><p>{children}</p></section>
-);
 
 const IdentityCardView: React.FC<{
     card: SARIdentityCard;
@@ -100,71 +96,18 @@ const IdentityCardView: React.FC<{
     const { variant, story } = resolveSARSimulationModules(card);
     const worldline = resolveSARWorldlineProfile(card);
     const userMask = resolveSARUserMaskProfile(card);
-    const phase = getSARSimulationPhase(run?.interactionsUsed || 0);
-    const isActive = run?.status === 'active';
-    return (
-        <main className="sarc-result">
-            <div className="sarc-result__status"><Sparkle size={12} weight="fill" /> {run ? (isActive ? `异世界运行中 · ${phase.label}` : '世界线已封存 · 身份卡保留') : '异世界坐标锁定 · 永久身份卡已收录'}</div>
-            <article className="sarc-identity-card">
-                <div className="sarc-card__ornament sarc-card__ornament--tl" /><div className="sarc-card__ornament sarc-card__ornament--br" />
-                <header className="sarc-card__header"><span>SAR / ISEKAI VARIANT</span><b>No.{card.id.slice(-6).toUpperCase()}</b></header>
-                <div className="sarc-card__hero">
-                    <CharacterPortrait char={{ name: card.charName, avatar: card.charAvatar || '' }} large />
-                    <div><small>{card.charName} · ALTER INSTANCE</small><h2>{card.profile.title}</h2><p>{card.profile.logline}</p></div>
-                </div>
-                <div className="sarc-card__modules"><span>{variant?.title || card.variantId}</span><i>×</i><span>{story?.title || card.storyId}</span></div>
-                <section className="sarc-steel-seal">
-                    <div className="sarc-steel-seal__mark"><Fingerprint size={28} weight="thin" /></div>
-                    <div><small>PERSONALITY STEEL SEAL</small><h3>人格钢印</h3><blockquote>“{card.profile.steelSeal}”</blockquote></div>
-                </section>
-                <div className="sarc-card__serial">IDENTITY LOCKED · {card.legacy ? 'LEGACY CONVERTED' : 'ORIGINAL FORGE'}</div>
-            </article>
-
-            <section className="sarc-user-mask">
-                <header><small>USER / ISEKAI MASK</small><b>{userMask.retrofitted ? '旧卡兼容面具' : '面具已锁定'}</b></header>
-                <h2>{userMask.title}</h2>
-                <div><small>IDENTITY</small><strong>你的异界身份</strong><p>{userMask.identity}</p></div>
-                <div><small>LIFE PATCH</small><strong>你的异界人生</strong><p>{userMask.lifePatch}</p></div>
-                <footer>面具替代现实 User 设定，但不会替你决定性格、感受与行动。</footer>
-            </section>
-
-            <section className="sarc-worldline">
-                <header><small>HOT-DROP WORLDLINE · STORY 60–75%</small><b>{worldline.retrofitted ? '旧卡补铸' : '坐标已锁定'}</b></header>
-                <h2>{worldline.worldName}</h2>
-                <p>{worldline.worldPremise}</p>
-                <div><small>ACTIVE CRISIS</small><strong>当前危机</strong><span>{worldline.activeCrisis}</span></div>
-                <div><small>SHARED OBJECTIVE</small><strong>共同任务</strong><span>{worldline.sharedObjective}</span></div>
-                <div><small>COUNTDOWN</small><strong>倒计时</strong><span>{worldline.countdown}</span></div>
-            </section>
-
-            <CardDetailSection en="CURRENT IDENTITY" title="异格身份">{card.profile.identity}</CardDetailSection>
-            <CardDetailSection en="ARRIVAL POINT" title="已发生的前情">{worldline.arrivalPoint}</CardDetailSection>
-            <CardDetailSection en="LIFE PATCH" title="人生补丁">{card.profile.lifePatch}</CardDetailSection>
-            <CardDetailSection en="RELATIONSHIP" title="与你的关系">{card.profile.relationship}</CardDetailSection>
-            <CardDetailSection en="RELATIONSHIP ANCHOR" title="现实关系门牌">{worldline.relationshipAnchor}</CardDetailSection>
-            <CardDetailSection en="PATCH COST" title="补丁代价">{card.profile.patchCost}</CardDetailSection>
-            <CardDetailSection en="CLIMAX CHOICE" title="高潮命题">{worldline.climaxChoice}</CardDetailSection>
-            <CardDetailSection en="BEHAVIOR SHIFT" title="稳定偏移">{card.profile.behaviorShift}</CardDetailSection>
-
-            <section className={`sarc-opening ${run ? 'is-awake' : ''}`}>
-                <div className="sarc-opening__top"><small>SCENE 00 · HOT DROP</small><b>{run ? `${run.interactionsUsed} / ${run.maxInteractions}` : 'READY'}</b></div>
-                <p>{card.profile.openingScene}</p>
-                <blockquote><b>{card.charName}</b>{card.profile.openingLine}</blockquote>
-                <div>{card.profile.playerPrompt}</div>
-            </section>
-
-            <div className="sarc-result__actions">
-                {!run ? (
-                    <button type="button" className="is-primary" onClick={onStartRun}><Play size={14} weight="fill" /> 坠入异世界 <span>从危机现场开始 · 创建 0 / 50 世界线</span></button>
-                ) : isActive ? (
-                    <button type="button" className="is-primary" onClick={onEnterRun}><Play size={14} weight="fill" /> 进入第 {Math.min(run.interactionsUsed + 1, run.maxInteractions)} 轮 <span>{phase.label} · 世界线不会停下来等待</span></button>
-                ) : (
-                    <button type="button" onClick={onEnterRun}>查看封存记录 <span>重启仍需要凯恩的模块</span></button>
-                )}
-                <button type="button" onClick={onAssemble}>继续铸造</button>
-            </div>
-        </main>
-    );
+    return <main className="sarc-reader-card">
+        <div className="sarc-card-reading">
+            <div className="sarc-card-byline"><CharacterPortrait char={{name:card.charName,avatar:card.charAvatar||''}}/><span>{card.charName}<small>{worldline.worldName}</small></span></div>
+            <h2>{card.profile.title}</h2><p className="sarc-card-logline">{card.profile.logline}</p>
+            <section className="sarc-card-opening"><h3>故事的开头</h3><p>{card.profile.openingScene}</p><blockquote><span>{card.charName}</span>{card.profile.openingLine}</blockquote></section>
+            <details className="sarc-card-fold"><summary>你们在这里的身份</summary><h3>{card.charName}</h3><p>{card.profile.identity}</p><h3>与你的关系</h3><p>{card.profile.relationship}</p><h3>{userMask.title}</h3><p>{userMask.identity}</p><p>{userMask.lifePatch}</p></details>
+            <details className="sarc-card-fold"><summary>这张卡的背景</summary><h3>来自两枚模块</h3><p>{variant?.title||card.variantId} · {story?.title||card.storyId}</p><h3>这个世界</h3><p>{worldline.worldPremise}</p><h3>已发生的前情</h3><p>{worldline.arrivalPoint}</p><h3>另一段人生</h3><p>{card.profile.lifePatch}</p><h3>角色坚持的事</h3><p>{card.profile.steelSeal}</p><h3>随之而来的代价</h3><p>{card.profile.patchCost}</p><h3>表达与行为</h3><p>{card.profile.behaviorShift}</p></details>
+            <p className="sarc-card-limit">一次故事最多五十次互动。你可以探索、陪伴，也可以只过眼前的生活。</p>
+            <button type="button" className="sarc-card-another" onClick={onAssemble}>再铸一张异格</button>
+        </div>
+        <footer className="sarc-card-start"><button type="button" aria-label={!run?'进入故事':run.status==='active'?'继续故事':'重读这段故事'} onClick={run?onEnterRun:onStartRun}><Play size={16} weight="fill"/>{!run?'进入故事':run.status==='active'?'继续故事':'重读这段故事'}{run&&<small>{run.interactionsUsed} / {run.maxInteractions}</small>}</button></footer>
+    </main>;
 };
 
 const shortDate = (timestamp: number) => new Date(timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
@@ -321,6 +264,7 @@ export const SARAssemblyCabinetOverlay: React.FC<{
     }, [shelf, simulationState.cards, characterNotes, characters, selectedCharId]);
 
     useEffect(() => {
+        if (view === 'session') return;
         const target = window as Window & { render_game_to_text?: () => string; advanceTime?: (ms: number) => void };
         const renderState = () => JSON.stringify({
             mode: 'sar-cabinet',
@@ -334,7 +278,7 @@ export const SARAssemblyCabinetOverlay: React.FC<{
             activeCard: activeCard?.profile.title || null,
             activeNote: activeNote?.title || null,
             notesLoading,
-            surface: view === 'assemble' || (view === 'session' && sessionTheme === 'dark') ? 'machine-dark' : 'archive-light',
+            surface: view === 'assemble' ? 'machine-dark' : 'archive-light',
         });
         const advanceTime = (_ms: number) => { /* DOM 过渡不需要独立时钟 */ };
         target.render_game_to_text = renderState;
@@ -386,14 +330,14 @@ export const SARAssemblyCabinetOverlay: React.FC<{
     const paperSurface = view !== 'assemble' && !(view === 'session' && sessionTheme === 'dark');
 
     return (
-        <div className={`sarc-root ${paperSurface ? 'is-paper-surface' : 'is-machine-surface'}`} role="dialog" aria-modal="true" aria-label="SAR 异格陈列柜">
+        <div className={`sarc-root ${paperSurface ? 'is-paper-surface' : 'is-machine-surface'} ${view==='card'||view==='session'?'is-reading-surface':''}`} role="dialog" aria-modal="true" aria-label="SAR 异格陈列柜">
             <SARCabinetStyle />
             <div className="sarc-grid-bg" />
-            <header className="sarc-header">
-                <button type="button" onClick={handleBack} aria-label={view === 'cards' ? '离开异格陈列柜' : view === 'session' ? '返回身份卡' : '返回异界史册'}>{view === 'cards' ? <X size={18} /> : <CaretLeft size={19} />}</button>
+            {view !== 'session' && <header className="sarc-header">
+                <button type="button" onClick={handleBack} aria-label={view === 'cards' ? '离开异格陈列柜' : '返回异界史册'}>{view === 'cards' ? <X size={18} /> : <CaretLeft size={19} />}</button>
                 <div><small>SAR ACTIVITY SPACE · CABINET</small><h1>{headerTitle}</h1></div>
-                <button type="button" className="sarc-header__records" onClick={() => view === 'cards' ? openAssembly() : setView('cards')} disabled={loading || view === 'session'}><span>{view === 'session' && activeRun ? activeRun.interactionsUsed : view === 'cards' ? '＋' : simulationState.cards.length}</span><i>{view === 'session' ? '/ 50' : view === 'cards' ? '铸造' : '史册'}</i></button>
-            </header>
+                <button type="button" className="sarc-header__records" onClick={() => view === 'cards' ? openAssembly() : setView('cards')} disabled={loading}><span>{view === 'cards' ? '＋' : simulationState.cards.length}</span><i>{view === 'cards' ? '铸造' : '史册'}</i></button>
+            </header>}
 
             {view === 'session' && activeCard && activeRun ? <SARSimulationSession
                 card={activeCard}
@@ -403,6 +347,7 @@ export const SARAssemblyCabinetOverlay: React.FC<{
                 userProfile={userProfile}
                 onRunChange={() => setSimulationState(readSARSimulationState())}
                 onThemeChange={setSessionTheme}
+                onBack={handleBack}
             /> : view === 'card' && activeCard ? <IdentityCardView card={activeCard} run={activeRun} onStartRun={startRun} onEnterRun={() => setView('session')} onAssemble={openAssembly} /> : view === 'note' && activeNote ? <CharacterNoteView note={activeNote} actor={characters.find(char => char.id === activeNote.actorId)} /> : view === 'cards' ? <CabinetRecordsView
                 shelf={shelf} onShelfChange={setShelf} characters={characters} selectedCharId={selectedCharId} onSelectChar={setSelectedCharId}
                 cards={simulationState.cards} runs={simulationState.runs} notes={characterNotes} notesLoading={notesLoading}
@@ -430,16 +375,16 @@ export const SARAssemblyCabinetOverlay: React.FC<{
                         <div className="sarc-start__summary"><span>{selectedChar ? <><Check size={11} />角色已确认</> : '尚未选择角色'}</span><span>{variant && story ? <><Check size={11} />双槽已锁定</> : `${Number(!!variant) + Number(!!story)} / 2 槽位`}</span></div>
                         <button type="button" className={loading ? 'is-loading' : ''} disabled={!selectedChar || !variant || !story || loading} onClick={forge}>
                             {loading ? <><CircleNotch size={17} className="animate-spin" /> 正在编译异世界</> : <><Fingerprint size={17} /> 铸造异世界异格</>}
-                            <small>{loading ? 'COMPILING HOT-DROP WORLDLINE' : '永久收藏 · 从剧情中后段投放'}</small>
+                            <small>{loading ? '正在写下开场' : '永久收藏 · 开始一段共同经历'}</small>
                         </button>
                         {error && <p className="sarc-error">{error}</p>}
-                        <p>模块不会被消耗。LLM 会同时生成角色异格、User 面具、当前危机与五十轮剧情引擎。</p>
+                        <p>模块不会被消耗。一次生成角色身份、你的异界身份与故事开场。</p>
                     </section>
                 </main>
             )}
 
             {picker && <ModulePicker pool={picker} collection={gachaState.collection} onClose={() => setPicker(null)} onChoose={module => { picker === 'variant' ? setVariant(module) : setStory(module); setPicker(null); }} />}
-            {loading && <div className="sarc-processing" aria-live="polite"><div className="sarc-processing__rings"><i /><i /><i /></div><span>正在编译异世界坐标</span><div className="sarc-processing__steps"><b>铸造双身份</b><b>锁定危机</b><b>写入钢印</b></div><small>PLEASE KEEP THE CABINET OPEN</small></div>}
+            {loading && <div className="sarc-processing" aria-live="polite"><div className="sarc-processing__rings"><i /><i /><i /></div><span>正在编译异世界坐标</span><div className="sarc-processing__steps"><b>铸造双身份</b><b>写下开场</b><b>写入钢印</b></div><small>PLEASE KEEP THE CABINET OPEN</small></div>}
         </div>
     );
 };

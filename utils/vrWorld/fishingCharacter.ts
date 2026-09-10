@@ -2,7 +2,7 @@ import type { CharacterProfile } from '../../types';
 import { DB } from '../db';
 import {
     FISH_CATALOG, availableCatches, buyListing, catchValue, commentOnPost, createListing, createRequest, fulfillRequest,
-    logMarketEvent, mutateFishingMarket, readFishingMarketState, removeMarketPost, speciesById,
+    logMarketEvent, marketCatchSnapshot, mutateFishingMarket, readFishingMarketState, removeMarketPost, speciesById,
     type FishingCatch, type FishingMarketState, type MarketActor, type MarketLedgerItem,
 } from './fishingMarket';
 
@@ -53,8 +53,12 @@ export const buildMarketTurn = (actor: MarketActor, state: FishingMarketState) =
     const view = {
         balance:state.accounts[actor.id],
         catalog:FISH_CATALOG.map(f=>({speciesId:f.id,name:f.name})),
-        inventory:availableCatches(state,actor.id).slice(-30).map(c=>({id:c.id,speciesId:c.speciesId,name:speciesById(c.speciesId)?.name,value:catchValue(state,c)})),
-        listings:state.listings.filter(p=>p.status==='open').slice(-18).map(p=>({id:p.id,by:p.alias||p.sellerName,mine:p.sellerId===actor.id,item:p.itemLabel,price:p.price,note:p.note,comments:p.comments.slice(-6).map(c=>({by:c.alias||c.authorName,text:c.content}))})),
+        inventory:availableCatches(state,actor.id).slice(-30).map(c=>({...marketCatchSnapshot(state,c),name:speciesById(c.speciesId)?.name,value:catchValue(state,c)})),
+        listings:state.listings.filter(p=>p.status==='open').slice(-18).map(p=>{
+            const caught=state.inventory.find(c=>c.id===p.catchId);
+            return {id:p.id,by:p.alias||p.sellerName,mine:p.sellerId===actor.id,item:p.itemLabel,goodsKind:p.catchId?'item':'text',
+                specimen:p.catchSnapshot||(caught?marketCatchSnapshot(state,caught):undefined),price:p.price,note:p.note,comments:p.comments.slice(-6).map(c=>({by:c.alias||c.authorName,text:c.content}))};
+        }),
         requests:state.requests.filter(p=>p.status==='open').slice(-18).map(p=>({id:p.id,by:p.alias||p.authorName,mine:p.authorId===actor.id,kind:p.kind,speciesId:p.speciesId,item:p.itemLabel,price:p.offer,body:p.body,comments:p.comments.slice(-6).map(c=>({by:c.alias||c.authorName,text:c.content}))})),
         recent:state.ledger.filter(e=>e.participants.includes(actor.id)).slice(-10).map(e=>({facts:e.text,quotes:e.quotes})),
     };
@@ -63,15 +67,15 @@ export const buildMarketTurn = (actor: MarketActor, state: FishingMarketState) =
 ${JSON.stringify(view)}
 你可以低价挂单、用自定义匿名笔名吐槽、发“给我钱”打赏需求、认真交易、回一串问号，或者安静路过。陌生路人只是游戏路人，不应脑补已有交情。
 仅选一个动作，代码会再次检查余额、库存与便笺状态。成功之前不能说已经成交。回应过去已成功的交易（例如真有人给你钱）时，可以在同一轮决定跑去留言簿/私聊说一声。
-buy 买挂单；fulfill 响应需求（item 必须有鱼，tip 从你余额给发帖人，favor 交付 WORDS）；comment 回复任一种便笺；list 出售库存或玩笑商品；request 发布需求；remove 撤自己的便笺；browse 只看。
+buy 买挂单（goodsKind=item 才有实物；text 只买文字约定，不会获得标题里的物种）；fulfill 响应需求（item 必须有对应藏品并指定 CATCH，tip 从你余额给发帖人，favor 交付 WORDS）；comment 回复任一种便笺；list 出售库存或玩笑商品；request 发布需求；remove 撤自己的便笺；browse 只看。
 <ACTION>buy/fulfill/comment/list/request/remove/browse</ACTION>
 <TARGET>buy/fulfill/comment/remove 时抄实际便笺完整id</TARGET>
-<CATCH>list 实物时抄库存完整id；自定义文字商品留空</CATCH>
+<CATCH>list 实物或 fulfill 实物需求时，选择要交付的那一件并抄库存完整id；文字商品、招募、打赏留空</CATCH>
 <SPECIES>request 的 item 需求填写实际speciesId；其他留空</SPECIES>
 <KIND>request 时 item=道具需求/favor=文字或帮忙/tip=求打赏</KIND>
 <LABEL>自定义商品或需求名称</LABEL>
 <PRICE>list/request 时的整数价格，可以0（tip须大于0）</PRICE>
-<ALIAS>可选的本次匿名笔名；不选留空</ALIAS>
+<ALIAS>可选的本次匿名笔名；留空时回复自己的匿名便笺会沿用原笔名，其他发言显示本名</ALIAS>
 <WORDS>挂单说明/需求正文/回复/交付内容</WORDS>
 <NOTE>真实随笔，反映打算以及已经知道的过去事实，不提前捏造本轮成功结果</NOTE>
 <SHARE>none/guestbook/dm</SHARE>
@@ -79,7 +83,7 @@ buy 买挂单；fulfill 响应需求（item 必须有鱼，tip 从你余额给�
 };
 export const applyMarketPlan = (state: FishingMarketState, actor: MarketActor, p: MarketPlan): FishingMarketState => {
     if(p.action==='buy')return buyListing(state,p.targetId,actor);
-    if(p.action==='fulfill')return fulfillRequest(state,p.targetId,actor,p.words);
+    if(p.action==='fulfill')return fulfillRequest(state,p.targetId,actor,p.words,Date.now(),p.catchId);
     if(p.action==='comment')return commentOnPost(state,p.targetId,actor,p.words,p.alias);
     if(p.action==='remove')return removeMarketPost(state,p.targetId,actor.id);
     if(p.action==='request')return createRequest(state,actor,p.speciesId||undefined,p.label||speciesById(p.speciesId)?.name||'给我钱',p.price,p.words,Date.now(),p.kind,p.alias);

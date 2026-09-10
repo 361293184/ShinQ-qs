@@ -10,6 +10,7 @@
 import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage } from '../../types';
 import { VRRoomDef, SIGNAL_ACTS } from './constants';
 import { ReadingWindow, groupAnnotationsBySeg } from './novel';
+import { kanataTitleActivityPrompt } from './kanataTitle';
 
 /** 给一条已有批注生成一个稳定的短标签，供"吐槽别人的吐槽"引用。 */
 function annLabel(a: VRNovelAnnotation): string {
@@ -19,7 +20,7 @@ function annLabel(a: VRNovelAnnotation): string {
 /**
  * 虚拟世界的世界观 + 当前房间说明 + 输出格式。追加到角色 systemPrompt 之后。
  */
-export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: 'fishing' | 'market' | 'garden'): string {
+export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: 'fishing' | 'market' | 'garden', title?: string): string {
     return [
         `\n\n=== 你进入了《彼方》 ===`,
         `《彼方》是一款真实存在、你会亲自进入去玩的 VR 社交游戏（功能上类似 VRChat）：进去后你用自己的虚拟化身（你那个亲手捏的 Q 版小人模样）四处走动、进出不同房间、撞见别的玩家（其他角色的化身）。这不是做梦、也不是比喻——是你拿自己的空闲时间真实在做的一件事。它发生在游戏世界里，和你跟用户的现实相处是两码事、互不冲突；现在是你独自在玩、没人盯着的私人时间。`,
@@ -39,6 +40,7 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActi
         ...roomStanceLines(room.id, charName, sarActivity),
         ``,
         `完成后严格按下面的格式输出，不要有格式之外的多余文字。`,
+        kanataTitleActivityPrompt(title, sarActivity === 'fishing' || sarActivity === 'garden'),
     ].join('\n');
 }
 

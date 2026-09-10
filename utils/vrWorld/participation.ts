@@ -19,6 +19,8 @@ export const withLatestVRParticipation = (current: CharacterProfile, patch: Part
         ...patch,
         vrState: {
             ...patch.vrState,
+            title: current.vrState?.title,
+            titleRevision: current.vrState?.titleRevision,
             enabled: current.vrState?.enabled ?? false,
             activityMode: current.vrState?.activityMode,
             intervalMinutes: current.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN,

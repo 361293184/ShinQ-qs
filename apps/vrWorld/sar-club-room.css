@@ -28,3 +28,14 @@
 .sar-world-page .sar-world-heading .sar-world-eyebrow{color:#9a8c77;font-size:7px;letter-spacing:.18em}.sar-world-page .sar-world-heading .sar-world-npc-status{display:none}
 .sar-world-page .sar-world-pagination button,.sar-world-page .sar-world-pagination>span{color:#76664e!important;background:#f7f1e4!important;border-color:#b9a78b55!important;box-shadow:none}.sar-world-page .sar-world-pagination button{height:36px;width:44px}
 @media(max-width:360px){.sar-world-page .sar-world-heading h2{font-size:16px}.sar-room-hotspot span{font-size:9px;padding:2px 5px}}
+
+/* Warm ivory facility signs, plain names below feet, ornamental titles above heads. */
+.sar-room-hotspot i{width:8px;height:8px;background:#b39471;border-color:#fffaf0;box-shadow:0 0 0 3px #b3947126}
+.sar-room-hotspot span{display:flex;align-items:center;gap:4px;background:#fffaf0f5;border:1px solid #d5c2a9;border-radius:5px;padding:4px 7px;color:#69513b;font-size:10px;font-weight:500;box-shadow:0 2px 0 #8d6d4a2e}
+.sar-room-hotspot span svg{flex-shrink:0;opacity:.85}
+.sar-room-hotspot:hover span,.sar-room-hotspot:focus-visible span{background:#f2e5d0;border-color:#b99c78}
+.sar-room-person__name{top:calc(100% + 2px);border-radius:2px;padding:1px 4px;background:#fffdf4a6;color:#413f37;font-size:9px;font-weight:500;text-shadow:0 1px 2px #fff;line-height:1.45}
+.sar-room-person__title{position:absolute;bottom:calc(100% + 3px);left:50%;transform:translateX(-50%);max-width:106px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 8px;color:#8b6229;font:500 9px/15px 'Noto Serif SC',serif;letter-spacing:.02em;text-shadow:0 1px 2px #fff,0 -1px 2px #fff;background:linear-gradient(90deg,#fffaf000,#fffaf0e8 18%,#fffaf0e8 82%,#fffaf000);border-bottom:1px solid #bb91594d;pointer-events:none}
+
+.sar-room-ui-hidden .sar-room-person__name,.sar-room-ui-hidden .sar-room-person__title,.sar-room-ui-hidden .sar-room-person__quest,.sar-room-ui-hidden .sar-room-hotspots,.sar-room-ui-hidden .sar-room-roster{display:none}
+.sar-room-ui-hidden .sar-room-person__fallback{font-size:0}

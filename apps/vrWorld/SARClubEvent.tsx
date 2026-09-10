@@ -27,7 +27,7 @@ export const SARUpdateModal: React.FC<{
                         <div className="text-[9px] tracking-[0.36em] text-indigo-200/55">UPDATE</div>
                         <h2 id="sar-update-title" className="mt-2 text-[24px] tracking-[0.16em] text-white" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>彼方活动室</h2>
                         <div className="mt-5 h-px" style={{ background: 'linear-gradient(90deg,rgba(196,190,255,.45),transparent)' }} />
-                        <p className="mt-4 text-[12.5px] leading-7 text-white/68">彼方的第二页已更新为 SAR 活动空间。<br />里面似乎已经有人先到了。</p>
+                        <p className="mt-4 text-[12.5px] leading-7 text-white/68">彼方新增了独立的 SAR 活动空间。<br />里面似乎已经有人先到了。</p>
                         <button type="button" onClick={onContinue} className="mt-6 flex w-full items-center justify-center gap-1.5 rounded-full py-3 text-[13px] font-semibold text-[#171326] active:scale-[0.985] transition-transform" style={{ background: 'linear-gradient(120deg,#e8e4ff,#beb7ee)' }}>
                             查看更新 <CaretRight size={14} weight="bold" />
                         </button>
@@ -61,6 +61,7 @@ export const SARClubStage: React.FC<{
     onOpenModuleShop: () => void;
     onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
     fullPage?: boolean;
+    labelsHidden?: boolean;
 }> = ({fullPage:_,...props}) => <SARClubRoom {...props}/>;
 
 export const SARCaianDialogue: React.FC<{

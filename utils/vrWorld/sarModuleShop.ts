@@ -1,3 +1,5 @@
+import { readSARCommerceValue } from './sarCommerceStorage';
+
 export type SARModuleCategory = 'voice' | 'bond' | 'genre' | 'stage';
 
 export interface SARModuleConfigurationDefinition {
@@ -56,7 +58,7 @@ export interface SARModuleConsumeResult {
 }
 
 export const SAR_MODULE_SHOP_STORAGE_KEY = 'vr_sar_module_shop_v1';
-export const SAR_MODULE_SHOP_DEVELOPMENT_MODE = true;
+export const SAR_MODULE_SHOP_DEVELOPMENT_MODE = false;
 export const SAR_MODULE_DAILY_OFFER_COUNT = 5;
 export const SAR_MODULE_DAILY_ROLLS = 3;
 
@@ -386,10 +388,9 @@ const normalizeState = (value: unknown, now = new Date(), random = Math.random):
     const raw = value as Partial<SARModuleShopState>;
     const inventory = Object.fromEntries(Object.entries(raw.inventory || {})
         .filter(([id, count]) => catalogById.has(id) && typeof count === 'number' && Number.isFinite(count) && count > 0)
-        .map(([id, count]) => [id, clampInt(count, 1, 999)]));
+        .map(([id, count]) => [id, clampInt(count, 1, Number.MAX_SAFE_INTEGER)]));
     const purchases = Array.isArray(raw.purchases) ? raw.purchases
         .filter((entry): entry is SARModulePurchase => Boolean(entry && catalogById.has(entry.moduleId)))
-        .slice(-100)
         .map(entry => ({
             id: String(entry.id || `sar_purchase_${entry.purchasedAt || Date.now()}`),
             moduleId: entry.moduleId,
@@ -422,7 +423,7 @@ const getStorage = (): Storage | null => {
 };
 
 const persistState = (state: SARModuleShopState, storage = getStorage()) => {
-    try { storage?.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify(state)); } catch { /* storage unavailable */ }
+    storage?.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify(state));
     return state;
 };
 
@@ -431,14 +432,13 @@ export const readSARModuleShopState = (
     now = new Date(),
     random = Math.random,
 ) => {
+    const raw = storage ? readSARCommerceValue(SAR_MODULE_SHOP_STORAGE_KEY, storage) : null;
     try {
-        const parsed = JSON.parse(storage?.getItem(SAR_MODULE_SHOP_STORAGE_KEY) || 'null');
+        const parsed = JSON.parse(raw || 'null');
         const state = normalizeState(parsed, now, random);
-        storage?.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify(state));
         return state;
     } catch {
         const state = createSARModuleShopState(now, random);
-        try { storage?.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
         return state;
     }
 };
@@ -499,9 +499,9 @@ export const purchaseSARModule = (
             moduleId: moduleIdValue,
             purchasedAt,
             pricePaid,
-        }].slice(-100),
+        }],
     };
-    persistState(next, (options.storage ?? getStorage()) as Storage | null);
+    persistState(next, (options.storage === undefined ? getStorage() : options.storage) as Storage | null);
     return { ok: true, state: next };
 };
 

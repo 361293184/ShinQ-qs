@@ -4,12 +4,13 @@ import {
     getSARModules,
     isSARFreeDrawAvailable,
     readSARGachaState,
-    drawSARModule,
     type SARModuleAccent,
     type SARModuleDefinition,
     type SARModulePool,
     type SARGachaState,
 } from '../../utils/vrWorld/sarGacha';
+import { drawSARModuleWithPayment, ensureSARCommerce, newSARPurchaseId, readSARCommerce, SAR_EXTRA_DRAW_PRICE } from '../../utils/vrWorld/sarCommerce';
+import { FISHING_MARKET_STORAGE_KEY } from '../../utils/vrWorld/fishingMarket';
 
 const ACCENT_COLORS: Record<SARModuleAccent, string> = {
     blue: '#79b8ef',
@@ -24,9 +25,6 @@ const ACCENT_COLORS: Record<SARModuleAccent, string> = {
 
 type GachaPhase = 'idle' | 'drawing' | 'capsule' | 'opening' | 'revealed';
 type GachaView = 'machine' | 'collection';
-
-// 临时开发开关：测试期间允许无限抽取，且不写入每日额度。
-const SAR_GACHA_DEVELOPMENT_MODE = true;
 
 const poolCopy = (pool: SARModulePool) => pool === 'variant'
     ? { cn: '异界异格', en: 'ISEKAI VARIANT', prompt: '这一次，TA 会成为谁？', hint: '抽取一枚可以装载给任意角色的异世界身份', count: 25 }
@@ -85,12 +83,12 @@ const PoolSwitch: React.FC<{
 }> = ({ pool, state, disabled, onChange }) => (
     <div className="sarg-pool-switch" role="tablist" aria-label="选择卡池">
         {(['variant', 'story'] as SARModulePool[]).map(item => {
-            const available = SAR_GACHA_DEVELOPMENT_MODE || isSARFreeDrawAvailable(item, state);
+            const available = isSARFreeDrawAvailable(item, state);
             return (
                 <button key={item} type="button" role="tab" aria-selected={pool === item} disabled={disabled}
                     className={pool === item ? 'is-active' : ''} onClick={() => onChange(item)}>
                     <span>{poolCopy(item).cn}</span>
-                    <small>{SAR_GACHA_DEVELOPMENT_MODE ? '开发模式' : available ? '今日免费' : '明日再来'}</small>
+                    <small>{available ? '今日免费' : `${SAR_EXTRA_DRAW_PRICE} 鳞币 / 次`}</small>
                 </button>
             );
         })}
@@ -192,6 +190,20 @@ export const SARGachaOverlay: React.FC<{
     const [pool, setPool] = useState<SARModulePool>('variant');
     const [phase, setPhase] = useState<GachaPhase>('idle');
     const [state, setState] = useState<SARGachaState>(() => readSARGachaState());
+    const [balance, setBalance] = useState(0);
+    const [ready, setReady] = useState(false);
+    const [paying, setPaying] = useState(false);
+    const [error, setError] = useState('');
+    const payingRef = useRef(false);
+    useEffect(() => {
+        let live = true;
+        const refresh = () => { try { const value = readSARCommerce(); if (live) { setState(value.gacha); setBalance(value.balance); } } catch (cause) { if(live)setError(cause instanceof Error ? cause.message : '余额读取失败'); } };
+        void ensureSARCommerce().then(value => { if(live){setState(value.gacha);setBalance(value.balance);setReady(true);} }).catch(cause=>{if(live)setError(cause.message);});
+        const onStorage = (event: StorageEvent) => { if(event.key === FISHING_MARKET_STORAGE_KEY)refresh(); };
+        window.addEventListener('vr-fishing-market-updated',refresh);window.addEventListener('storage',onStorage);window.addEventListener('focus',refresh);
+        const timer = window.setInterval(refresh,30000);
+        return()=>{live=false;window.clearInterval(timer);window.removeEventListener('vr-fishing-market-updated',refresh);window.removeEventListener('storage',onStorage);window.removeEventListener('focus',refresh);};
+    },[]);
     const [result, setResult] = useState<SARModuleDefinition | null>(null);
     const [firstCopy, setFirstCopy] = useState(false);
     const [detail, setDetail] = useState<SARModuleDefinition | null>(null);
@@ -211,8 +223,9 @@ export const SARGachaOverlay: React.FC<{
             screen: view,
             pool,
             phase,
-            developmentMode: SAR_GACHA_DEVELOPMENT_MODE,
-            freeDrawAvailable: SAR_GACHA_DEVELOPMENT_MODE || isSARFreeDrawAvailable(pool, state),
+            balance,
+            price: isSARFreeDrawAvailable(pool, state) ? 0 : SAR_EXTRA_DRAW_PRICE,
+            freeDrawAvailable: isSARFreeDrawAvailable(pool, state),
             collectedUnique: Object.keys(state.collection).filter(id => state.collection[id] > 0).length,
             result: result ? { id: result.id, title: result.title, group: result.group } : null,
         });
@@ -224,22 +237,22 @@ export const SARGachaOverlay: React.FC<{
             gameWindow.render_game_to_text = previousRender;
             gameWindow.advanceTime = previousAdvance;
         };
-    }, [phase, pool, result, state, view]);
+    }, [phase, pool, result, state, view, balance]);
 
     const schedule = (callback: () => void, normalDelay: number) => {
         if (timer.current !== null) window.clearTimeout(timer.current);
         timer.current = window.setTimeout(callback, reducedMotion.current ? 80 : normalDelay);
     };
 
-    const startDraw = () => {
-        if (phase !== 'idle') return;
-        const draw = drawSARModule(pool, undefined, new Date(), Math.random, SAR_GACHA_DEVELOPMENT_MODE);
-        setState(draw.state);
-        if (!draw.ok) return;
-        setResult(draw.module);
-        setFirstCopy(draw.firstCopy);
-        setPhase('drawing');
-        schedule(() => setPhase('capsule'), 1550);
+    const startDraw = async () => {
+        if (phase !== 'idle' || payingRef.current || !ready) return;
+        payingRef.current=true;setPaying(true);setError('');
+        try {
+            const draw = await drawSARModuleWithPayment(pool,{requestId:newSARPurchaseId(),maxCost:isSARFreeDrawAvailable(pool,state)?0:SAR_EXTRA_DRAW_PRICE});
+            setState(draw.gacha);setBalance(draw.balance);setResult(draw.module);setFirstCopy(draw.firstCopy);
+            setPhase('drawing');schedule(() => setPhase('capsule'), 1550);
+        } catch(cause) { setError(cause instanceof Error?cause.message:'抽取未完成，没有扣款'); }
+        finally { payingRef.current=false;setPaying(false); }
     };
 
     const openCapsule = () => {
@@ -260,9 +273,10 @@ export const SARGachaOverlay: React.FC<{
         setResult(null);
     };
 
-    const available = SAR_GACHA_DEVELOPMENT_MODE || isSARFreeDrawAvailable(pool, state);
+    const free = isSARFreeDrawAvailable(pool, state);
+    const available = ready && (free || balance >= SAR_EXTRA_DRAW_PRICE);
     const collectedUnique = Object.keys(state.collection).filter(id => state.collection[id] > 0).length;
-    const busy = phase === 'drawing' || phase === 'capsule' || phase === 'opening';
+    const busy = paying || phase === 'drawing' || phase === 'capsule' || phase === 'opening';
 
     return (
         <div className={`sarg-root sarg-root--${pool} sarg-root--${phase}`} role="dialog" aria-modal="true" aria-label="SAR 异世界异格扭蛋机">
@@ -312,11 +326,12 @@ export const SARGachaOverlay: React.FC<{
                                     <p className="sarg-machine-status">正在对齐分歧坐标……</p>
                                 ) : (
                                     <>
-                                        <div className="sarg-draw-panel__meta"><span>{SAR_GACHA_DEVELOPMENT_MODE ? '开发模式' : '今日配额'}</span><b>{SAR_GACHA_DEVELOPMENT_MODE ? '无限抽取' : available ? '免费 1 次' : '已领取'}</b></div>
-                                        <button type="button" className="sarg-draw-button" disabled={!available} onClick={startDraw}>
-                                            <span>{available ? '启动扭蛋' : '等待明日校准'}</span><small>{available ? `${SAR_GACHA_DEVELOPMENT_MODE ? '开发抽取' : '免费抽取'} · ${poolCopy(pool).cn}` : 'DAILY DRAW USED'}</small>
+                                        <div className="sarg-draw-panel__meta"><span>我的鳞币</span><b>{balance}</b></div>
+                                        <button type="button" className="sarg-draw-button" disabled={!available||paying} onClick={()=>void startDraw()}>
+                                            <span>{paying?'正在保存…':!ready?'正在读取…':available?(free?'今日免费抽取':`支付 ${SAR_EXTRA_DRAW_PRICE} 鳞币抽取`):'鳞币不足'}</span><small>{poolCopy(pool).cn}</small>
                                         </button>
-                                        <p>{SAR_GACHA_DEVELOPMENT_MODE ? '抽取不会消耗每日额度 · 关闭开发模式后恢复限制' : '两个卡池各有一次免费机会 · 每日 00:00 重置'}</p>
+                                        <p>{available?'两池每天各免费一次，其后每次 30 鳞币。':'可以去钓鱼、逛布告板赚取鳞币，也可以明天再免费抽取。'}</p>
+                                        {error&&<p role="alert" style={{color:'#bd795e'}}>{error}</p>}
                                     </>
                                 )}
                             </div>

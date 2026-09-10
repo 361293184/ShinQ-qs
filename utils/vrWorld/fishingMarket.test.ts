@@ -8,14 +8,14 @@ const user: M.MarketActor = {id:'user',name:'我',kind:'user'};
 const a: M.MarketActor = {id:'a',name:'艾文',kind:'character'};
 const b: M.MarketActor = {id:'b',name:'另一位',kind:'character'};
 const now = new Date('2026-09-06T12:00:00+08:00').getTime();
-const init = () => M.ensureMarketDay(M.ensureActorAccounts(M.createFishingMarketState(42),[user,a,b]),now);
+const init = () => M.ensureMarketDay(M.ensureActorAccounts({...M.createFishingMarketState(42),accounts:{user:1000,a:1000,b:1000}},[user,a,b]),now);
 const fish = (owner=a,id='fish-1',speciesId='glass-minnow'): M.FishingCatch => ({id,speciesId,ownerId:owner.id,ownerName:owner.name,caughtAt:now,weather:'rain',weatherLabel:'有雨',weatherSource:'simulated',sizeCm:23.4,quality:2});
 beforeEach(()=>localStorage.clear());
 
 describe('local fishing economy',()=>{
     it('initializes independent wallets only once',()=>{
-        const s=init();s.accounts.a=0;
-        expect(M.ensureActorAccounts(s,[a,b]).accounts).toEqual({user:1000,a:0,b:1000});
+        const s=M.ensureActorAccounts(M.createFishingMarketState(42),[user,a]);s.accounts.a=0;
+        expect(M.ensureActorAccounts(s,[a,b]).accounts).toEqual({user:120,a:0,b:120});
     });
     it('keeps daily weather/prices stable, worlds independent, yesterday real even after absence',()=>{
         const s=init(); expect(M.ensureMarketDay(s,now+1000).prices).toEqual(s.prices);
@@ -78,6 +78,47 @@ describe('local fishing economy',()=>{
         expect(()=>M.buyListing(s,id,b,now+M.MARKET_DAY_MS)).toThrow();expect(()=>M.commentOnPost(s,id,b,'晚到','',now+M.MARKET_DAY_MS)).toThrow();
         const expired=M.ensureMarketDay(s,now+M.MARKET_DAY_MS);expect(expired.listings[0]).toMatchObject({status:'expired',note:'原文',comments:[{content:'原回复'}]});expect(M.availableCatches(expired,'a',now+M.MARKET_DAY_MS)).toHaveLength(1);
         expect(()=>M.removeMarketPost(s,id,'b',now)).toThrow();expect(M.removeMarketPost(s,id,'a',now).listings[0].status).toBe('removed');
+    });
+    it('keeps the post owner anonymous when replying without a new alias',()=>{
+        let s=M.createListing(init(),a,null,0,'原文',now,'一句晚安','月亮交易员');
+        s=M.commentOnPost(s,s.listings[0].id,a,'还在哦','',now);
+        expect(s.listings[0].comments[0].alias).toBe('月亮交易员');
+        expect(s.ledger.at(-1)?.text).not.toContain(a.name);
+        expect(s.ledger.at(-1)?.quotes?.[0].name).toBe('月亮交易员');
+        s=M.createRequest(s,a,undefined,'一句鼓励',0,'',now,'favor','匿名发帖人');
+        s=M.commentOnPost(s,s.requests[0].id,a,'谢谢','',now);
+        expect(s.requests[0].comments[0].alias).toBe('匿名发帖人');
+        s=M.commentOnPost(s,s.requests[0].id,b,'加油','',now);
+        expect(s.requests[0].comments[1].alias).toBeUndefined();
+    });
+    it('delivers the chosen specimen and archives it without taking another of the same species',()=>{
+        let s=M.addCatchToState(M.addCatchToState(init(),fish(b,'precious')),fish(b,'chosen'));
+        s=M.createRequest(s,a,'glass-minnow','求鱼',20,'',now);
+        expect(()=>M.fulfillRequest(s,s.requests[0].id,b,'',now)).toThrow('选择');
+        s=M.fulfillRequest(s,s.requests[0].id,b,'这条给你',now,'chosen');
+        expect(s.inventory.find(c=>c.id==='precious')?.ownerId).toBe(b.id);
+        expect(s.inventory.find(c=>c.id==='chosen')?.ownerId).toBe(a.id);
+        expect(s.requests[0].fulfilledCatch).toMatchObject({id:'chosen',speciesId:'glass-minnow',quality:2,sizeCm:23.4});
+        expect(s.accounts).toMatchObject({a:980,b:1020});
+    });
+    it('never substitutes another specimen when the chosen one becomes unavailable',()=>{
+        let s=M.addCatchToState(M.addCatchToState(init(),fish(b,'other')),fish(b,'chosen'));
+        s=M.createRequest(s,a,'glass-minnow','求鱼',20,'',now);
+        s=M.createListing(s,b,s.inventory.find(c=>c.id==='chosen')!,10,'',now);
+        const snapshot=JSON.stringify(s);
+        expect(()=>M.fulfillRequest(s,s.requests[0].id,b,'',now,'chosen')).toThrow();
+        expect(JSON.stringify(s)).toBe(snapshot);
+        expect(()=>M.fulfillRequest(s,s.requests[0].id,b,'',now,'missing')).toThrow();
+    });
+    it('keeps the listed specimen details in the archive even after it leaves inventory',()=>{
+        let s=M.createListing(M.addCatchToState(init(),fish(a)),a,fish(a),20,'实物',now);
+        s=M.buyListing(s,s.listings[0].id,b,now);
+        s=M.handleCollection(s,b,'fish-1','release',now);
+        M.saveFishingMarketState(s);
+        const restored=M.readFishingMarketState();
+        expect(restored.inventory).toHaveLength(0);
+        expect(restored.listings[0]).toMatchObject({status:'sold',buyerName:b.name,catchSnapshot:{id:'fish-1',speciesId:'glass-minnow',quality:2,sizeCm:23.4}});
+        expect(restored.listings[0].catchSnapshot).not.toHaveProperty('ownerName');
     });
     it('retains >250 assets, rejects corrupted storage, retries catch without duplication',()=>{
         let s=init();for(let i=0;i<260;i++)s=M.addCatchToState(s,fish(a,'f'+i));M.saveFishingMarketState(s);

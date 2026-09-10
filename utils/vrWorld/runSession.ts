@@ -1,3 +1,6 @@
+import { acquireCharacterModule, consumeCharacterModule, characterModuleAllowance, characterModuleCount } from './sarCharacterCommerce';
+import { newSARPurchaseId } from './sarCommerce';
+import { applyKanataTitle, extractKanataTitle } from './kanataTitle';
 /**
  * 「彼方」会话运行器 —— 一次自主登入的完整闭环。
  *
@@ -211,16 +214,18 @@ function readTaggedValue(raw: string, tag: string): string {
     return match?.[1]?.trim() || '';
 }
 
-function buildSARModuleShopTurn(charName: string, module: SARModuleDefinition, canUseOnUser: boolean, userName: string): string {
+function buildSARModuleShopTurn(charName: string, module: SARModuleDefinition, canUseOnUser: boolean, userName: string, available = true): string {
     return `你这次在彼方的 SAR 活动空间逛模块商店，并选中了「${module.title}」。
 模块作用：${module.description}
+${available ? `这枚模块已有库存，或可用你自己的 ${module.price} 鳞币购买；你也可以只逛不买。` : '你今天的零用预算不足，手里也没有这枚模块；只能浏览、研究展示或吐槽，不能买下、赠送或装载。'}
 ${canUseOnUser
         ? `${userName} 此刻也在 SAR，且明确允许角色对自己使用模块。请根据 ${charName} 的性格与双方关系，决定是当场对 ${userName} 装载，还是只买下来研究。`
-        : '用户此刻不满足被装载条件，你只能购买、研究或吐槽，禁止声称已对用户装载。'}
+        : '用户此刻不满足被装载条件，你可以看展示、研究或吐槽，禁止声称已对用户装载。'}
 
 请写一段具体、符合角色的自由活动记录，不要泛泛概括。严格输出：
 <ACTIVITY>第三人称一句话概述，20~55字</ACTIVITY>
 <NOTE>角色自己的详细随笔/吐槽，60~180字</NOTE>
+<BUY>${available ? 'YES 或 NO，是否想用自己的钱买下；已有库存则不重复扣款' : 'NO'}</BUY>
 <USE_ON_USER>${canUseOnUser ? 'YES 或 NO' : 'NO'}</USE_ON_USER>`;
 }
 
@@ -345,6 +350,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         let fishingCatch: FishingCatch | null = null;
         const fishingActor: MarketActor = { id: char.id, name: char.name, kind: 'character' };
         let sarShopModule: SARModuleDefinition | null = null;
+        let sarShopAvailable = false;
         let sarCanUseOnUser = false;
         const recallNames = new Set<string>();
         const recallExtra: string[] = [];
@@ -487,11 +493,17 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             } else if (sarMode === 'module-shop') {
                 // 自主活动没有用户填写参数的交互，不抽取需要字面配置的模块。
                 const compatible = SAR_MODULE_CATALOG.filter(module => module.supportsUserTarget && !module.configuration);
-                sarShopModule = compatible[Math.floor(Math.random() * compatible.length)] || SAR_MODULE_CATALOG[0] || null;
+                const wallet = readFishingMarketState();
+                const owned = compatible.filter(module => characterModuleCount(wallet, char.id, module.id) > 0);
+                const affordable = compatible.filter(module => module.price <= characterModuleAllowance(wallet, fishingActor));
+                const choices = owned.length ? owned : affordable.length ? affordable : compatible;
+                sarShopModule = choices[Math.floor(Math.random() * choices.length)] || null;
+                sarShopAvailable = Boolean(owned.length || affordable.length);
                 if (!sarShopModule) return { ok: false, room: 'sar', reason: 'no-module' };
                 const uv = userProfile.vrState;
                 sarCanUseOnUser = Boolean(
                     updateUserProfile
+                    && sarShopAvailable
                     && uv?.allowCharacterModules === true
                     && uv.enabled
                     && uv.currentRoom === 'sar'
@@ -499,7 +511,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                 );
                 if (sarCanUseOnUser && userProfile.name) recallNames.add(userProfile.name);
                 recallExtra.push(`SAR 模块商店「${sarShopModule.title}」`);
-                roomTurn = buildSARModuleShopTurn(char.name, sarShopModule, sarCanUseOnUser, userProfile.name || '用户');
+                roomTurn = buildSARModuleShopTurn(char.name, sarShopModule, sarCanUseOnUser, userProfile.name || '用户', sarShopAvailable);
             } else {
                 sarScenario = rollSARCharacterCabinetScenario(char, characters, userProfile);
                 if (sarScenario.target.kind !== 'wanderer') recallNames.add(sarScenario.target.name);
@@ -569,7 +581,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             stripImages: true,
         });
         const systemPrompt = payload.systemPrompt + buildVRSystemAddendum(room, char.name,
-            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined);
+            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined, char.vrState?.title);
 
         // 调 LLM（记录一次调用，供"调用记录"对账）
         const baseUrl = vrApi.baseUrl.replace(/\/+$/, '');
@@ -596,6 +608,9 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         }
         let aiContent: string = data.choices?.[0]?.message?.content || '';
         aiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        const titleProposal = extractKanataTitle(aiContent, sarMode === 'fishing' || sarMode === 'garden');
+        aiContent = titleProposal.content;
+        if (!aiContent.trim()) return { ok: false, room: room.id, reason: 'empty' };
 
         const prevState = char.vrState || { enabled: true, intervalMinutes: VR_DEFAULT_INTERVAL_MIN };
         let activity = '';
@@ -806,7 +821,19 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             const parsedActivity = readTaggedValue(aiContent, 'ACTIVITY');
             const note = readTaggedValue(aiContent, 'NOTE');
             const wantsUser = /^yes$/i.test(readTaggedValue(aiContent, 'USE_ON_USER'));
-            const usedOnUser = Boolean(sarCanUseOnUser && wantsUser && updateUserProfile);
+            if (!parsedActivity && !note) return { ok: false, room: 'sar', reason: 'empty' };
+            const wantsBuy = /^yes$/i.test(readTaggedValue(aiContent, 'BUY')) || wantsUser;
+            let acquired = false;
+            let settlementFailed = false;
+            if (sarShopAvailable && wantsBuy) {
+                try { await acquireCharacterModule(fishingActor, sarShopModule.id, newSARPurchaseId()); acquired = true; }
+                catch { settlementFailed = true; }
+            }
+            let usedOnUser = Boolean(acquired && sarCanUseOnUser && wantsUser && updateUserProfile);
+            if (usedOnUser) {
+                try { await consumeCharacterModule(char.id, sarShopModule.id); }
+                catch { usedOnUser = false; settlementFailed = true; }
+            }
             await updateCharacter(char.id, {
                 vrState: {
                     ...prevState,
@@ -829,21 +856,19 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                     }));
                 } catch { /* SSR */ }
             }
-            activity = parsedActivity || (usedOnUser
-                ? `在 SAR 模块商店挑中了「${sarShopModule.title}」，还趁你在场时装到了你身上。`
-                : `在 SAR 模块商店买下「${sarShopModule.title}」，研究了好一阵。`);
+            activity = usedOnUser
+                ? `在 SAR 模块商店用自己的「${sarShopModule.title}」为你装载。`
+                : acquired ? `在 SAR 模块商店研究「${sarShopModule.title}」，模块留在自己的仓库里。`
+                : `在 SAR 模块商店看了看「${sarShopModule.title}」，这次没有购买或装载。`;
             cardLines = [
-                '「彼方 · SAR 模块商店」',
-                nameLine(char.name, activity),
+                '「彼方 · SAR 模块商店」', nameLine(char.name, activity),
                 `模块：${sarShopModule.title} · ${sarShopModule.effectLabel}`,
             ];
-            if (note) cardLines.push(`随笔：${note}`);
-            if (usedOnUser) cardLines.push(`装载：已对你生效 · 5 次成功互动`);
-            meta = {
-                vrCard: true,
-                room: 'sar',
-                activity,
-                behavior: note || undefined,
+            // Do not publish imagined purchases after a declined or stale settlement.
+            if (note && acquired && !settlementFailed) cardLines.push(`随笔：${note}`);
+            if (usedOnUser) cardLines.push('装载：已使用角色自己的一枚模块 · 5 次成功互动');
+            meta = { vrCard: true, room: 'sar', activity,
+                behavior: acquired && !settlementFailed ? note || undefined : undefined,
                 sarModuleShop: { moduleId: sarShopModule.id, moduleTitle: sarShopModule.title, usedOnUser },
             };
         } else if (room.id === 'sar' && sarScenario) {
@@ -967,6 +992,11 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         }
 
         if (!(room.id === 'sar' && sarMode === 'fishing')) await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'vr_card', content: cardLines.join('\n'), metadata: meta });
+        // Only a successfully parsed and saved activity can change the title, and only its actor.
+        if (titleProposal.title !== undefined) {
+            try { await deps.updateCharacter(char.id, current => applyKanataTitle(current, char.vrState, titleProposal.title!)); }
+            catch (error) { console.warn('[VRWorld] Activity saved; optional title update failed', error); }
+        }
 
         // 记忆管线（fire-and-forget）
         try {

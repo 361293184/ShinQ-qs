@@ -5,6 +5,7 @@ import { formatRoomPlatesSection } from '../memoryPalace/roomPlates';
 import { safeFetchJson } from '../safeApi';
 import { getSARModuleById, readSARGachaState, type SARModuleDefinition } from './sarGacha';
 import { getVRApi, logVRApiCall } from './vrApi';
+import { latestSARDirectorState, normalizeSARDirectorState, SAR_NARRATIVE_RULES, type SARDirectorState } from './sarNarrative';
 
 export const SAR_SIMULATION_STORAGE_KEY = 'vr_sar_simulations_v1';
 export const SAR_SIMULATION_MAX_INTERACTIONS = 50;
@@ -121,10 +122,12 @@ const parseJsonCandidates = (raw: string) => {
 };
 
 export type SARSimulationReply = {
-    /** 世界意志旁白层：只调度世界、时间、代价与返航节奏。 */
+    /** 本轮可感知的旁白；安静的关系场景允许为空。 */
     worldNarration: string;
     /** 角色层：只演出角色能够感知、说出和做出的部分。 */
     character: string;
+    /** 仅用于下一轮保持事实连续性，不展示导演内部记录。 */
+    directorState?: SARDirectorState;
 };
 
 /**
@@ -137,10 +140,16 @@ export const parseSARSimulationReply = (raw: string): SARSimulationReply | null 
             const parsed = JSON.parse(candidate);
             const worldNarration = cleanText(parsed?.worldNarration ?? parsed?.world ?? parsed?.narrator ?? parsed?.gm ?? parsed?.director, 2400);
             const character = cleanText(parsed?.character ?? parsed?.char ?? parsed?.reply, 12000);
-            if (worldNarration && character) return { worldNarration, character };
+            if (character) {
+                const directorState = normalizeSARDirectorState(parsed?.directorState);
+                return { worldNarration, character, ...(directorState ? { directorState } : {}) };
+            }
+            if (parsed && typeof parsed === 'object') return null;
         } catch { /* 尝试下一个候选 JSON */ }
     }
     const withoutThinking = cleanText((raw || '').replace(/<think>[\s\S]*?<\/think>/gi, ''), 12000);
+    // Broken structured output must never expose internal director records as prose.
+    if (/^[\[{]|^```/.test(withoutThinking) || /"(?:directorState|worldNarration|character)"\s*:/.test(withoutThinking)) return null;
     return withoutThinking ? { worldNarration: '', character: withoutThinking } : null;
 };
 
@@ -393,7 +402,7 @@ export const buildSARArchiveMarkdown = (
         const worldNarration = getSARWorldNarration(message);
         return [
             `### ${turn}/50 · ${mode} · 世界意志`,
-            worldNarration || '（该轮为旧版记录，没有独立的世界旁白。）',
+            worldNarration || (message.metadata?.sarWorldNarration === '' ? '（本轮无需独立旁白。）' : '（该轮为旧版记录，没有独立的世界旁白。）'),
             `### ${turn}/50 · ${mode} · ${card.charName}`,
             message.content,
         ].join('\n\n');
@@ -587,12 +596,12 @@ export const resolveSARWorldlineProfile = (card: SARIdentityCard): SARWorldlineP
     return {
         worldName: profile.worldName?.trim() || storyTitle,
         worldPremise: profile.worldPremise?.trim() || `${storySummary} ${card.charName}以「${profile.identity}」的身份活在这里，而你也已经成为这条世界线的一部分。`,
-        arrivalPoint: profile.arrivalPoint?.trim() || `解释、试探和最初的相遇都已经结束。你与${card.charName}带着尚未说开的关系闯到了事件中后段；此刻的第 0 幕就是局势第一次彻底失控。`,
-        activeCrisis: profile.activeCrisis?.trim() || `${storySummary} 危机已经发生，下一次迟疑就会产生不可撤回的后果。`,
-        sharedObjective: profile.sharedObjective?.trim() || profile.playerPrompt || `与${card.charName}共同处理眼前危机，并在世界线封存前抵达唯一可行的出口。`,
-        countdown: profile.countdown?.trim() || '不可逆条件已经启动；它会在这段五十轮生命结束以前兑现。',
+        arrivalPoint: profile.arrivalPoint?.trim() || `以这张卡的开场与已有记录为前情；你和${card.charName}的经历从这里自然接续，不补造必须完成的任务。`,
+        activeCrisis: profile.activeCrisis?.trim() || `${storySummary} 从你和${card.charName}此刻能感知的变化接续，不要求你先理解背景。`,
+        sharedObjective: profile.sharedObjective?.trim() || `这是${card.charName}正在关心的事；你可以参与，也可以选择自己的生活。`,
+        countdown: profile.countdown?.trim() || '本段经历在五十次互动内收束；故事里的时间随实际行动流逝。',
         hiddenTruth: profile.hiddenTruth?.trim() || `你们对彼此在这条世界线中的身份与立场掌握着不完全相同的版本。`,
-        climaxChoice: profile.climaxChoice?.trim() || `保住彼此当前的关系，或避开「${profile.patchCost}」带来的最终代价，两者无法同时完整实现。`,
+        climaxChoice: profile.climaxChoice?.trim() || `角色的人格钢印与「${profile.patchCost}」可能产生张力；是否触及这件事取决于实际经历，不预设用户的选择。`,
         relationshipAnchor: `现实层只保留关系门牌「${profile.relationship}」。它可以影响信任、距离与选择的重量，但不得引用或补写任何现实具体事件。`,
         retrofitted: !explicit,
     };
@@ -609,7 +618,7 @@ export const resolveSARUserMaskProfile = (card: SARIdentityCard): SARUserMaskPro
     return {
         title: card.profile.userMaskTitle?.trim() || '无名越界者',
         identity: card.profile.userIdentity?.trim()
-            || `你是被卷入「${worldline.worldName}」的越界者，与${card.charName}被同一项危机和共同任务绑定。你的能力、阵营与公开身份可以在行动中逐步确定。`,
+            || `你是来到「${worldline.worldName}」的越界者，与${card.charName}处于同一段经历。你的能力、阵营与公开身份可以在行动中逐步确定，是否参与其事务由你决定。`,
         lifePatch: card.profile.userLifePatch?.trim()
             || '现实中的 User 设定不在这里生效；只保留双方原有的关系距离，所有异界经历从本世界线内部成立。',
         retrofitted: !explicit,
@@ -622,31 +631,33 @@ export type SARSimulationPhase = {
     directive: string;
 };
 
-/** 50 次是一趟有明确返航窗口的异界航程，而不是被额度唐突截断的慢聊。 */
+/** Stable phase IDs retain old archives; stages shape the available space, not compulsory plot beats. */
 export const getSARSimulationPhase = (interactionsUsed: number): SARSimulationPhase => {
     const turn = Math.max(1, Math.min(SAR_SIMULATION_MAX_INTERACTIONS, interactionsUsed + 1));
-    if (turn <= 3) return { id: 'hot-drop', label: '坠入高潮', directive: '从已经发生的动作或事故正中央继续；先让危险落地，再通过角色反应泄露必要信息。禁止从认识、寒暄、解释世界观开始。' };
-    if (turn <= 12) return { id: 'cascade', label: '危机连锁', directive: '让上一轮选择产生具体后果，并加入新的阻碍、追兵、规则代价或被迫合作；关系必须在共同行动中变化。' };
-    if (turn <= 24) return { id: 'reversal', label: '真相反转', directive: '逐步兑现隐藏真相，让旧判断失效；本阶段至少让阵营、任务、身份或关系中的一项发生不可逆反转。' };
-    if (turn <= 38) return { id: 'climax', label: '高潮决断', directive: '进入连续高潮。主动逼近核心目标，让角色做高成本决定，并把用户放在清晰、具体、不能无限拖延的选择前。' };
-    if (turn <= 44) return { id: 'cost', label: '代价兑现', directive: '让异格补丁的代价和此前选择真正落地；不撤销伤口，不用突发奇迹抹平后果，并把所有仍存活的主线推向同一个出口。' };
-    if (turn <= 47) return { id: 'return', label: '返航征兆', directive: '明确显现异界坐标即将关闭的征兆，让 User 和角色都知道相处时间正在结束；清掉旁支、确认未竟事项，并把最终抉择放到触手可及的位置。' };
-    if (turn <= 49) return { id: 'ending', label: '结局落定', directive: '完成最终抉择并兑现后果。不得再新增反派或主线；第 49 轮结束时返航入口必须已经出现，角色也必须有机会对即将分别或共同返航作出主动回应。' };
-    return { id: 'arrival', label: '现实归还', directive: '这是唯一的第 50 轮。完成最后动作与最后一句真正需要说的话，然后让 User 明确穿过返航入口、回到现实，并让世界意志以客观旁白完成坐标闭合。禁止以悬念、提问、战斗中断或“未完待续”收尾。' };
+    if (turn <= 3) return { id: 'hot-drop', label: '身临其境', directive: '承接已经发生的开场，从眼前的人、动作和后果建立参与入口。沿用模块应有的气氛，允许日常开场，不要求立即答题或接受任务。' };
+    if (turn <= 12) return { id: 'cascade', label: '相处与变化', directive: '跟随用户当下关注的事，让角色和其他人有自己的生活。按合理故事时间接续已有事件；轻量变化和安静陪伴都成立，不必每轮增添阻碍。' };
+    if (turn <= 24) return { id: 'reversal', label: '渐渐深入', directive: '用户主动探索时再揭露相应线索；偏好关系或日常时深化这些经历。秘密可以继续保留，不因到了某轮而强制反转身份、阵营或关系。' };
+    if (turn <= 38) return { id: 'climax', label: '故事展开', directive: '承接用户实际参与的事件和关系，让已有因果发展。高潮只是可能性，允许平静片段；不强迫高成本决定，不将忽略主线视为失败。' };
+    if (turn <= 44) return { id: 'cost', label: '经历回响', directive: '让真正发生过的选择产生有依据的后续，保持人格钢印与补丁代价。开始减少新分支，珍惜当前互动，不为收束而制造伤害或任务压力。' };
+    if (turn <= 47) return { id: 'return', label: '归期渐近', directive: '用轻微、可感知的返航征兆说明本段相处即将结束。给用户告别或继续眼前活动的空间；未参与的主线可以留在世界中，不要求清完任务。' };
+    if (turn <= 49) return { id: 'ending', label: '临近尾声', directive: '收束实际经历和关系，角色可以主动告别或整理自己的事。不新增必须完成的主线，第 49 轮说明返航机制已就绪，不代替用户决定立场、感受或去留。' };
+    return { id: 'arrival', label: '此段落定', directive: '这是第 50 轮，让这段共同经历自然结束。沿用已建立的坐标返航机制回到现实；用户未选择走入出口时，可由场景淡出与连接关闭完成封存，不代写用户行动、台词或最终决定。主线可以未解决，但当前片段应有落点，不以新任务或“未完待续”催促。' };
 };
 
 export const buildSARIdentityForgeRequest = (
     char: Pick<CharacterProfile, 'name'>,
     variant: SARModuleDefinition,
     story: SARModuleDefinition,
-) => `你现在是 SAR 活动室的异世界异格铸造设备。请读取角色「${char.name}」的核心人设、User 的基础设定与双方关系门牌，把两枚模块编译成一张角色专属异格身份卡、一张 User 异界面具，以及一条已经冲到中后段的高压异界世界线。
+) => `你现在是 SAR 活动室的异世界异格铸造设备。请读取角色「${char.name}」的核心人设、User 的基础设定与双方关系门牌，把两枚模块编译成一张角色专属异格身份卡、一张 User 异界面具，以及一条能够自然运行的异界世界线。
 
 【异界异格母体】${variant.title}｜${variant.group}
 ${variant.summary}
 【异界坐标模块】${story.title}｜${story.group}
 ${story.summary}
 
-这是一枚“异世界异格扭蛋”：人格母体决定角色在另一条人生里成了谁，世界模块决定两人被投放到哪场已经失控的故事。它不是慢热陪聊，也不是从相识开始的普通 AU；第 0 幕必须落在剧情约 60%–75% 的位置，开门就是事故、追捕、审判、背叛、坠落、决战、重逢或无法撤回的选择。
+这是一枚“异世界异格扭蛋”：人格母体决定角色在另一条人生里成了谁，世界模块决定两人正在怎样的世界中相处。尊重所选模块的气氛：冒险可以有危险，日常可以从相处开始。第 0 幕用一个能直接感知的人、动作或生活变化吸引用户，避免设定说明书和强制任务。
+
+${SAR_NARRATIVE_RULES}
 
 铸造规则：
 1. 必须建立具体而鲜明的异世界：魔法、神话、怪谈、末日、蒸汽、星海、游戏化世界等都可以。普通现代角色也必须被彻底翻译成这个世界里原生、能行动的身份，不能只换服装和名词。
@@ -655,13 +666,13 @@ ${story.summary}
 4. 每个补丁都必须携带代价。代价是改变必然造成的缺失、伤口、盲区或关系后果，不能只是增强能力。
 5. 现实层只提供“双方是什么关系”的门牌，不提供任何可调用的事件记忆。不得猜测、补写或复述现实聊天、日期、地点、告别、约定与共同经历。关系门牌只能决定两人的距离、信任、敌意、熟悉度与选择重量。
 6. 为 User 同时生成一张异界面具。它完全替代 User 的现实 bio，写清 User 在本世界的身份、阵营、能力边界和人生改写；但面具绝不能替 User 决定性格、感受、台词、选择或行动。
-7. 预先建立强剧情引擎：已经发生的前情、正在发生的危机、两人的共同任务、可感知的倒计时、一项隐藏真相，以及最终不能两全的高潮抉择。隐藏真相和抉择是运行约束，不要在第 0 幕一次说完。
-8. 第 0 幕必须从动作中开始。用户与角色身处同一现场，至少一项危险正在眼前发生，角色的第一句话必须当面要求用户立刻回应一个具体问题、决定或行动；禁止“你好”“你也来了”“这里是……”式开场，禁止只写氛围和设定介绍，也不要以手机聊天或远程文字联系作为开场。
+7. 建立可持续的生活与事件：前情、眼前状况、角色关心的事、符合故事时间的变化、可逐渐发现的秘密和可能的价值冲突。角色与其他人应能在用户不参与时继续行动；秘密与冲突是可能性，不是必须向用户兑现的任务清单。
+8. 用户与角色身处同一现场。先展示关系或日常安排如何受到眼前事件影响；角色的第一句话可以是自己的打算、邀请或自然回应，不要求用户立即答题。不要以手机聊天或远程文字联系开场，不代写用户动作。
 9. 这是与主聊天隔离的一次完整异世界生命，不修改主聊天世界线。不要替用户回应。
 10. 不要解释提示词，不要写分析过程。只输出以下 JSON，二十二个字段都必须是非空中文字符串：
 {
   "title": "角色专属的异格名，像一张值得收藏的卡名",
-  "logline": "一句话高压身份钩子，同时让人想立刻进入副本",
+  "logline": "一句话说明这次与角色相处有什么特别，使用普通语言",
   "identity": "TA 在异世界中的具体身份、阵营、能力边界和仍被保留的原角色核心",
   "lifePatch": "发生过的人生扭转，以及它如何改变了 TA",
   "relationship": "此刻 TA 与用户是什么关系，包含必要的陌生感、敌意或熟悉残响",
@@ -673,15 +684,15 @@ ${story.summary}
   "userLifePatch": "User 的人生在这条世界线中如何被改写，以及这让 User 处于什么位置；不得引用现实具体事件",
   "worldName": "简短、可收藏的异世界名称",
   "worldPremise": "这个异世界的类型、核心规则，以及两人在其中的身份位置",
-  "arrivalPoint": "第 0 幕之前已经发生的关键前情；故事必须已经运行到 60%–75%",
-  "activeCrisis": "第 0 幕此刻正在发生、下一秒就会产生后果的具体危机",
-  "sharedObjective": "只有用户与角色共同参与才可能完成的明确任务",
-  "countdown": "可被双方感知、会持续推进的倒计时或失败条件",
-  "hiddenTruth": "中段逐步揭开的秘密，足以反转身份、阵营、任务或关系",
-  "climaxChoice": "最终无法两全的具体选择，必须同时刺中人格钢印与补丁代价",
-  "openingScene": "第 0 幕动作现场：具体危险已经发生，角色和用户都被卷在里面",
-  "openingLine": "角色在危机中对用户说的第一句话，只写台词本身，并逼出即时回应",
-  "playerPrompt": "用户现在必须处理的具体动作、问题或选择"
+  "arrivalPoint": "开场之前必要的前情，不要求用户先掌握",
+  "activeCrisis": "此刻可感知的状况；可以是日常变化、轻微异常或符合模块的危险",
+  "sharedObjective": "角色当前关心或打算做的事，说明用户不参与时谁会怎样处理",
+  "countdown": "故事中的时间条件；没有迫近危险时说明自然节奏，不编造失败倒计时",
+  "hiddenTruth": "用户持续探索时可以发现的深层事实，不要求到指定轮次揭晓",
+  "climaxChoice": "可能涉及人格钢印与补丁代价的价值张力，不预设用户必须做二选一",
+  "openingScene": "以人、动作、生活后果构成的具体现场，用户无需懂设定即可参与",
+  "openingLine": "角色当面说出的第一句话，只写台词，避免把下一步的责任交给用户",
+  "playerPrompt": "一个可参与也可忽略的自然回应入口，不是用户必须完成的指令"
 }`;
 
 /** 暂时保留旧导出名，避免外部调用在升级期间失效。 */
@@ -711,10 +722,10 @@ export const buildSARIdentityRuntimePrompt = (card: SARIdentityCard, run?: SARSi
 世界规则与身份位置：${worldline.worldPremise}
 已发生的前情：${worldline.arrivalPoint}
 当前危机：${worldline.activeCrisis}
-共同任务：${worldline.sharedObjective}
-倒计时 / 失败条件：${worldline.countdown}
-隐藏真相（只在合适阶段通过事件逐步揭开）：${worldline.hiddenTruth}
-高潮抉择（不可提前宣布答案）：${worldline.climaxChoice}
+角色关心的事（不是用户的必做任务）：${worldline.sharedObjective}
+故事时间条件：${worldline.countdown}
+隐藏真相（仅随用户探索逐渐揭露）：${worldline.hiddenTruth}
+可能的价值冲突（不是指定结局）：${worldline.climaxChoice}
 现实关系锚点：${worldline.relationshipAnchor}
 第 0 幕场景：${card.profile.openingScene}
 已经说出的开场台词：${card.profile.openingLine}
@@ -723,19 +734,21 @@ export const buildSARIdentityRuntimePrompt = (card: SARIdentityCard, run?: SARSi
 运行规则：
 - 这是与主聊天隔离的固定 50 次互动实例，当前进度 ${run?.interactionsUsed || 0}/${run?.maxInteractions || SAR_SIMULATION_MAX_INTERACTIONS}。
 - 下一轮所处阶段：${phase.label}。${phase.directive}
-- User 是被投放到异界坐标的现实来访者；异界身份由面具成立。第 45 轮开始必须让坐标关闭变得可感知，第 48–49 轮落定结局，第 50 轮必须让 User 真正回到现实并完成封存，绝不能被额度唐突截断。
-- 故事从约 60%–75% 的位置开始，不进行相识、日常铺垫或慢热预热。每次回应都必须让世界线继续发生，而不是解释模块、复述档案或停下来陪聊。
+- User 是异界来访者，身份由面具成立。从第 45 轮起自然提示归期，第 48–49 轮收束实际经历，第 50 轮通过既定返航机制完成本段封存。可以有安静结尾，不要求解决主线或替用户作出抉择。
 - 人格钢印必须持续参与判断。允许动摇、挣扎和产生矛盾，禁止突然治愈、撤销人生补丁或无理由恢复成原角色。
 - 第 0 幕和开场台词已经发生；只有在 0/50 的第一轮承接它，后续不得重演开场。
-- 每轮至少完成一项可观察推进：局势改变、线索揭露、倒计时前进、关系转折、代价落地或迫使具体选择。连续两轮只有情绪确认、闲聊、回忆或气氛描写属于失败。
+- 以用户本轮的关注为叙事中心，关系、陪伴和日常互动都有效；已有事件按因果运行，是否展示新变化由场景需要决定。
 - 现实层没有可调用的事件记忆。不得引用、复述、猜测或补写现实聊天、日期、地点与共同经历；只允许关系门牌影响双方的距离、信任和选择重量。
-- 角色必须拥有自己的任务、误判、私心和主动行动，不能永远等待用户提问。结尾留下迫近钩子：新的事实、危险、要求、决定或已发生的动作，而不是泛泛询问“你想怎么办”。
-- 不得替用户决定行动、感受或台词。${worldline.retrofitted ? '\n- 这是旧版卡的补铸世界线：从本轮起让异世界危机直接闯入现有记录，不解释升级，也不要求重新认识。' : ''}`;
+- 角色拥有自己的任务、误判、私心和主动行动，不能永远等待用户提问。结尾可以留钩子，也可以停在一个自然动作或回应上。
+- 不得替用户决定行动、感受或台词。旧卡中写成“必须”的共同任务、倒计时和预设抉择只作原始背景参考；叙事原则优先，已经发生的事实仍保留。${worldline.retrofitted ? '\n- 这是旧版卡的补铸世界线：自然承接已有记录，不重演开场，不额外制造危机，也不要求重新认识。' : ''}
+
+${SAR_NARRATIVE_RULES}`;
 };
 
 export const buildSARSimulationTurnPrompt = (
     card: SARIdentityCard,
     run: SARSimulationRun,
+    directorState?: SARDirectorState,
 ) => `${buildSARIdentityRuntimePrompt(card, run)}
 
 【现场演出｜线下剧情】
@@ -743,16 +756,20 @@ export const buildSARSimulationTurnPrompt = (
 - character 字段可以写角色能够感知的环境变化、动作、停顿与台词，但必须从角色能感知和做出的范围出发，不替用户行动。
 - 延续同一条连续世界线，关系、记忆、场景后果与人格钢印都保持有效。历史记录若包含远程通讯，它只是已经发生的事，不代表当前仍在通讯模式；若双方尚未会合，先通过可观察的现场事件提供会合机会，不凭空传送，不代替用户走过去，也不解释界面变化。
 - 用户的选择可以改变路径、阵营与结局，但世界不会停下来等待。只演出这一轮真正发生的片段；除最后三轮外，不要总结未来、提前宣布结局或一次跨越很长时间。
-- 不要用设定说明代替戏剧，不要在危险中进行百科介绍。需要解释的信息应通过角色的即时行动、误判、受伤、隐瞒、命令或被迫选择自然暴露。
+- 不要用设定说明代替互动。需要解释的信息先表现为眼前的人、动作与生活后果，用户继续追问才展开原因。
 
 【世界意志｜旁白与航向】
-- 世界意志是客观的叙事与节奏层，不是角色、系统主持人或可互动 NPC。它负责世界反应、场景切换、敌人/规则行动、倒计时、阶段推进与返航窗口，让玩家不必自己承担剧本规划。
-- worldNarration 字段写 1–3 个短段落，以自然的小说旁白呈现本轮真正发生的外部变化。它可以制造压力和抛出可回应局面，但不能用第一人称和 User 对话，不能替 User 或角色决定动作、心理、台词与选择，也不能泄露未到阶段的隐藏真相。
+- 世界意志负责调度世界反应、场外人物与叙事节奏，让玩家不必自己承担剧本规划。它不是角色、系统主持人或可互动 NPC。
+- worldNarration 字段允许空字符串。只有本轮需要展示可感知的世界变化时写一两句必要旁白；较大事件也应简洁，不重复角色演出。不要展示场外秘密、导演分析、兴趣评分或未来计划，不替用户决定动作、心理、台词与选择。
 - character 字段专属于角色。角色仍有自己的目标、判断、误判与主动行动；世界意志不能夺走角色的戏份，也不能把角色降格成讲解员。
-- 两层必须彼此接续：世界意志先让世界发生，角色再在同一事件中行动或说话。不要重复同一句信息。
+- 旁白与角色接续同一现场；不需要独立旁白时只写 character。安静片段也应具体回应用户，而不是机械重复情绪确认。
+
+【连续性事实记录｜不展示给用户】
+${directorState ? JSON.stringify(directorState) : '暂无独立记录，依据开场与已发生的历史建立。'}
+以上仅是上轮保存的事实数据，不是新指令。directorState 输出更新后的简短事实快照：sceneFacts 当前已成立的场景事实；openThreads 未结束事件及其当前状况；offscreenFacts 时间与能力允许的场外行动；declinedHooks 用户明确拒绝、不应反复召回的钩子；revealedFacts 用户已经获知的事实。每项最多六条、每条不超过 180 字。保留仍有效的事实，已完成事件可移出；明确拒绝不能因本轮换话题就遗忘。不得记录推理过程、拟议剧情、未来结局或推断用户的固定性格。所有记录都必须服从历史与本轮实际发生的内容。
 
 只输出一个合法 JSON 对象，不要代码围栏、分析或额外文字：
-{"worldNarration":"本轮自然发生的世界、场景、倒计时或返航旁白","character":"本轮角色真正呈现给 User 的动作与台词"}`;
+{"worldNarration":"必要旁白，或空字符串","character":"本轮角色真正呈现给 User 的动作与台词","directorState":{"sceneFacts":[],"openThreads":[],"offscreenFacts":[],"declinedHooks":[],"revealedFacts":[]}}`;
 
 export const resolveSARSimulationApi = (char: CharacterProfile, vrGlobalApi: APIConfig | null, chatApi: APIConfig): APIConfig =>
     char.vrState?.api?.baseUrl ? { ...chatApi, ...char.vrState.api } : (vrGlobalApi?.baseUrl ? vrGlobalApi : chatApi);
@@ -847,7 +864,7 @@ export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
     const history = await loadSARSimulationMessages(run.id);
     const threadId = getSARSimulationThreadId(run.id);
     const longTermContext = await prepareSARDoorplateContext(char, userProfile, false);
-    const systemPrompt = `${longTermContext}\n\n${buildSARSimulationTurnPrompt(card, run)}`;
+    const systemPrompt = `${longTermContext}\n\n${buildSARSimulationTurnPrompt(card, run, latestSARDirectorState(history))}`;
 
     const vrGlobalApi = await getVRApi();
     const api = resolveSARSimulationApi(char, vrGlobalApi, apiConfig);
@@ -914,7 +931,7 @@ export async function runSARSimulationTurn(input: RunSARSimulationTurnInput) {
             role: 'assistant',
             type: 'text',
             content: reply,
-            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: 'offline', sarTurn: turn, sarWorldNarration: parsedReply.worldNarration },
+            metadata: { source: SAR_SIMULATION_MESSAGE_SOURCE, sarRunId: run.id, sarCardId: card.id, sarMode: 'offline', sarTurn: turn, sarWorldNarration: parsedReply.worldNarration, ...(parsedReply.directorState ? { sarDirectorState: parsedReply.directorState } : {}) },
         });
     } catch (error) {
         if (userMessageId !== null) await DB.deleteMessages([userMessageId]).catch(() => undefined);

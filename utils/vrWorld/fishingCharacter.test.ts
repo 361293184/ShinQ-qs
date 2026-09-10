@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { applyMarketPlan, buildMarketTurn, flushMarketReceipts, marketReceiptContent, parseFishingReaction, parseMarketPlan } from './fishingCharacter';
-import { createFishingMarketState, ensureActorAccounts, logMarketEvent, readFishingMarketState, saveFishingMarketState } from './fishingMarket';
+import { addCatchToState, createListing, createRequest, createFishingMarketState, ensureActorAccounts, logMarketEvent, readFishingMarketState, saveFishingMarketState } from './fishingMarket';
 import { DB } from '../db';
 vi.mock('../db',()=>({DB:{getVRCardsByCharId:vi.fn(async()=>[]),saveMessageOnce:vi.fn(async()=>1)}}));
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();});
@@ -26,4 +26,19 @@ it('delivers both counterparties exact receipts once, never to uninvolved chars'
     await flushMarketReceipts(chars);await flushMarketReceipts(chars);expect(DB.saveMessageOnce).toHaveBeenCalledTimes(2);
     const calls=vi.mocked(DB.saveMessageOnce).mock.calls.map(c=>c[1]);expect(calls.map(c=>c.charId)).toEqual(['a','b']);expect(calls[0].content).toContain('给我钱');
     expect(readFishingMarketState().ledger[0].deliveredTo.sort()).toEqual(['a','b']);
+});
+it('distinguishes text goods from real specimens and uses the model-selected catch for fulfillment',()=>{
+    const a={id:'a',name:'A',kind:'character' as const},b={id:'b',name:'B',kind:'character' as const};
+    let s=ensureActorAccounts(createFishingMarketState(),[a,b]);
+    const fish={speciesId:'glass-minnow',ownerId:a.id,ownerName:a.name,caughtAt:Date.now(),weather:'clear' as const,weatherLabel:'晴',weatherSource:'simulated' as const,sizeCm:22,quality:1 as const};
+    s=addCatchToState(addCatchToState(s,{...fish,id:'first'}),{...fish,id:'chosen',quality:3});
+    s=createListing(s,b,null,0,'只是玩笑',Date.now(),'玻璃米鱼');
+    s=createRequest(s,b,'glass-minnow','求鱼',20,'');
+    const prompt=buildMarketTurn(a,s);
+    expect(prompt).toContain('"goodsKind":"text"');
+    expect(prompt).toContain('"quality":3');
+    const plan=parseMarketPlan(`<ACTION>fulfill</ACTION><TARGET>${s.requests[0].id}</TARGET><CATCH>chosen</CATCH><NOTE>想送这条。</NOTE>`)!;
+    const next=applyMarketPlan(s,a,plan);
+    expect(next.inventory.find(c=>c.id==='chosen')?.ownerId).toBe(b.id);
+    expect(next.inventory.find(c=>c.id==='first')?.ownerId).toBe(a.id);
 });

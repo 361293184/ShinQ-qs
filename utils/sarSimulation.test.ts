@@ -117,7 +117,9 @@ describe('SAR 推演与备份状态', () => {
             { id: 'story-01', pool: 'story', title: '敌对阵营', group: '阵营与冲突', summary: '摘要', accent: 'red', sigil: 'chain', memory: '导演层记忆' },
         );
         expect(text).toContain('异世界异格扭蛋');
-        expect(text).toContain('60%–75%');
+        expect(text).not.toContain('60%–75%');
+        expect(text).toContain('用户是参与者');
+        expect(text).not.toContain('逼出即时回应');
         expect(text).toContain('人格钢印');
         expect(text).toContain('每个补丁都必须携带代价');
         expect(text).toContain('activeCrisis');
@@ -139,14 +141,16 @@ describe('SAR 推演与备份状态', () => {
         expect(text).toContain('禁止突然治愈');
         expect(text).toContain('已经说出的开场台词：台词');
         expect(text).toContain('当前危机：处刑钟敲响');
-        expect(text).toContain('下一轮所处阶段：危机连锁');
+        expect(text).toContain('下一轮所处阶段：相处与变化');
         expect(text).toContain('面具名：失印执钥者');
         expect(text).toContain('现实层没有可调用的事件记忆');
-        expect(text).toContain('第 50 轮必须让 User 真正回到现实');
+        expect(text).toContain('第 50 轮通过既定返航机制');
+        expect(text).not.toContain('连续两轮只有情绪确认');
+        expect(text).toContain('安静不是失败');
         expect(text).not.toContain('真实告别记忆');
     });
 
-    it('五十轮按异界高压节奏推进，并在最后六轮完成返航', () => {
+    it('五十轮保留篇幅阶段，在最后六轮收束实际经历', () => {
         expect(getSARSimulationPhase(0).id).toBe('hot-drop');
         expect(getSARSimulationPhase(3).id).toBe('cascade');
         expect(getSARSimulationPhase(12).id).toBe('reversal');
@@ -158,7 +162,7 @@ describe('SAR 推演与备份状态', () => {
         expect(getSARSimulationPhase(49).directive).toContain('回到现实');
     });
 
-    it('旧身份卡无需重抽，会按原世界模块补铸高压世界线', () => {
+    it('旧身份卡无需重抽，自然接续原世界模块与既有事实', () => {
         const card = {
             id: 'old-card', charId: 'c', charName: 'C', variantId: 'variant-01', storyId: 'story-01', createdAt: 1, updatedAt: 1,
             profile: { title: '旧异格', logline: '钩子', identity: '身份', lifePatch: '补丁', relationship: '关系', memoryStance: '记忆', steelSeal: '钢印', patchCost: '代价', behaviorShift: '偏移', openingScene: '旧场景', openingLine: '旧台词', playerPrompt: '快走' },
@@ -166,7 +170,7 @@ describe('SAR 推演与备份状态', () => {
         const worldline = resolveSARWorldlineProfile(card);
         expect(worldline.retrofitted).toBe(true);
         expect(worldline.worldName).toBe('王城处刑夜');
-        expect(worldline.activeCrisis).toContain('危机已经发生');
+        expect(worldline.activeCrisis).toContain('不要求你先理解背景');
         expect(resolveSARUserMaskProfile(card)).toMatchObject({ title: '无名越界者', retrofitted: true });
         expect(buildSARIdentityRuntimePrompt(card)).toContain('旧版卡的补铸世界线');
     });

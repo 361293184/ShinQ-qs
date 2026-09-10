@@ -19,12 +19,12 @@ try{
     await page.goto((process.env.FISHING_QA_URL||'http://127.0.0.1:5177')+'/test/fixtures/kanata.html');
     await page.getByRole('button',{name:'下一页房间',exact:true}).waitFor();
     await page.screenshot({path:`${out}/01-world.png`});
-    const forward=page.getByRole('button',{name:/下一页/});await forward.click();
+    const forward=page.getByRole('button',{name:'SAR',exact:true});await forward.click();
     const waterEntry=page.getByRole('button',{name:'进入水域',exact:true});
     const boardEntry=page.getByRole('button',{name:'进入布告板',exact:true});
     assert.equal(await waterEntry.count(),1);assert.equal(await boardEntry.count(),1);
     await page.waitForFunction(() => {
-        const art = document.querySelector('.sar-club-art img');
+        const art = document.querySelector('img[alt="SAR 活动室"]');
         return art instanceof HTMLImageElement && art.complete && art.naturalWidth > 0;
     });
     assert.equal(await page.locator('.sar-world-page canvas').count(),0);
@@ -43,19 +43,19 @@ try{
     const readShared=()=>page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('vr_fishing_market_v1'));return {seed:s.seed,accounts:s.accounts,inventory:s.inventory,prices:s.prices};});
     await page.getByRole('button',{name:'离开水域',exact:true}).click();await boardEntry.click();
     await page.getByRole('dialog',{name:'彼方布告板',exact:true}).waitFor();
-    await page.getByRole('button',{name:'鱼类行情',exact:true}).waitFor();
+    await page.getByRole('button',{name:'写便笺',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'抛竿',exact:true}).count(),0);
     assert.equal(await page.getByRole('button',{name:'图鉴',exact:true}).count(),0);
     assert.equal(await page.getByRole('button',{name:'让 ta 去钓鱼',exact:true}).count(),0);
-    assert.equal(await page.getByRole('button',{name:'让 ta 逛布告板',exact:true}).count(),1);
-    assert.equal(await page.evaluate(()=>JSON.parse(window.render_game_to_text()).boardTab),'prices');
+    assert.equal(await page.getByRole('button',{name:'让 ta 逛布告板',exact:true}).count(),0);
+    assert.equal(await page.evaluate(()=>JSON.parse(window.render_game_to_text()).tab),'board');
     assert.deepEqual(await readShared(),shared);
     await page.screenshot({path:`${out}/02b-board.png`});
     await page.getByRole('button',{name:'离开布告板',exact:true}).click();
     await page.setViewportSize({width:320,height:740});
     await page.screenshot({path:`${out}/02c-small-entries.png`});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    await boardEntry.click();await page.getByRole('button',{name:'需求区',exact:true}).click();
+    await boardEntry.click();await page.getByRole('button',{name:'写便笺',exact:true}).waitFor();
     await page.screenshot({path:`${out}/02d-small-board.png`});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     await page.getByRole('button',{name:'离开布告板',exact:true}).click();await waterEntry.click();
@@ -63,7 +63,7 @@ try{
     await page.getByRole('button',{name:'图鉴',exact:true}).click();
     assert.equal(await page.getByRole('button',{name:/cm/}).count(),1);
     await page.getByRole('button',{name:'离开水域',exact:true}).click();
-    await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'前往往期活动',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'返回彼方',exact:true}).click();await page.getByRole('button',{name:'下一页房间',exact:true}).click();
     await page.getByRole('heading',{name:'往期活动',exact:true}).waitFor();await page.screenshot({path:`${out}/03-archives.png`});
     await page.getByRole('button',{name:/已封存 · 纪念馆/}).click();await page.getByText('落　幕',{exact:true}).waitFor();
     await page.screenshot({path:`${out}/04-memorial.png`});
