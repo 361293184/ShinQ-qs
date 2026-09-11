@@ -1,4 +1,4 @@
-import { rollMarketVisitor, readMarketLLMEnabled } from '../../utils/vrWorld/marketRefresh';
+import { rollMarketVisitor } from '../../utils/vrWorld/marketRefresh';
 import { SARFacilityGuide } from './SARFacilityGuide';
 import { remainingSARBuyback, SAR_DAILY_BUYBACK } from '../../utils/vrWorld/sarEconomy';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -50,17 +50,12 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const atWater=tab==='water'||tab==='catalog';
     const mainRef=useRef<HTMLElement>(null);
     const scrollPositions=useRef<Partial<Record<Tab,number>>>({});
-    const goTo=(next:Tab)=>{scrollPositions.current[tab]=mainRef.current?.scrollTop||0;setTab(next);setError('');};
+    const visitReturn=useRef<'board'|'more'>('more');
+    const goTo=(next:Tab)=>{if(next==='visit')visitReturn.current=tab==='board'?'board':'more';scrollPositions.current[tab]=mainRef.current?.scrollTop||0;setTab(next);setError('');};
     useLayoutEffect(()=>{if(mainRef.current)mainRef.current.scrollTop=scrollPositions.current[tab]||0;},[tab]);
     const [viewer,setViewer]=useState('user');
     const [busy,setBusy]=useState(false);
     const refreshInFlight = useRef(false);
-    const [boardLLM, setBoardLLM] = useState(readMarketLLMEnabled);
-    useEffect(() => {
-        const sync = () => setBoardLLM(readMarketLLMEnabled());
-        window.addEventListener('storage', sync); window.addEventListener('vr-sar-board-settings', sync);
-        return () => { window.removeEventListener('storage', sync); window.removeEventListener('vr-sar-board-settings', sync); };
-    }, []);
     const [refreshNotice, setRefreshNotice] = useState('');
     const [trip,setTrip]=useState<string|null>(null);
     const tripResultRef=useRef<HTMLDivElement>(null);
@@ -105,7 +100,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         if (refreshInFlight.current || busy || trip) return;
         refreshInFlight.current = true; setBusy(true); setError(''); setRefreshNotice('');
         try {
-            const visitor = rollMarketVisitor(characters, readMarketLLMEnabled());
+            const visitor = rollMarketVisitor(characters);
             if (visitor) {
                 setRefreshNotice(visitor.name + '正在看看布告板…');
                 const result = await onCharacterTrip(visitor, 'market');
@@ -139,11 +134,11 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
             price,draft.body,Date.now(),compose==='tip'?'tip':compose==='item'?'item':'favor',draft.alias);
     },()=>{setCompose(null);scrollPositions.current.board=0;setTab('board');if(mainRef.current)mainRef.current.scrollTop=0;});
     const runTrip=async(mode:'fishing'|'market')=>{
-        if (mode === 'market' && !readMarketLLMEnabled()) { setError('请先在 SAR 设置中开启「布告板使用模型」。'); return; }
-        const char=characters.find(c=>c.id===tripChar);if(!char||trip)return;
+        const char=characters.find(c=>c.id===tripChar);if(!char||trip||busy||refreshInFlight.current)return;
+        refreshInFlight.current=true;
         setTrip(char.id);setError('');
         try{const result=await onCharacterTrip(char,mode);if(!result.ok)throw new Error(pendingFishingTrip(readFishingMarketState(),char.id)?'这一竿的鱼获已暂存。点“继续处理这一竿”重试，不会重新抽取。':result.reason==='no-api'?'尚未配置角色或彼方 API':result.reason==='busy'?'角色正在进行另一项活动':result.reason==='empty'?'角色的回复没有给出可执行结果，这轮没有替角色编造行动':'这次活动未完成，请查看彼方调用记录');refresh();}
-        catch(e){report(e);}finally{setTrip(null);if(mode==='fishing')requestAnimationFrame(()=>tripResultRef.current?.scrollIntoView({block:'nearest',behavior:'smooth'}));}
+        catch(e){report(e);}finally{refreshInFlight.current=false;setTrip(null);if(mode==='fishing')requestAnimationFrame(()=>tripResultRef.current?.scrollIntoView({block:'nearest',behavior:'smooth'}));}
     };
     useEffect(()=>{
         if(tab==='water'&&weather)return;
@@ -174,8 +169,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         <div className="mb-2 text-[13px]">{mode==='fishing'?'角色自己的闲暇':'一起逛逛'}</div>
         <p className="fish-note mb-3">{mode==='fishing'?'由 ta 决定保留或放生，使用一次模型调用。':'让 ta 自己决定看看、交易，或留一句话。每次邀请使用一次模型调用。'}</p>
         <select className="fish-input" aria-label={mode==='fishing'?'选择去水域的角色':'选择逛布告板的角色'} value={tripChar} onChange={e=>setTripChar(e.target.value)}><option value="">选择已接入彼方的角色</option>{characters.filter(c=>c.vrState?.enabled).map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select>
-        {mode === 'market' && !boardLLM && <p className="fish-note mt-2">角色来访需要先在 SAR 设置里开启「布告板使用模型」。</p>}
-        <button disabled={!tripChar||!!trip||(mode === 'market' && !boardLLM)} className="fish-action mt-2 w-full" onClick={()=>void runTrip(mode)}>{trip?'活动进行中…':mode==='fishing'?(pendingTrip?'继续处理这一竿':'让 ta 去钓鱼'):'让 ta 逛布告板'}</button>
+        <button disabled={!tripChar||!!trip||busy} className="fish-action mt-2 w-full" onClick={()=>void runTrip(mode)}>{trip?'活动进行中…':mode==='fishing'?(pendingTrip?'继续处理这一竿':'让 ta 去钓鱼'):'让 ta 逛布告板'}</button>
         {mode==='fishing'&&latestTrip&&<div ref={tripResultRef} className="mt-3 rounded-xl bg-white/5 p-3" aria-live="polite">
             <div className="text-[13px]">{speciesById(latestTrip.catch.speciesId)?.name} · {latestTrip.catch.sizeCm} cm · {'✦'.repeat(latestTrip.catch.quality)}</div>
             <p className="fish-note mt-1">{latestTrip.status==='pending'?'鱼获已暂存，等 ta 决定去向。':latestTrip.result?.disposition==='release'?'已放生，个人图鉴记录保留。':'已放进 ta 自己的收藏柜。'}</p>
@@ -200,7 +194,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
             <span className="text-[15px] tabular-nums text-[#d4c4a4]">{state.accounts.user||0}<small className="ml-1 text-[10px]">鳞币</small></span>
             <SARFacilityGuide facility="water"/>
         </header>:<header className="board-header">
-            <button className="board-icon" onClick={()=>tab==='board'?onClose():goTo(tab==='more'?'board':'more')} aria-label={tab==='board'?'离开布告板':tab==='more'?'返回布告板':'返回更多'}><ArrowLeft size={21}/></button>
+            <button className="board-icon" onClick={()=>tab==='board'?onClose():goTo(tab==='more'?'board':tab==='visit'?visitReturn.current:'more')} aria-label={tab==='board'?'离开布告板':tab==='more'||(tab==='visit'&&visitReturn.current==='board')?'返回布告板':'返回更多'}><ArrowLeft size={21}/></button>
             <h1>{boardTitle}</h1>
             {tab==='board'&&<button className="board-icon" aria-label="布告板更多" onClick={()=>goTo('more')}><DotsThree size={25} weight="bold"/></button>}
             <SARFacilityGuide facility="board"/>
@@ -228,7 +222,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                     <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-5">{FISH_CATALOG.map(f=>{const entry=discoveries.find(e=>e.speciesId===f.id);const seen=!!entry;return <div key={f.id}><div className="flex h-24 items-center justify-center rounded-xl bg-[#c8e0ea04]"><FishArt speciesId={f.id} size={130} silhouette={!seen}/></div><div className="mt-2 text-[12px]">{seen?f.name:'未发现 · '+rarityLabel[f.rarity]}</div><div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">{f.weathers.map(w=><span className={weather?.kind===w?'text-[#bcdfbc]':'text-[#8096a1]'} key={w}>{WEATHER_LABELS[w]}{weather?.kind===w?' · 活跃':''}</span>)}</div>{seen&&<><p className="fish-note mt-1">{f.blurb}</p><p className="fish-note mt-1">{entry!.historicalIncomplete?'已记录至少':'累计获得 '}{entry!.acquisitionIds.length} 件 · 现有 {owned.filter(c=>c.speciesId===f.id).length} 件</p><p className="fish-note">{entry!.firstObtainedAt ? (entry!.historicalIncomplete?'最早已知：':'首次获得：')+new Date(entry!.firstObtainedAt).toLocaleDateString('zh-CN') : '早期获得，日期未记录'}</p></>}</div>;})}</div>
                 </>}
                 {tab==='board'&&<>
-                    <div className="board-refresh-row"><p className="board-dateline">{new Date(now).toLocaleDateString('zh-CN',{month:'long',day:'numeric'})} · 最近的便笺</p><button type="button" disabled={busy || !!trip} onClick={() => void refreshVisitors()} aria-label="刷新布告板"><ArrowsClockwise size={16}/>{refreshInFlight.current ? '来访中…' : '刷新'}</button></div>
+                    <div className="board-refresh-row"><p className="board-dateline">{new Date(now).toLocaleDateString('zh-CN',{month:'long',day:'numeric'})} · 最近的便笺</p><div className="board-refresh-actions"><button type="button" disabled={busy || !!trip} onClick={()=>goTo('visit')}>指定角色</button><button type="button" disabled={busy || !!trip} onClick={() => void refreshVisitors()} aria-label="刷新布告板"><ArrowsClockwise size={16}/>{refreshInFlight.current ? '来访中…' : '刷新'}</button></div></div>
                     {refreshNotice && <p className="board-refresh-notice" role="status">{refreshNotice}</p>}
                     <div className="board-notes">{posts.map(postRow)}</div>
                     {!posts.length&&<div className="board-empty"><PencilSimple size={28} weight="light" aria-hidden/><p>还没有便笺</p><span>写点什么，留给路过的朋友。</span></div>}
@@ -245,7 +239,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                 </>}
                 {tab==='visit'&&<>
                     {characterTripControls('market')}
-                    <section className="board-passersby"><h2>路过的朋友</h2><p className="fish-note">主页点「刷新」，会随机来两三位 NPC，默认只来本地 NPC。开启 SAR 设置里的「布告板使用模型」后，也可能遇见一位自由活动的角色。</p><button type="button" className="fish-action mt-3" onClick={()=>goTo('board')}>去刷新布告板</button></section>
+                    <section className="board-passersby"><h2>路过的朋友</h2><p className="fish-note">主页点「刷新」，随机来两三位 NPC，或一位正在彼方自由活动的角色。想让谁来，就点「指定角色」，沿用彼方的指定活动流程。</p><button type="button" className="fish-action mt-3" onClick={()=>goTo('board')}>去刷新布告板</button></section>
                 </>}
                 {tab==='archive'&&<>
                     {viewPicker}

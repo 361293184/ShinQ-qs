@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CharacterProfile } from '../types';
-import { MARKET_LLM_ENABLED_KEY, readMarketLLMEnabled, rollMarketVisitor, setMarketLLMEnabled } from './vrWorld/marketRefresh';
-import { collectSARLocalBackup, restoreSARLocalBackup } from './vrWorld/sarBackup';
+import { rollMarketVisitor } from './vrWorld/marketRefresh';
 import { createFishingMarketState, createRequest, refreshMarketNPCs } from './vrWorld/fishingMarket';
 
 const roster = [
@@ -11,25 +10,11 @@ const roster = [
 ] as CharacterProfile[];
 beforeEach(() => localStorage.clear());
 describe('布告板手动刷新', () => {
-    it('缺省、非法开关都不允许模型；仅明确开启后才抽自由活动角色', () => {
-        expect(readMarketLLMEnabled()).toBe(false);
-        expect(rollMarketVisitor(roster, false, () => .99)).toBeNull();
-        localStorage.setItem(MARKET_LLM_ENABLED_KEY, 'yes');
-        expect(readMarketLLMEnabled()).toBe(false);
-        setMarketLLMEnabled(true);
-        expect(readMarketLLMEnabled()).toBe(true);
-        expect(rollMarketVisitor(roster, true, () => .99)?.id).toBe('roaming');
-        expect(rollMarketVisitor(roster.slice(0, 2), true, () => .99)).toBeNull();
-        expect(rollMarketVisitor(roster, true, () => .1)).toBeNull();
-    });
-    it.each([false, true])('模型许可 %s 随导出导入保留，旧全量备份恢复为关闭', enabled => {
-        setMarketLLMEnabled(enabled);
-        const backup = collectSARLocalBackup(); localStorage.clear();
-        restoreSARLocalBackup(backup, { replaceMissing: true });
-        expect(readMarketLLMEnabled()).toBe(enabled);
-        expect(localStorage.getItem(MARKET_LLM_ENABLED_KEY)).toBe(String(enabled));
-        restoreSARLocalBackup(undefined, { replaceMissing: true });
-        expect(readMarketLLMEnabled()).toBe(false);
+    it('随机来访沿用彼方自由活动设置，无合适角色就抽 NPC', () => {
+        expect(rollMarketVisitor(roster, () => .99)?.id).toBe('roaming');
+        expect(rollMarketVisitor(roster.slice(0, 2), () => .99)).toBeNull();
+        expect(rollMarketVisitor(roster, () => .1)).toBeNull();
+        expect(rollMarketVisitor([], () => .99)).toBeNull();
     });
     it('一批来访两三位不同 NPC，保留原便笺、留言和钱包，不受旧半小时限制', () => {
         const at = Date.now(), original = { ...createFishingMarketState(42), accounts: { user: 20, 'wanderer:0': 0 }, lastPulseAt: at };

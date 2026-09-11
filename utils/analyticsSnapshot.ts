@@ -392,7 +392,6 @@ export function collectSARFeatureFlags(): Record<string, string> {
         SAR角色: sar.npcPreference === 'show' ? '开' : sar.npcPreference === 'hide' ? '关' : '未选择',
         SAR房间显示: sarRoomView(sar) === 'names-hidden' ? '隐藏名字' : sarRoomView(sar) === 'text-hidden' ? '隐藏文字' : sarRoomView(sar) === 'characters-hidden' ? '隐藏角色' : '全部显示',
         SAR简易钓鱼: isLocalFlagOn('vr_fishing_simple_mode', 'true') ? '开' : '关',
-        SAR布告板模型: isLocalFlagOn('vr_sar_board_llm_enabled_v1', 'true') ? '开' : '关',
         SAR对话配色: isLocalFlagOn('vr_sar_session_theme_v1', 'dark') ? '深色' : '浅色',
         周年赠礼已阅: isLocalFlagOn(ANNIVERSARY_SEEN_KEY, '1') ? '是' : '否',
     };

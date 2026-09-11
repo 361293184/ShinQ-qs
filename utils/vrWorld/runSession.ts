@@ -1,4 +1,3 @@
-import { readMarketLLMEnabled } from './marketRefresh';
 import { acquireCharacterModule, consumeCharacterModule, characterModuleAllowance, characterModuleCount } from './sarCharacterCommerce';
 import { newSARPurchaseId } from './sarCommerce';
 import { applyKanataTitle, extractKanataTitle } from './kanataTitle';
@@ -263,7 +262,6 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
 }
 async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResult> {
     const { char, characters, apiConfig, userProfile, groups, realtimeConfig, memoryPalaceConfig, updateUserProfile, forcedRoom, forcedSARActivity, forcedLetterId, manual } = deps;
-    if (forcedSARActivity === 'market' && !readMarketLLMEnabled()) return { ok: false, reason: 'board-llm-disabled' };
     if (!char.vrState?.enabled) return { ok: false, reason: 'not-enabled' };
     if (!manual && !allowsAutomaticVR(char.vrState)) return { ok: false, reason: 'manual-only' };
     const updateCharacter = (id: string, patch: Partial<CharacterProfile>) =>
@@ -462,7 +460,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         } else if (room.id === 'sar') {
             // 水域和布告板与既有设施同属 SAR，每次仍只调用一轮模型。
             const activityRoll = Math.random();
-            sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 && readMarketLLMEnabled() ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
+            sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
             if(!forcedSARActivity&&activityRoll>=.5&&activityRoll<.7&&gardenVisitAvailable(readFishingMarketState(),char.id))sarMode='garden';
             if(sarMode==='garden'){
                 const market=readFishingMarketState();

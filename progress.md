@@ -904,3 +904,9 @@ TODO — Qixi rewrite
 - Validation: full 426-file / 5,061-case suite run; the final parallel run had six timeout/cascading-lock failures in three heavy suites, all 91 cases passed when rerun with one worker. Earlier merge source-guard failures were fixed and their seven-suite / 147-case follow-up passed. New/affected board, runtime, backup and analytics tests: 120 passed. Release UI (320/390/1100), full/text/media export-import, merged real Chat settings, seven facility guides, 60-character cabinet, warehouse pages, fishing, board opt-in and global module monitor browser checks passed. Standard game client captured the actual gacha capsule and matching state with no browser error report.
 - Final pnpm build passed. TypeScript diagnostics match the pre-merge baseline exactly after normalizing line numbers (10,699-character baseline); no new diagnostics.
 - All work is local on codex/dino-cafe-art; no push or publication to master has been performed.
+
+2026-09-11 — board refresh / specified-character clarification
+- Removed the redundant board-specific model switch, permission gate, backup preference and analytics field. Random character visits now reuse Kanata's existing free-roaming participation setting; specified-character invitations reuse the established manual activity pipeline, including manual-only characters.
+- Exposed "指定角色" beside "刷新" on the board. Its existing selection page returns directly to the board when entered there. Added an immediate shared guard for refresh/invite double clicks.
+- Updated guide copy and regressions. 97 targeted tests passed. Isolated browser checks verified NPC and roaming-character refreshes, explicit invitation of a manual-only character, duplicate-click protection, direct return navigation, 320px layout and absence of the extra permission setting. Standard client state and screenshots also verified.
+- Production build passed (1m 12s).

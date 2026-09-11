@@ -64,3 +64,5 @@
 @media(prefers-reduced-motion:reduce) { .board-page {animation:none}.board-note,.board-icon {transition:none}.board-note:hover{transform:none} }
 
 .board-refresh-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.board-refresh-row .board-dateline{margin:0}.board-refresh-row button{display:flex;align-items:center;justify-content:center;gap:6px;min-width:66px;min-height:44px;border:1px solid var(--board-line);border-radius:6px;color:var(--board-accent);font-size:11px}.board-refresh-row button:disabled{opacity:.5}.board-refresh-notice{margin:0 0 16px;color:var(--board-muted);font-size:11px;line-height:1.8}
+
+.board-refresh-row{flex-wrap:wrap}.board-refresh-row .board-dateline{flex:1 1 120px}.board-refresh-actions{display:flex;gap:8px;margin-left:auto}.board-refresh-actions button{padding:0 10px}

@@ -25,7 +25,7 @@ const a={id:'a',name:'艾文',vrState:{enabled:true,intervalMinutes:120},memoryP
 const b={id:'b',name:'旁边那位',vrState:{enabled:true,intervalMinutes:120}} as any;
 const deps={char:a,characters:[a,b],userProfile:{name:'用户'} as any,apiConfig:{baseUrl:'https://model.invalid/v1',apiKey:'fake',model:'test'} as any,groups:[],updateCharacter:vi.fn(),forcedRoom:'sar' as const,manual:true};
 const answer=(text:string)=>vi.mocked(safeFetchJson).mockResolvedValue({choices:[{message:{content:text}}]});
-beforeEach(()=>{vi.restoreAllMocks();localStorage.clear();localStorage.setItem('vr_sar_board_llm_enabled_v1','true');mocks.messages=[];mocks.board={id:'board',messages:[],updatedAt:0};vi.clearAllMocks();saveFishingMarketState({...ensureActorAccounts(createFishingMarketState(42),[{id:'a',name:'艾文',kind:'character'},{id:'b',name:'旁边那位',kind:'character'},{id:'user',name:'用户',kind:'user'}]),lastPulseAt:Date.now()});});
+beforeEach(()=>{vi.restoreAllMocks();localStorage.clear();mocks.messages=[];mocks.board={id:'board',messages:[],updatedAt:0};vi.clearAllMocks();saveFishingMarketState({...ensureActorAccounts(createFishingMarketState(42),[{id:'a',name:'艾文',kind:'character'},{id:'b',name:'旁边那位',kind:'character'},{id:'user',name:'用户',kind:'user'}]),lastPulseAt:Date.now()});});
 it('manual-only participants cannot be started by a stale timer, but explicit invitations work',async()=>{
     const char={...a,vrState:{...a.vrState,activityMode:'manual'}};
     expect(await runVRSession({...deps,char,manual:false,forcedSARActivity:'market'})).toMatchObject({ok:false,reason:'manual-only'});
@@ -147,10 +147,4 @@ it('a concurrent invitation does not start a second model call for the same char
     expect(await runVRSession({...deps,forcedSARActivity:'fishing'})).toMatchObject({ok:false,reason:'busy'});
     finish({choices:[{message:{content:JSON.stringify({disposition:'keep',reaction:'留下',shareToUser:null})}}]});
     expect((await first).ok).toBe(true);expect(readFishingMarketState().fishingTrips).toHaveLength(1);
-});
-
-it('board generation needs its own explicit setting before loading context or calling a model',async()=>{
-    localStorage.removeItem('vr_sar_board_llm_enabled_v1');
-    expect(await runVRSession({...deps,forcedSARActivity:'market'})).toMatchObject({ok:false,reason:'board-llm-disabled'});
-    expect(buildChatRequestPayload).not.toHaveBeenCalled();expect(safeFetchJson).not.toHaveBeenCalled();expect(DB.getVRNovels).not.toHaveBeenCalled();
 });

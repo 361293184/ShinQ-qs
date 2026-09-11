@@ -1,4 +1,3 @@
-import { readMarketLLMEnabled, setMarketLLMEnabled } from '../../utils/vrWorld/marketRefresh';
 import { SARFacilityGuide } from './SARFacilityGuide';
 import { SARPageNav } from './SARCharacterPicker';
 import { SARFamiliarityKeepsake } from './SARFamiliarityKeepsake';
@@ -27,7 +26,6 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
 }) {
     const root = useRef<HTMLElement>(null);
     const warehouseRef = useRef<HTMLElement>(null);
-    const [boardLLM, setBoardLLM] = useState(readMarketLLMEnabled);
     const [market, setMarket] = useState<FishingMarketState | null>(null);
     const [error, setError] = useState('');
     const [ownerId, setOwnerId] = useState('user');
@@ -106,10 +104,6 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
                     <button className="sar-hub-toggle" type="button" role="switch" aria-label="显示常驻 NPC" aria-checked={npcEnabled} onClick={() => onChangeNpc(npcEnabled ? 'hide' : 'show')}><span/></button>
                 </div>
                 <p className="sar-hub-muted">{npcEnabled ? '点击房间里的他们，就能聊聊天。' : '两位常驻 NPC 已隐藏。'}<br/>扭蛋、模块、布告板和水域始终开放。</p>
-                <div className="sar-hub-setting-row"><div><h3>布告板使用模型</h3><p>默认关闭，刷新只来本地 NPC。开启后，刷新或邀请角色可以使用已配置的模型；刷新不会定时自动调用。</p></div>
-                    <button className="sar-hub-toggle" type="button" role="switch" aria-label="布告板使用模型" aria-checked={boardLLM} onClick={() => { try { setMarketLLMEnabled(!boardLLM); setBoardLLM(!boardLLM); setError(''); } catch { setError('设置未保存，请检查本地存储后再试。'); } }}><span/></button>
-                </div>
-                {error && <p role="alert" className="sar-hub-error">{error}</p>}
                 <div className="sar-hub-setting-row"><div><h3>初见回档</h3><p>重新遇见凯恩，用其他选择再走一遍初见。</p></div>
                     <button className="sar-hub-setting-action" type="button" onClick={onRequestRewind} disabled={!caianMet}>{caianMet?'回到初见前':'剧情未完成'}</button>
                 </div>
