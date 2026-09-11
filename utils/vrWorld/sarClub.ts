@@ -1,3 +1,4 @@
+import { formatSARDialogue } from './sarFamiliarity/dialogueText';
 import type {CaianExpression,AivenExpression,SARCastExpressions} from './sarArt';
 
 export const SAR_CLUB_UPDATE_VERSION = 1;
@@ -108,8 +109,8 @@ export interface SARDialogueContext {
     mentionedCharacterCard: boolean;
 }
 
-const c = (text:string,expression:CaianExpression,options:{when?:SARDialogueCondition;reaction?:AivenExpression}={}):SARDialogueLine => ({speaker:'caian',text,expression,when:options.when,...(options.reaction?{castExpressions:{aiven:options.reaction}}:{})});
-const a = (text:string,expression:AivenExpression,reaction?:CaianExpression):SARDialogueLine => ({speaker:'aiven',text,expression,...(reaction?{castExpressions:{caian:reaction}}:{})});
+const c = (text:string,expression:CaianExpression,options:{when?:SARDialogueCondition;reaction?:AivenExpression}={}):SARDialogueLine => ({speaker:'caian',text:formatSARDialogue(text),expression,when:options.when,...(options.reaction?{castExpressions:{aiven:options.reaction}}:{})});
+const a = (text:string,expression:AivenExpression,reaction?:CaianExpression):SARDialogueLine => ({speaker:'aiven',text:formatSARDialogue(text),expression,...(reaction?{castExpressions:{caian:reaction}}:{})});
 
 /**
  * 凯恩初次见面固定台词。它只驱动前端事件，不进入角色 Prompt、动态或记忆。

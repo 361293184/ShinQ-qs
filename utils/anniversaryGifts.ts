@@ -45,7 +45,7 @@ export function markAnniversaryGiftSeen(): void {
   try { localStorage.setItem(ANNIVERSARY_SEEN_KEY, '1'); } catch { /* Session guard still prevents repeats. */ }
 }
 
-/** A separate copy for this character keeps shared themes and their CSS intact. */
+/** Copy the supplied base (the event uses default purple) without rewriting shared themes. */
 export function createAnniversaryTheme(base: ChatTheme, characterId: string): ChatTheme {
   return {
     ...base,

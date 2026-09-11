@@ -60,6 +60,22 @@ it('release and share are independent; duplicate species never repeats unlock an
     const s=readFishingMarketState();expect(s.inventory).toHaveLength(0);expect(s.collectionEntries![0].acquisitionIds).toHaveLength(2);
     expect(mocks.board.messages).toHaveLength(1);expect(mocks.messages.filter(m=>m.type==='text')).toHaveLength(2);expect(safeFetchJson).toHaveBeenCalledTimes(2);
 });
+it('sells to Aiven at the end of one fishing call and retries delivery without another payment',async()=>{
+    vi.spyOn(Math,'random').mockReturnValue(0);
+    answer(JSON.stringify({disposition:'sell',reaction:'今天有收获。',saleWords:'这条你收吗？',shareToUser:{text:'把鱼卖给艾文了。'}}));
+    expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(true);
+    const saved=readFishingMarketState(),trip=saved.fishingTrips![0];
+    expect(saved.inventory).toHaveLength(0);expect(trip.sale).toBeDefined();
+    expect(saved.accounts.a).toBe(SAR_STARTING_BALANCE+trip.sale!.amount);
+    const card=mocks.messages.find(m=>m.metadata?.fishing);expect(card.metadata.fishing.decision).toBe('sell');
+    expect(card.content).toContain('艾文的成交回应');expect(card.content).toContain('这条你收吗？');
+    expect(mocks.messages.filter(m=>m.type==='text')).toMatchObject([{content:'把鱼卖给艾文了。'}]);
+    await flushFishingDeliveries([a,b]);await flushFishingDeliveries([a,b]);
+    expect(readFishingMarketState().accounts.a).toBe(saved.accounts.a);expect(safeFetchJson).toHaveBeenCalledTimes(1);
+    expect(mocks.messages.filter(m=>m.metadata?.fishing)).toHaveLength(1);
+    const backup=collectSARLocalBackup();localStorage.clear();restoreSARLocalBackup(backup,{replaceMissing:false});
+    expect(readFishingMarketState().fishingTrips![0].sale).toEqual(trip.sale);
+});
 it('API failure retains exactly one catch and retries the same snapshot',async()=>{
     vi.mocked(safeFetchJson).mockRejectedValueOnce(Error('offline'));
     expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);

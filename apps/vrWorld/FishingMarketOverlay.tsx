@@ -1,5 +1,7 @@
 import { rollMarketVisitor } from '../../utils/vrWorld/marketRefresh';
 import { SARFacilityGuide } from './SARFacilityGuide';
+import { AivenFishSaleReceipt } from './AivenFishSaleReceipt';
+import type { AivenFishSale } from '../../utils/vrWorld/fishingSale';
 import { remainingSARBuyback, SAR_DAILY_BUYBACK } from '../../utils/vrWorld/sarEconomy';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, X, Fish, BookOpen, DotsThree, PencilSimple, CaretRight, ArrowsClockwise } from '@phosphor-icons/react';
@@ -7,8 +9,8 @@ import type { CharacterProfile, RealtimeConfig, UserProfile } from '../../types'
 import {
     personalFishingCollection, pendingFishingTrip, FISH_CATALOG, WEATHER_LABELS, FISHING_MARKET_STORAGE_KEY, addCatchToState, availableCatches, buyListing, catchValue,
     commentOnPost, createFishingMarketState, createListing, createRequest, ensureActorAccounts, ensureMarketDay,
-    fulfillRequest, handleCollection, hatchEgg, listMarketActors, marketCatchSnapshot, mutateFishingMarket, readFishingMarketState,
-    removeMarketPost, resolveFishingWeather, rollFishingCatch, refreshMarketNPCs, speciesById,
+    fulfillRequest, handleCollection, hatchEgg, listMarketActors, marketActorName, marketCatchSnapshot, mutateFishingMarket, readFishingMarketState,
+    removeMarketPost, resolveFishingWeather, rollFishingCatch, refreshMarketNPCs, sellFishToAiven, speciesById,
     type FishingCatch, type FishingMarketState, type FishingWeather, type MarketCatchSnapshot, type MarketListing, type MarketRequest,
 } from '../../utils/vrWorld/fishingMarket';
 import { flushMarketReceipts } from '../../utils/vrWorld/fishingCharacter';
@@ -61,6 +63,8 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const tripResultRef=useRef<HTMLDivElement>(null);
     const [tripChar,setTripChar]=useState('');
     const [selectedCatch,setSelectedCatch]=useState<FishingCatch|null>(null);
+    const [saleReceipt,setSaleReceipt]=useState<AivenFishSale|null>(null);
+    const saleInFlight=useRef(false);
     const [compose,setCompose]=useState<Compose|null>(null);
     const [selectedPost,setSelectedPost]=useState<BoardPost|null>(null);
     const [postText,setPostText]=useState('');
@@ -95,6 +99,15 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const act=async(change:(s:FishingMarketState)=>FishingMarketState,after?:()=>void)=>{
         if(busy)return;setBusy(true);setError('');
         try{await commit(change);after?.();}catch(e){report(e);}finally{setBusy(false);}
+    };
+    const sellToAiven=async(catchId:string)=>{
+        if(busy||saleInFlight.current)return;
+        saleInFlight.current=true;setBusy(true);setError('');
+        try{
+            let receipt:AivenFishSale|undefined;
+            await commit(s=>{const sold=sellFishToAiven(s,user,catchId);receipt=sold.sale;return sold.state;});
+            setSelectedCatch(null);setSaleReceipt(receipt!);
+        }catch(e){report(e);}finally{saleInFlight.current=false;setBusy(false);}
     };
     const refreshVisitors = async () => {
         if (refreshInFlight.current || busy || trip) return;
@@ -167,12 +180,13 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const viewPicker=<select aria-label="查看谁的钱包和收藏" className="fish-input" value={viewer} onChange={e=>{setViewer(e.target.value);setInventoryPage(0);setArchivePage(0);}}>{actors.map(a=><option key={a.id} value={a.id}>{a.name} · {state.accounts[a.id]||0} 鳞币</option>)}</select>;
     const characterTripControls=(mode:'fishing'|'market')=><section className={mode==='fishing'?'fish-divider mt-5 pt-4':'board-visit'}>
         <div className="mb-2 text-[13px]">{mode==='fishing'?'角色自己的闲暇':'一起逛逛'}</div>
-        <p className="fish-note mb-3">{mode==='fishing'?'由 ta 决定保留或放生，使用一次模型调用。':'让 ta 自己决定看看、交易，或留一句话。每次邀请使用一次模型调用。'}</p>
+        <p className="fish-note mb-3">{mode==='fishing'?'由 ta 决定保留、放生或卖给艾文，使用一次模型调用。':'让 ta 自己决定看看、交易，或留一句话。每次邀请使用一次模型调用。'}</p>
         <select className="fish-input" aria-label={mode==='fishing'?'选择去水域的角色':'选择逛布告板的角色'} value={tripChar} onChange={e=>setTripChar(e.target.value)}><option value="">选择已接入彼方的角色</option>{characters.filter(c=>c.vrState?.enabled).map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select>
         <button disabled={!tripChar||!!trip||busy} className="fish-action mt-2 w-full" onClick={()=>void runTrip(mode)}>{trip?'活动进行中…':mode==='fishing'?(pendingTrip?'继续处理这一竿':'让 ta 去钓鱼'):'让 ta 逛布告板'}</button>
         {mode==='fishing'&&latestTrip&&<div ref={tripResultRef} className="mt-3 rounded-xl bg-white/5 p-3" aria-live="polite">
             <div className="text-[13px]">{speciesById(latestTrip.catch.speciesId)?.name} · {latestTrip.catch.sizeCm} cm · {'✦'.repeat(latestTrip.catch.quality)}</div>
-            <p className="fish-note mt-1">{latestTrip.status==='pending'?'鱼获已暂存，等 ta 决定去向。':latestTrip.result?.disposition==='release'?'已放生，个人图鉴记录保留。':'已放进 ta 自己的收藏柜。'}</p>
+            <p className="fish-note mt-1">{latestTrip.status==='pending'?'鱼获已暂存，等 ta 决定去向。':latestTrip.result?.disposition==='release'?'已放生，个人图鉴记录保留。':latestTrip.sale?`已卖给艾文，获得 ${latestTrip.sale.amount} 鳞币，个人图鉴记录保留。`:'已放进 ta 自己的收藏柜。'}</p>
+            {latestTrip.sale&&<AivenFishSaleReceipt sale={latestTrip.sale} sellerName={marketActorName(actors,latestTrip.catch.ownerId,latestTrip.catch.ownerName)} sellerWords={latestTrip.result?.saleWords}/>}
             {latestTrip.result&&<p className="mt-2 text-[12px] leading-6">{latestTrip.result.reaction}</p>}
             {latestTrip.result?.shareToUser&&<p className="fish-note mt-1">{latestTrip.shareSent?'ta 已在私聊里告诉你了。':'私聊分享待发送。'}</p>}
             <button className="fish-action mt-2" onClick={()=>{setViewer(tripChar);setTab('catalog');}}>查看 ta 的收藏与图鉴 →</button>
@@ -214,6 +228,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                     {viewPicker}
                     <div className="mt-4 flex items-center justify-between"><h2 className="text-[14px]">{actor.name} 的收藏</h2><span className="fish-note">{owned.length} 件 · 研究 {state.research[actor.id]||0}</span></div>
                     {actor.id!=='user'&&<p className="fish-note mt-1">你可以回看 ta 的收藏；鱼获和交易由 ta 在自己的活动中决定。</p>}
+                    {actor.id==='user'&&<p className="fish-note mt-1">点一条鱼，可以按今天的行情卖给艾文。</p>}
                     <div className="mt-3 grid grid-cols-2 gap-2">{owned.slice().reverse().slice(inventoryPage*12,inventoryPage*12+12).map(c=><button className="rounded-xl bg-[#c8e0ea08] p-3 text-left" key={c.id} onClick={()=>{setSelectedCatch(c);setError('');}}><div className="flex justify-center"><FishArt speciesId={c.speciesId} size={118}/></div><div className="mt-1 text-[12px]">{speciesById(c.speciesId)?.name}</div><div className="fish-note">{'✦'.repeat(c.quality)} · {c.sizeCm} cm{c.displayed?' · 陈列中':''}{c.incubatingUntil?' · 孵化中':''}</div></button>)}</div>
                     {!owned.length&&<p className="fish-note py-7 text-center">水箱还空着。收藏从第一竿开始。</p>}
                     {owned.length>12&&<div className="mt-3 flex justify-between"><button className="fish-action" disabled={inventoryPage===0} onClick={()=>setInventoryPage(p=>p-1)}>上一页</button><span className="fish-note">{inventoryPage+1} / {Math.ceil(owned.length/12)}</span><button className="fish-action" disabled={(inventoryPage+1)*12>=owned.length} onClick={()=>setInventoryPage(p=>p+1)}>下一页</button></div>}
@@ -254,16 +269,17 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         </main>
         {tab==='board'&&<footer className="board-footer"><button className="fish-action primary" onClick={()=>beginPost('favor')}><PencilSimple size={17}/>写便笺</button></footer>}
         </div>
+        {saleReceipt&&<Sheet title="艾文的收鱼摊" onClose={()=>setSaleReceipt(null)}><AivenFishSaleReceipt sale={saleReceipt} sellerName={user.name}/></Sheet>}
         {selectedCatch&&(()=>{const c=state.inventory.find(item=>item.id===selectedCatch.id);if(!c)return null;const f=speciesById(c.speciesId)!;const mine=c.ownerId==='user';const free=availableCatches(state,'user').some(item=>item.id===c.id);
             const collectionAct=(action:'sell'|'release'|'display'|'study'|'incubate')=>void act(s=>handleCollection(s,user,c.id,action),()=>setSelectedCatch(null));
             return <Sheet title={f.name} onClose={()=>setSelectedCatch(null)}>
                 <div className="flex justify-center py-2"><FishArt speciesId={c.speciesId} size={240} animated/></div>
                 <div className="text-center text-[13px]">{rarityLabel[f.rarity]} · {c.sizeCm} cm · {'✦'.repeat(c.quality)}</div><p className="fish-note mt-2 text-center">{f.blurb}</p>
-                <p className="fish-note mt-3">{c.ownerName} 的收藏 · {c.weatherLabel} · {c.weatherSource==='real'?'真实天气':'模拟天气'}</p>
+                <p className="fish-note mt-3">{marketActorName(actors,c.ownerId,c.ownerName)} 的收藏 · {c.weatherLabel} · {c.weatherSource==='real'?'真实天气':'模拟天气'}</p>
                 {error&&<p role="alert" className="mt-2 text-[12px] text-amber-100">{error}</p>}
                 {mine&&<p className="fish-note mt-3">今日回收额度 {remainingSARBuyback(state.buybackBudgets, 'user', now)} / {SAR_DAILY_BUYBACK} 鳞币 · 次日恢复</p>}
                 {mine&&<div className="mt-4 flex flex-wrap gap-2">
-                    <button disabled={busy||!free||catchValue(state,c)>remainingSARBuyback(state.buybackBudgets,'user',now)} className="fish-action primary" onClick={()=>collectionAct('sell')}>按行情卖出 · {catchValue(state,c)}</button>
+                    <button disabled={busy||!free||catchValue(state,c)>remainingSARBuyback(state.buybackBudgets,'user',now)} className="fish-action primary" onClick={()=>f.category==='fish'?void sellToAiven(c.id):collectionAct('sell')}>{f.category==='fish'?'卖给艾文':'按行情卖出'} · {catchValue(state,c)} 鳞币</button>
                     <button disabled={busy||!free} className="fish-action" onClick={()=>{setSelectedCatch(null);beginPost('listing',c.id);}}>自己定价挂板</button>
                     <button disabled={busy||!free} className="fish-action" onClick={()=>collectionAct('display')}>{c.displayed?'收起陈列':'放进陈列'}</button>
                     {f.category==='time-relic'&&<button disabled={busy||!free||c.studied} className="fish-action" onClick={()=>collectionAct('study')}>{c.studied?'已记录观察':'制作观察记录'}</button>}

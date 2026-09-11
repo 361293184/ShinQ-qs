@@ -1425,7 +1425,8 @@ export interface VRCardMeta {
         quality: 1 | 2 | 3;
         weatherLabel: string;
         weatherSource: 'real' | 'simulated';
-        decision: 'keep' | 'guestbook' | 'dm' | 'market' | 'release';
+        decision: 'keep' | 'guestbook' | 'dm' | 'market' | 'release' | 'sell';
+        sale?: { amount: number; at: number; replyIndex: number; reply: string; expression: string; sellerWords?: string };
         exactWords?: string;
     };
 }

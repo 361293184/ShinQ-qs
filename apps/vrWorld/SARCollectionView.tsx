@@ -5,6 +5,7 @@ import type { FishingMarketState, MarketActor } from '../../utils/vrWorld/fishin
 import { sarCollectionEntries, sarCollectionProgress, type SARCollectionCategory, type SARCollectionEntry } from '../../utils/vrWorld/sarCollection';
 import { FishArt } from './FishArt';
 import { SARFamiliarityRoster } from './SARFamiliarityRoster';
+import { SARExclusiveKeepsakes } from './SARExclusiveKeepsakes';
 import type { FamiliarityNpc } from '../../utils/vrWorld/sarFamiliarity/types';
 
 const Icons = { fish: Fish, dinosaur: PawPrint, chip: Stack, module: Cpu };
@@ -18,8 +19,9 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     backRef: React.MutableRefObject<(() => boolean) | null>;
     onOpenFamiliarity?: (npc: FamiliarityNpc, sceneId?: string) => void;
 }) {
-    const [section, setSection] = useState<'collection' | 'roster'>('collection');
-    useEffect(() => { trackSARFeature(section); }, [section]);
+    const [section, setSection] = useState<'collection' | 'roster' | 'keepsakes'>('collection');
+    useEffect(() => { if (section !== 'keepsakes') trackSARFeature(section); }, [section]);
+    const keepsakeBack = useRef<(() => boolean) | null>(null);
     const [category, setCategory] = useState<SARCollectionCategory | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [query, setQuery] = useState('');
@@ -35,7 +37,8 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     const shown = matches.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
     const collected = entries.filter(item => item.collected).length;
     const goBack = () => {
-        if (section === 'roster') { setSection('collection'); return true; }
+        if (section === 'keepsakes' && keepsakeBack.current?.()) return true;
+        if (section !== 'collection') { setSection('collection'); return true; }
         if (selectedId) { setSelectedId(null); return true; }
         if (category) { setCategory(null); return true; }
         return false;
@@ -47,7 +50,7 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     // Replacing a grid removes its focused button; keep Escape/Tab inside the dialog.
     useEffect(() => { scroll.current?.parentElement?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true }); }, [category, selectedId, section]);
     useEffect(() => {
-        if (section === 'roster') return;
+        if (section !== 'collection') return;
         const target = window as Window & { render_game_to_text?: () => string };
         const render = () => JSON.stringify({ mode: 'sar-collection', ownerId: owner.id, category, selectedId, progress, page: currentPage + 1, pages, filter, entries: shown.map(({ id, title, collected, owned }) => ({ id, title, collected, owned })) });
         target.render_game_to_text = render;
@@ -55,11 +58,12 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     }, [owner.id, category, selectedId, market, query, filter, currentPage, section]);
     const chipProgress = (tag: string) => { const chips = entries.filter(entry => entry.category === 'chip' && entry.tag === tag); return `${chips.filter(entry => entry.collected).length} / ${chips.length}`; };
     if (section === 'roster') return <SARFamiliarityRoster onBack={() => setSection('collection')} onOpenScene={(npc, sceneId) => onOpenFamiliarity?.(npc, sceneId)}/>;
+    if (section === 'keepsakes') return <SARExclusiveKeepsakes market={market} onBack={() => setSection('collection')} backRef={keepsakeBack}/>;
     return <>
         <header className="sar-hub-header"><button type="button" onClick={() => { if (!goBack()) onClose(); }} aria-label={selected ? '返回分类图鉴' : category ? '返回图鉴总览' : '返回随身仓库'}><ArrowLeft size={21}/></button><div><small>SAR · COLLECTION</small><h2>{selected ? selected.title : current ? `${current.title}图鉴` : '收集图鉴'}</h2></div></header>
-        {!category && !selected && <nav className="sar-collection-sections" aria-label="图鉴页面"><button type="button" aria-current="page"><BookOpen size={16} weight="fill"/>收藏</button><button type="button" onClick={() => setSection('roster')}><Users size={16}/>名册</button></nav>}
+        {!category && !selected && <nav className="sar-collection-sections" aria-label="图鉴页面"><button type="button" aria-current="page"><BookOpen size={16} weight="fill"/>收藏</button><button type="button" onClick={() => setSection('keepsakes')}><BookOpen size={16}/>专属纪念</button><button type="button" onClick={() => setSection('roster')}><Users size={16}/>名册</button></nav>}
         <main ref={scroll} className="sar-hub-warehouse sar-collection">
-            <div className="sar-hub-owner"><span>正在查看</span><label><select aria-label="图鉴主人" value={owner.id} onChange={event => onOwnerChange(event.target.value)}>{actors.map(actor => <option key={actor.id} value={actor.id}>{actor.id === 'user' ? `我 · ${actor.name}` : actor.name}</option>)}</select><CaretDown size={16}/></label></div>
+            <div className="sar-hub-owner"><span>正在查看</span><label><select aria-label="图鉴主人" value={owner.id} onChange={event => onOwnerChange(event.target.value)}>{actors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select><CaretDown size={16}/></label></div>
             {selected ? <article className="sar-collection-entry">
                 <div className={`sar-collection-large-art ${selected.collected ? 'is-collected' : ''}`}><CollectionArt entry={selected} size={100}/></div>
                 <div className="sar-collection-entry-status">{selected.collected ? <Check size={15}/> : <BookOpen size={15}/>}<span>{selected.collected ? '已收录' : '尚未收录'} · {selected.tag}</span></div>

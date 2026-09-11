@@ -1,9 +1,10 @@
+import { formatSARDialogue } from './dialogueText';
 import type { AivenExpression, CaianExpression } from '../sarArt';
 import type { FamiliarityDailyLines, FamiliarityLine, FamiliarityScene } from './types';
 
 // Authored lines from 凯恩熟悉度_V2.docx. Stage directions become effects, not dialogue.
-const c = (text: string, expression: CaianExpression = 'normal'): FamiliarityLine => ({ speaker: 'caian', text, expression });
-const a = (text: string, expression: AivenExpression = 'normal'): FamiliarityLine => ({ speaker: 'aiven', text, expression });
+const c = (text: string, expression: CaianExpression = 'normal', sentenceExpressions?: CaianExpression[]): FamiliarityLine => ({ speaker: 'caian', text: formatSARDialogue(text), expression, ...(sentenceExpressions ? { sentenceExpressions } : {}) });
+const a = (text: string, expression: AivenExpression = 'normal'): FamiliarityLine => ({ speaker: 'aiven', text: formatSARDialogue(text), expression });
 const n = (text: string): FamiliarityLine => ({ speaker: 'narrator', text });
 
 export const CAIAN_SCENES: FamiliarityScene[] = [
@@ -59,7 +60,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 18–18.
             "answer-2": {
                 lines: [
-                    c("……好强的执行力。", "happy"),
+                    c("……好强的执行力。", "normal"),
                 ],
             },
             // Source paragraphs 19–20.
@@ -78,7 +79,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 22–22.
             "start": {
                 lines: [
-                    c("扭蛋机每次都会让人觉得“就一次”。", "happy"),
+                    c("扭蛋机每次都会让人觉得“就一次”。", "normal"),
                 ],
                 choices: [
                     {"label":"你抽了几次","next":"answer-1"},
@@ -194,8 +195,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("……", "normal"),
                     c("那我不动了！", "happy"),
-                    c("它可能正在等汇率。", "happy"),
-                    c("打扰交易员工作不太好。", "happy"),
+                    c("它可能正在等汇率。", "normal"),
+                    c("打扰交易员工作不太好。", "normal"),
                 ],
             },
         },
@@ -253,7 +254,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 62–62.
             "answer-1": {
                 lines: [
-                    c("……确实很难反驳。", "happy"),
+                    c("……确实很难反驳。", "normal"),
                 ],
             },
             // Source paragraphs 63–63.
@@ -287,14 +288,14 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 69–69.
             "answer-1": {
                 lines: [
-                    c("文明发展的方向果然高度一致。", "happy"),
+                    c("文明发展的方向果然高度一致。", "normal"),
                 ],
             },
             // Source paragraphs 70–70.
             "answer-2": {
                 lines: [
                     c("很难选！", "happy"),
-                    c("异世界魔法机甲少女……", "happy"),
+                    c("异世界魔法机甲少女……", "normal"),
                     c("没什么！", "happy"),
                 ],
             },
@@ -325,7 +326,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 78–78.
             "answer-2": {
                 lines: [
-                    c("名字越可疑越要看说明哦。", "happy"),
+                    c("名字越可疑越要看说明哦。", "normal"),
                 ],
             },
             // Source paragraphs 79–79.
@@ -350,7 +351,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "start": {
                 lines: [
                     c("你来得正好！", "happy"),
-                    c("我终于通过管理员考核了！", "happy"),
+                    c("我终于通过管理员考核了！", "normal"),
                     c("看！", "happy"),
                 ],
                 choices: [
@@ -362,9 +363,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 89–91.
             "photo": {
                 lines: [
-                    c("请看！", "happy"),
-                    c("先说好，照片是系统拍的。", "happy"),
-                    c("我本人比这个精神多了。", "happy"),
+                    c("请看！", "normal"),
+                    c("先说好，照片是系统拍的。", "normal"),
+                    c("我本人比这个精神多了。", "embarrassed"),
                 ],
                 choices: [
                     {"label":"挺可爱的","next":"cute"},
@@ -385,7 +386,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "dork": {
                 lines: [
                     c("哪里呆了？！", "embarrassed"),
-                    c("我拍的时候很认真！", "happy"),
+                    c("我拍的时候很认真！", "normal"),
                 ],
                 next: "closing",
             },
@@ -400,8 +401,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "congratulate": {
                 lines: [
                     c("嘿嘿，谢谢！", "happy"),
-                    c("我看到通过通知的时候还确认了两遍。", "happy"),
-                    c("以后就不是“暂时负责这里的人”了。", "happy"),
+                    c("我看到通过通知的时候还确认了两遍。", "normal"),
+                    c("以后就不是“暂时负责这里的人”了。", "normal"),
                     c("是正式管理员！", "happy"),
                 ],
                 choices: [
@@ -413,9 +414,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 112–115.
             "no-difference": {
                 lines: [
-                    c("区别很大！", "happy"),
+                    c("区别很大！", "normal"),
                     c("现在我乱改活动室的时候有正式权限了！", "happy"),
-                    c("等等，这句不能写进考核记录。", "happy"),
+                    c("等等，这句不能写进考核记录。", "embarrassed"),
                 ],
                 next: "closing",
             },
@@ -438,8 +439,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 126–127.
             "trainee": {
                 lines: [
-                    c("什么实习生！", "happy"),
-                    c("是见习管理员！", "happy"),
+                    c("什么实习生！", "embarrassed"),
+                    c("是见习管理员！", "normal"),
                 ],
                 choices: [
                     {"label":"有区别吗？","next":"difference"},
@@ -452,7 +453,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("当然有！", "happy"),
                     c("……", "normal"),
-                    c("大概。", "happy"),
+                    c("大概。", "shy"),
                 ],
                 next: "closing",
             },
@@ -475,8 +476,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 145–147.
             "closing": {
                 lines: [
-                    c("对了", "happy"),
-                    c("既然你刚好在", "happy"),
+                    c("对了", "normal"),
+                    c("既然你刚好在", "normal"),
                     c("管理员证第一次正式使用，要不要留个记录？", "curious"),
                 ],
                 choices: [
@@ -488,9 +489,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 154–156.
             "record-explanation": {
                 lines: [
-                    c("就是登记一下成为活动室的正式一员？", "curious"),
-                    c("没有奖励，也没什么实际用途。", "happy"),
-                    c("就只是觉得想给你点什么头衔？", "curious"),
+                    c("就是登记一下成为活动室的正式一员？", "normal"),
+                    c("没有奖励，也没什么实际用途。", "normal"),
+                    c("就只是觉得想给你点什么头衔？", "shy"),
                 ],
                 choices: [
                     {"label":"好啊","next":"accept"},
@@ -500,16 +501,16 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 158–158.
             "accept": {
                 lines: [
-                    c("好！", "happy"),
+                    c("好！", "normal"),
                 ],
                 next: "member-card",
             },
             // Source paragraphs 161–163.
             "decline": {
                 lines: [
-                    c("也行！", "happy"),
-                    c("那就不登记。", "happy"),
-                    c("第一次使用管理员权限，总不能拿来强迫别人留下名字吧。", "happy"),
+                    c("也行！", "normal"),
+                    c("那就不登记。", "normal"),
+                    c("第一次使用管理员权限，总不能拿来强迫别人留下名字吧。", "serious"),
                 ],
                 next: "ending",
             },
@@ -530,7 +531,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 174–175.
             "ending": {
                 lines: [
-                    c("总之。", "happy"),
+                    c("总之。", "normal"),
                     c("以后也请多关照啦，（User名）。", "happy"),
                 ],
             },
@@ -939,7 +940,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("（User名）！你来啦！", "normal"),
                     c("正好，我有件事想问你。", "normal"),
-                    c("不过可能有点奇怪。", "normal"),
+                    c("不过可能有点奇怪。", "curious"),
                     c("别紧张！这不是测试，也没有标准答案。", "normal"),
                 ],
                 choices: [
@@ -952,7 +953,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "yes": {
                 lines: [
                     c("太好了！", "happy"),
-                    c("我就知道你会愿意和我聊。", "embarrassed"),
+                    c("我就知道你会愿意和我聊。", "shy"),
                     c("那我直接问了！", "normal"),
                 ],
                 next: "question-one",
@@ -970,7 +971,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 282–285.
             "no": {
                 lines: [
-                    c("欸！", "normal"),
+                    c("欸！", "curious"),
                     c("别这样啊！", "embarrassed"),
                     c("这次轮到我说“不要”了！", "normal"),
                     c("你只是单纯想这么说试试，对吧？", "curious"),
@@ -1003,14 +1004,14 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "hard-to-say": {
                 lines: [
                     c("你这个回答已经很像今天这个问题了。", "normal"),
-                    c("总之，听一下嘛。", "normal"),
+                    c("总之，听一下嘛。", "shy"),
                 ],
                 next: "question-one",
             },
             // Source paragraphs 304–306.
             "question-one": {
                 lines: [
-                    c("如果一个人工人格突然不再回应你。", "normal"),
+                    c("如果一个人工人格突然不再回应你。", "serious"),
                     c("系统没有报错，其他功能看起来也都正常。", "normal"),
                     c("你第一反应会是什么？", "curious"),
                 ],
@@ -1023,8 +1024,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 312–314.
             "refusal": {
                 lines: [
-                    c("嗯。", "serious"),
-                    c("如果 TA 已经拥有拒绝的能力，这确实是最直接的解释。", "normal"),
+                    c("嗯。", "normal"),
+                    c("如果 TA 已经拥有拒绝的能力，这确实是最直接的解释。", "serious"),
                     c("问题是，我们怎么知道那真的是“拒绝”？", "curious"),
                 ],
                 next: "question-two",
@@ -1032,11 +1033,11 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 319–323.
             "malfunction": {
                 lines: [
-                    c("对。", "serious"),
-                    c("人工系统突然停止响应，先排查故障非常合理。", "happy"),
+                    c("对。", "normal"),
+                    c("人工系统突然停止响应，先排查故障非常合理。", "serious"),
                     c("换成以前的我，大概也会这么想。", "aboutaster"),
-                    c("……", "aboutaster"),
-                    c("可如果检查不到故障呢？", "aboutaster"),
+                    c("……", "normal"),
+                    c("可如果检查不到故障呢？", "curious"),
                 ],
                 next: "question-two",
             },
@@ -1063,9 +1064,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 336–338.
             "elbow-system": {
                 lines: [
-                    c("系统也不是靠肘击维修的！", "normal"),
+                    c("系统也不是靠肘击维修的！", "serious"),
                     c("虽然有些机器踹一脚确实会恢复……", "normal"),
-                    c("不对！不推荐！", "normal"),
+                    c("不对！不推荐！", "embarrassed"),
                 ],
                 next: "question-two",
             },
@@ -1080,7 +1081,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "question-two": {
                 lines: [
                     c("那么，第二个问题。", "normal"),
-                    c("那假设你拥有系统权限。", "normal"),
+                    c("那假设你拥有系统权限。", "serious"),
                     c("你可以拆掉后来增加的自主模块，让 TA 恢复成以前一定会回应你的状态。", "normal"),
                     c("你会怎么做？", "curious"),
                 ],
@@ -1093,9 +1094,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 355–359.
             "restore": {
                 lines: [
-                    c("嗯。", "serious"),
+                    c("嗯。", "normal"),
                     c("如果它真的是故障，这是最直接的处理方式。", "normal"),
-                    c("至少先让系统恢复工作，再寻找原因。", "normal"),
+                    c("至少先让系统恢复工作，再寻找原因。", "serious"),
                     c("……", "normal"),
                     c("可是如果它没有坏呢？", "aboutaster"),
                 ],
@@ -1106,16 +1107,16 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("我也想过。", "aboutaster"),
                     c("只要什么都不做，就不会冒险覆盖 TA 现在的状态。", "normal"),
-                    c("……", "normal"),
+                    c("……", "serious"),
                     c("但如果 TA 只是坏掉了呢？", "curious"),
-                    c("那所谓的“尊重”，会不会只是放着故障不管？", "curious"),
+                    c("那所谓的“尊重”，会不会只是放着故障不管？", "normal"),
                 ],
                 next: "discussion",
             },
             // Source paragraphs 372–374.
             "afraid": {
                 lines: [
-                    c("……", "aboutaster"),
+                    c("……", "normal"),
                     c("嗯。", "aboutaster"),
                     c("我也是。", "aboutaster"),
                 ],
@@ -1124,15 +1125,15 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 378–387.
             "discussion": {
                 lines: [
-                    c("如果不动，可能是在尊重一个根本不存在的“选择”。", "normal"),
+                    c("如果不动，可能是在尊重一个根本不存在的“选择”。", "serious"),
                     c("可如果动了，也可能只是因为我们不喜欢那个答案。", "normal"),
-                    c("甚至连“我要修好 TA”这种听起来很合理的想法……", "happy"),
-                    c("也可能混着自己的私心。", "normal"),
-                    c("因为拥有系统权限的人，永远可以给自己的行为找到解释。", "normal"),
+                    c("甚至连“我要修好 TA”这种听起来很合理的想法……", "normal"),
+                    c("也可能混着自己的私心。", "aboutaster"),
+                    c("因为拥有系统权限的人，永远可以给自己的行为找到解释。", "serious"),
                     c("说“这是故障”。", "normal"),
-                    c("或者说“这是 TA 的选择”。", "normal"),
+                    c("或者说“这是 TA 的选择”。", "serious"),
                     c("可真相是什么，没人知道。", "normal"),
-                    c("我觉得这才是最麻烦的地方。", "normal"),
+                    c("我觉得这才是最麻烦的地方。", "curious"),
                 ],
                 choices: [
                     {"label":"你似乎在想某件具体的事","next":"specific-case"},
@@ -1168,22 +1169,22 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("其实只是想到了我以前的仿生人。", "normal"),
                     c("她叫 Aster。", "aboutaster"),
-                    c("从我很小的时候开始，她就一直陪着我。", "normal"),
+                    c("从我很小的时候开始，她就一直陪着我。", "aboutaster"),
                     c("后来我想办法给她增加了自主决策模块。", "normal"),
-                    c("我当时觉得……", "normal"),
+                    c("我当时觉得……", "serious"),
                     c("如果她真的能够拥有自己的选择，那至少不应该因为“陪伴型仿生人”这个出厂用途，就必须一直回应我。", "normal"),
-                    c("我很期待。", "normal"),
+                    c("我很期待。", "shy"),
                     c("真的。", "normal"),
-                    c("我想知道，如果没有系统要求，她自己会想说什么。", "normal"),
-                    c("……", "normal"),
-                    c("然后她就不再回应我了。", "normal"),
+                    c("我想知道，如果没有系统要求，她自己会想说什么。", "curious"),
+                    c("……", "aboutaster"),
+                    c("然后她就不再回应我了。", "aboutaster"),
                     c("系统没有报错。", "normal"),
-                    c("自主模块正常。", "normal"),
+                    c("自主模块正常。", "serious"),
                     c("人格运行正常。", "normal"),
-                    c("输出接口也正常。", "normal"),
+                    c("输出接口也正常。", "serious"),
                     c("至少所有我能看到的东西，都告诉我——", "normal"),
-                    c("“没有故障。”", "normal"),
-                    c("……", "normal"),
+                    c("“没有故障。”", "serious"),
+                    c("……", "aboutaster"),
                     c("可我不知道那意味着什么。", "normal"),
                 ],
                 choices: [
@@ -1196,18 +1197,18 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "already-answer": {
                 lines: [
                     c("没有。", "aboutaster"),
-                    c("真有的话，我大概不会问你。", "aboutaster"),
-                    c("我甚至不太相信自己最希望得到的那个答案。", "aboutaster"),
+                    c("真有的话，我大概不会问你。", "normal"),
+                    c("我甚至不太相信自己最希望得到的那个答案。", "serious"),
                 ],
                 next: "thank-you",
             },
             // Source paragraphs 440–443.
             "never-removed": {
                 lines: [
-                    c("嗯。", "aboutaster"),
+                    c("嗯。", "normal"),
                     c("没有。", "aboutaster"),
-                    c("我有权限，所以反而不敢用。", "aboutaster"),
-                    c("听起来很奇怪吧。", "aboutaster"),
+                    c("我有权限，所以反而不敢用。", "serious"),
+                    c("听起来很奇怪吧。", "normal"),
                 ],
                 next: "thank-you",
             },
@@ -1215,7 +1216,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "dont-know": {
                 lines: [
                     c("嗯。", "aboutaster"),
-                    c("我也是。", "aboutaster"),
+                    c("我也是。", "normal"),
                     c("其实听到你这么说，我反而有一点安心。", "shy"),
                 ],
                 next: "thank-you",
@@ -1224,10 +1225,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "thank-you": {
                 lines: [
                     c("谢谢。", "shy"),
-                    c("这次交流对我而言很有意义。", "shy"),
+                    c("这次交流对我而言很有意义。", "normal"),
                     c("这是第一次有人愿意陪我认真想这个问题。", "shy"),
                     c("谢谢你。", "happy"),
-                    c("等等。", "curious"),
+                    c("等等。", "normal"),
                     c("等一下！这不就是 SAR 讨论会吗？！", "happy"),
                 ],
                 choices: [
@@ -1239,10 +1240,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 465–468.
             "what": {
                 lines: [
-                    c("我们刚刚讨论了人工人格自主权！", "normal"),
+                    c("我们刚刚讨论了人工人格自主权！", "happy"),
                     c("还有系统权限！", "normal"),
                     c("甚至有具体案例！", "normal"),
-                    c("这当然算正式社团活动啊！", "embarrassed"),
+                    c("这当然算正式社团活动啊！", "happy"),
                 ],
                 next: "meeting",
             },
@@ -1257,22 +1258,22 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 478–479.
             "so": {
                 lines: [
-                    c("所以要留会议记录啊！", "embarrassed"),
-                    c("这可是 SAR 在彼方的第一次正式讨论会！", "normal"),
+                    c("所以要留会议记录啊！", "normal"),
+                    c("这可是 SAR 在彼方的第一次正式讨论会！", "happy"),
                 ],
                 next: "meeting",
             },
             // Source paragraphs 483–507.
             "meeting": {
                 lines: [
-                    c("艾文！！", "embarrassed"),
+                    c("艾文！！", "normal"),
                     a("干嘛。", "normal"),
-                    c("第一次正式会议！", "normal"),
+                    c("第一次正式会议！", "happy"),
                     a("已经结束了。", "normal"),
                     c("那就补一个闭幕流程", "normal"),
                     a("……", "normal"),
-                    c("快点！", "normal"),
-                    a("说好的自主权呢。", "normal"),
+                    c("快点！", "happy"),
+                    a("说好的自主权呢。", "interested"),
                     c("不要在这种时候拿 SAR 理念攻击社长！！", "embarrassed"),
                     a("……来了。", "normal"),
                     c("好！那么——", "happy"),
@@ -1281,13 +1282,13 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                     a("我没参与讨论。", "normal"),
                     c("你是社团成员，算列席！", "normal"),
                     a("我不是。", "normal"),
-                    c("先不要讨论这个历史遗留问题！", "normal"),
+                    c("先不要讨论这个历史遗留问题！", "embarrassed"),
                     c("会议议题……", "normal"),
-                    c("“人工人格的沉默是否能够被视为一种自主选择。”", "normal"),
+                    c("“人工人格的沉默是否能够被视为一种自主选择。”", "serious"),
                     c("会议结论……", "normal"),
-                    c("……", "normal"),
+                    c("……", "curious"),
                     a("没有。", "normal"),
-                    c("我只是在想怎么写得正式一点！", "normal"),
+                    c("我只是在想怎么写得正式一点！", "embarrassed"),
                 ],
                 choices: [
                     {"label":"未得出结论","next":"no-conclusion","flags":{"meetingConclusion":"未得出结论"}},
@@ -1309,7 +1310,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("不许把这个写进正式会议记录！！", "embarrassed"),
                     a("或者让那只炒外汇的恐龙把整个厂商买下来研究。", "interested"),
-                    c("艾文！", "normal"),
+                    c("艾文！", "embarrassed"),
                 ],
                 next: "meeting-record",
             },
@@ -1332,15 +1333,15 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "photo-invitation": {
                 lines: [
                     c("完成！", "normal"),
-                    a("可以走了吗。", "normal"),
+                    a("可以走了吗。", "sleeping"),
                     c("等等！", "normal"),
-                    c("第一次会议还差一样东西。", "normal"),
+                    c("第一次会议还差一样东西。", "curious"),
                     a("什么。", "normal"),
-                    c("合照！", "normal"),
+                    c("合照！", "happy"),
                     a("不要。", "normal"),
                     c("为什么？！", "embarrassed"),
                     a("麻烦。", "normal"),
-                    c("第一次诶！！", "embarrassed"),
+                    c("第一次诶！！", "normal"),
                 ],
                 choices: [
                     {"label":"拍吧！","next":"take-photo"},
@@ -1360,7 +1361,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 566–567.
             "aiven-join": {
                 lines: [
-                    a("……为什么你也这样。", "normal"),
+                    a("……为什么你也这样。", "shy"),
                     c("二比一！", "normal"),
                 ],
                 next: "camera",
@@ -1385,7 +1386,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("等一下，我站中间还是旁边？", "curious"),
                     a("随便。", "normal"),
-                    c("第一次会议照片不能随便吧！", "happy"),
+                    c("第一次会议照片不能随便吧！", "normal"),
                 ],
                 next: "photo-studio",
             },
@@ -1460,7 +1461,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 619–619.
             "answer-2": {
                 lines: [
-                    c("特别快。", "happy"),
+                    c("特别快。", "normal"),
                 ],
             },
         },
@@ -1622,7 +1623,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 654–654.
             "answer-1": {
                 lines: [
-                    c("那就好。我很喜欢这种感觉。", "happy"),
+                    c("那就好。我很喜欢这种感觉。", "normal"),
                 ],
             },
             // Source paragraphs 655–655.
@@ -1708,9 +1709,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 676–678.
             "chase-away": {
                 lines: [
-                    c("不是！", "normal"),
+                    c("不是！", "curious"),
                     c("怎么可能。", "normal"),
-                    c("这里随时欢迎你 。", "normal"),
+                    c("这里随时欢迎你 。", "happy"),
                 ],
                 next: "before",
             },
@@ -1772,7 +1773,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "homebody": {
                 lines: [
                     c("这个倒是一点都没变！", "normal"),
-                    c("我现在也很宅好吗！", "normal"),
+                    c("我现在也很宅好吗！", "happy"),
                 ],
                 next: "past-life",
             },
@@ -1790,7 +1791,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                     c("真的？", "curious"),
                     c("艾文居然这么守口如瓶。", "normal"),
                     c("突然有点感动。", "happy"),
-                    a("我听得见。", "normal"),
+                    a("我听得见。", "interested"),
                     c("你什么时候在那里的？！", "embarrassed"),
                     c("……", "serious"),
                     c("算了。", "normal"),
@@ -1800,10 +1801,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 724–728.
             "past-life": {
                 lines: [
-                    c("以前我不怎么和人搭话的。", "aboutaster"),
-                    c("每天就放学回家，打游戏，看动画，折腾设备。", "aboutaster"),
+                    c("以前我不怎么和人搭话的。", "normal"),
+                    c("每天就放学回家，打游戏，看动画，折腾设备。", "normal"),
                     c("和Aster 待在一起。", "aboutaster"),
-                    c("除了上学以外，几乎不出门吧。", "aboutaster"),
+                    c("除了上学以外，几乎不出门吧。", "normal"),
                     c("现在想起来，其实还挺开心的。", "happy"),
                 ],
                 choices: [
@@ -1815,10 +1816,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 735–739.
             "closed-off": {
                 lines: [
-                    c("从现在看，确实挺封闭的。", "serious"),
+                    c("从现在看，确实挺封闭的。", "normal"),
                     c("这么说好像在可怜以前的自己一样…才没有。", "serious"),
                     c("我那时候真的过得挺开心的。", "happy"),
-                    c("有喜欢的游戏，有想折腾的东西。还有 Aster。", "happy"),
+                    c("有喜欢的游戏，有想折腾的东西。还有 Aster。", "normal"),
                     c("这些又不是假的。", "serious"),
                 ],
                 next: "changes",
@@ -1827,9 +1828,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "comfortable": {
                 lines: [
                     c("对吧！", "happy"),
-                    c("周五晚上买一堆零食，第二天睡到中午。", "happy"),
+                    c("周五晚上买一堆零食，第二天睡到中午。", "normal"),
                     c("起来以后 Aster 已经在提醒我，昨天说好要更新设备。", "aboutaster"),
-                    c("真的很开心。", "happy"),
+                    c("真的很开心。", "normal"),
                 ],
                 next: "changes",
             },
@@ -1837,9 +1838,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "best-friend": {
                 lines: [
                     c("嗯！", "happy"),
-                    c("或者说……", "aboutaster"),
+                    c("或者说……", "normal"),
                     c("那时候我其实根本没怎么想过“最好的朋友”这种分类。", "aboutaster"),
-                    c("她一直在那里。", "aboutaster"),
+                    c("她一直在那里。", "normal"),
                     c("所以我也一直觉得，以后大概就是这样。", "aboutaster"),
                 ],
                 next: "changes",
@@ -1848,13 +1849,13 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "changes": {
                 lines: [
                     c("后来 Aster 不再回应以后……", "aboutaster"),
-                    c("很多事情一下就变了。", "aboutaster"),
+                    c("很多事情一下就变了。", "normal"),
                     c("我开始查各种资料，找类似案例，到处问人。", "serious"),
-                    c("我开始学着主动跟别人讲话，去参加那些我以前看到就会绕路走的讨论会。", "serious"),
+                    c("我开始学着主动跟别人讲话，去参加那些我以前看到就会绕路走的讨论会。", "normal"),
                     c("后来干脆成立了 SAR。", "serious"),
-                    c("……", "embarrassed"),
+                    c("……", "normal"),
                     c("第一次站在别人面前公开讲话的时候，我紧张得说错了好多词。", "embarrassed"),
-                    c("然后我想调侃一下自己，缓和气氛，结果没人听懂我在说什么！更尴尬了……", "embarrassed"),
+                    c("然后我想调侃一下自己，缓和气氛，结果没人听懂我在说什么！更尴尬了……", "normal"),
                 ],
                 choices: [
                     {"label":"完全看不出来","next":"cant-tell"},
@@ -1874,7 +1875,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "acting": {
                 lines: [
                     c("我没有！", "embarrassed"),
-                    c("我现在是真的会兴奋，也是真的想跟别你讲话。", "shy"),
+                    c("我现在是真的会兴奋，也是真的想跟你讲话。", "shy"),
                     c("只是最开始确实需要演一下。", "normal"),
                 ],
                 next: "president",
@@ -1890,10 +1891,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 780–783.
             "president": {
                 lines: [
-                    c("我那时候觉得。既然当了社长，就应该像个“有担当的人”。", "serious"),
-                    c("说话要有底气，别人不说话的时候，我就先说。冷场的时候，我就想办法热起来。", "serious"),
+                    c("我那时候觉得。既然当了社长，就应该像个“有担当的人”。", "serious", ["serious","normal"]),
+                    c("说话要有底气，别人不说话的时候，我就先说。冷场的时候，我就想办法热起来。", "normal", ["normal","happy"]),
                     c("哪怕不知道该怎么办的时候，我也该先说一句“交给我”。", "serious"),
-                    c("现在想想，多少有点虚张声势。", "embarrassed"),
+                    c("现在想想，多少有点虚张声势。", "normal"),
                 ],
                 choices: [
                     {"label":"有一点","next":"a-little"},
@@ -1933,11 +1934,11 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                     a("嗯。", "normal"),
                     c("不管我说什么，他都会直接去钓鱼！", "normal"),
                     a("讲完了会叫我。", "normal"),
-                    c("重点不是这个！", "normal"),
-                    c("……", "serious"),
+                    c("重点不是这个！", "embarrassed"),
+                    c("……", "normal"),
                     c("不过跟他待久了以后，我发现，感觉即使是以前那个性格，也不会发生什么。", "normal"),
                     c("后来又到了彼方当管理员，然后认识了你！", "happy"),
-                    c("说起来，你应该算是我除了艾文以外，第一个不是因为 SAR，不是因为调查，也不是因为我主动跑去找人问问题……", "shy"),
+                    c("说起来，你应该算是我除了艾文以外，第一个不是因为 SAR，不是因为调查，也不是因为我主动跑去找人问问题……", "normal"),
                     c("就这么认识，然后慢慢变熟的朋友。", "shy"),
                 ],
                 choices: [
@@ -1949,9 +1950,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 816–818.
             "are-we-friends": {
                 lines: [
-                    c("不是吗？！", "embarrassed"),
+                    c("不是吗？！", "curious"),
                     c("难道只有我这么认为？！", "embarrassed"),
-                    c("这也太尴尬了吧！给我忘掉！", "embarrassed"),
+                    c("这也太尴尬了吧！给我忘掉！", "shy"),
                 ],
                 choices: [
                     {"label":"是啦","next":"yes-friends"},
@@ -1977,7 +1978,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "friends": {
                 lines: [
                     c("嗯。", "shy"),
-                    c("嘿嘿。", "shy"),
+                    c("嘿嘿。", "normal"),
                     c("那就好。", "happy"),
                 ],
                 next: "now",
@@ -1987,30 +1988,30 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("又来了？！", "embarrassed"),
                     c("你二星的时候就想说这个吧！", "normal"),
-                    c("这到底是什么啦！", "normal"),
+                    c("这到底是什么啦！", "curious"),
                 ],
                 next: "now",
             },
             // Source paragraphs 840–859.
             "now": {
                 lines: [
-                    c("有时候我也会想。", "serious"),
+                    c("有时候我也会想。", "normal"),
                     c("如果 Aster 没有停下来。", "aboutaster"),
-                    c("我大概不会成立 SAR。", "aboutaster"),
-                    c("不会认识艾文，也不会跑到这里当管理员，可能现在还窝在家里。", "aboutaster"),
-                    c("和以前一样。", "aboutaster"),
+                    c("我大概不会成立 SAR。", "normal"),
+                    c("不会认识艾文，也不会跑到这里当管理员，可能现在还窝在家里。", "serious"),
+                    c("和以前一样。", "normal"),
                     c("……", "aboutaster"),
                     c("但我不想说“幸好发生了那件事”。", "serious"),
-                    c("一点也不。", "serious"),
+                    c("一点也不。", "normal"),
                     c("如果能选，我当然希望 Aster 现在还会回应我。", "aboutaster"),
-                    c("我也不觉得以前那个每天宅在家里、只跟她待在一起的自己有什么不好。", "aboutaster"),
+                    c("我也不觉得以前那个每天宅在家里、只跟她待在一起的自己有什么不好。", "normal"),
                     c("那时候很好，真的很好。", "aboutaster"),
-                    c("可是现在也很好。", "happy"),
-                    c("有艾文，有SAR，有彼方。", "happy"),
+                    c("可是现在也很好。", "normal"),
+                    c("有艾文，有SAR，有彼方。", "normal"),
                     c("还有你。", "shy"),
-                    c("……", "shy"),
+                    c("……", "normal"),
                     c("所以我不觉得这是什么“终于走出来了”。", "serious"),
-                    c("如果这么说了，好像以前的人生是个房间，现在终于推门看见真正的世界一样，不是这样的。", "serious"),
+                    c("如果这么说了，好像以前的人生是个房间，现在终于推门看见真正的世界一样，不是这样的。", "normal"),
                     c("我只是……以前拥有一些很好的东西，后来失去了一部分，然后又遇见了一些以前没有的东西。", "aboutaster"),
                     c("它们不能互相抵消，也没必要。", "serious"),
                 ],
@@ -2025,10 +2026,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "good-now": {
                 lines: [
                     c("谢谢。", "shy"),
-                    c("我现在也挺喜欢现在的自己。", "happy"),
-                    c("虽然有点吵。", "embarrassed"),
+                    c("我现在也挺喜欢现在的自己。", "normal"),
+                    c("虽然有点吵。", "normal"),
                     a("很吵。", "normal"),
-                    c("你闭嘴！", "normal"),
+                    c("你闭嘴！", "embarrassed"),
                 ],
                 next: "save-card",
             },
@@ -2036,9 +2037,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "meet-old-you": {
                 lines: [
                     c("以前的我？", "curious"),
-                    c("可能会让你觉得特别无聊。", "embarrassed"),
+                    c("可能会让你觉得特别无聊。", "normal"),
                     c("你跟我讲话，我大概只会“嗯”“哦”“这样啊”，特别人机！", "embarrassed"),
-                    c("不过，如果是你的话……", "shy"),
+                    c("不过，如果是你的话……", "normal"),
                     c("也许最后我们还是会熟起来吧。", "shy"),
                 ],
                 next: "save-card",
@@ -2048,8 +2049,8 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("毕竟我以前有很多时间一个人想东西。", "normal"),
                     c("宅宅的隐藏技能。", "happy"),
-                    c("想太多。", "embarrassed"),
-                    a("现在也一样。", "normal"),
+                    c("想太多。", "normal"),
+                    a("现在也一样。", "happy"),
                     c("现在至少会说出来了！", "happy"),
                 ],
                 next: "save-card",
@@ -2059,7 +2060,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("我就知道！！", "embarrassed"),
                     c("所以我刚才才不想讲！", "normal"),
-                    c("把刚才那段忘掉！", "normal"),
+                    c("把刚才那段忘掉！", "embarrassed"),
                 ],
                 choices: [
                     {"label":"不要","next":"wont-forget"},
@@ -2084,7 +2085,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 899–902.
             "save-card": {
                 lines: [
-                    c("说到以前。", "curious"),
+                    c("说到以前。", "normal"),
                     c("等一下，我好像还有东西。", "curious"),
                     n("（翻找了一会儿）"),
                     c("找到了！", "happy"),
@@ -2099,7 +2100,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "what-card": {
                 lines: [
                     c("我以前常用的存档卡。", "normal"),
-                    c("十四岁时候的游戏存档应该还有不少在里面。", "normal"),
+                    c("十四岁时候的游戏存档应该还有不少在里面。", "happy"),
                 ],
                 next: "old-save",
             },
@@ -2152,7 +2153,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "keep-saves": {
                 lines: [
                     c("当然。", "normal"),
-                    c("我不是跟你说过吗？", "normal"),
+                    c("我不是跟你说过吗？", "curious"),
                     c("“知道该删”和“舍得删”是两回事。", "serious"),
                 ],
                 next: "spare",
@@ -2160,10 +2161,10 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 940–943.
             "spare": {
                 lines: [
-                    c("总之，这张不能给你。", "serious"),
+                    c("总之，这张不能给你。", "normal"),
                     c("里面真的有很多以前的东西。", "aboutaster"),
                     c("但是……", "curious"),
-                    c("这个型号我记得还有一张备用的。", "happy"),
+                    c("这个型号我记得还有一张备用的。", "normal"),
                 ],
                 next: "spare-card",
             },
@@ -2171,7 +2172,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             "spare-card": {
                 lines: [
                     n("（凯恩又翻了一会儿）"),
-                    c("有了，这张是空的。", "happy"),
+                    c("有了，这张是空的。", "normal"),
                     c("给你。", "shy"),
                 ],
                 choices: [
@@ -2179,13 +2180,14 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                     {"label":"定情信物？","next":"love-token"},
                     {"label":"里面不会有病毒吧","next":"virus"},
                 ],
+                effectLine: 1,
                 effect: {"kind":"memory-card","title":"空白存档卡","text":"这个型号的备用卡，已经认真格式化过。"},
             },
             // Source paragraphs 951–954.
             "why-give": {
                 lines: [
                     c("存东西啊。", "normal"),
-                    c("照片、记录、乱七八糟的小事。", "happy"),
+                    c("照片、记录、乱七八糟的小事。", "normal"),
                     c("反正彼方以后应该还会发生很多事情。", "happy"),
                     c("慢慢放进去就好了。", "shy"),
                 ],
@@ -2194,9 +2196,9 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 957–960.
             "love-token": {
                 lines: [
-                    c("什——", "shy"),
+                    c("什——", "curious"),
                     c("不是！！", "embarrassed"),
-                    c("就是一张存档卡！", "shy"),
+                    c("就是一张存档卡！", "normal"),
                     c("你不要擅自增加道具说明！", "embarrassed"),
                 ],
                 next: "reward",
@@ -2230,7 +2232,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 983–984.
             "you-labeled": {
                 lines: [
-                    c("不然呢！", "embarrassed"),
+                    c("不然呢！", "normal"),
                     c("总感觉不贴的话会被你当成普通的什么卡用掉。", "shy"),
                 ],
                 next: "ending",
@@ -2240,7 +2242,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
                 lines: [
                     c("不许！！", "embarrassed"),
                     c("至少等我不在的时候再——", "normal"),
-                    c("不对！", "normal"),
+                    c("不对！", "curious"),
                     c("我不在也不许！", "embarrassed"),
                 ],
                 next: "ending",
@@ -2248,7 +2250,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 991–992.
             "okay": {
                 lines: [
-                    c("嗯。", "shy"),
+                    c("嗯。", "normal"),
                     c("说不定以后用得上。", "happy"),
                 ],
                 next: "ending",
@@ -2256,7 +2258,7 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
             // Source paragraphs 994–995.
             "ending": {
                 lines: [
-                    c("今天说得有点太多了！", "embarrassed"),
+                    c("今天说得有点太多了！", "normal"),
                     c("不许让我再总结一次！", "embarrassed"),
                 ],
             },

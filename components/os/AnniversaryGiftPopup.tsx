@@ -1,9 +1,8 @@
 import { trackEvent } from '../../utils/analytics';
 import { trackAnniversaryDownload } from '../../utils/sarAnalytics';
 import React, { useEffect, useRef, useState } from 'react';
-import { useOS } from '../../context/OSContext';
+import { NOSTALGIA_APPEARANCE, useOS } from '../../context/OSContext';
 import { PRESET_THEMES } from '../chat/ChatConstants';
-import { resolveChatTheme } from '../../utils/groupChat/theme';
 import {
   ANNIVERSARY_ARTIST, ANNIVERSARY_FRAME_STYLE, ANNIVERSARY_FRAME_URL, ANNIVERSARY_WALLPAPERS,
   avatarDecorationImageStyle, createAnniversaryTheme,
@@ -15,7 +14,7 @@ import './anniversary-gift.css';
 const CONFETTI = ['🎉', '✨', '💜', '👑', '🌟', '🎊'];
 
 export default function AnniversaryGiftPopup({ onClose }: { onClose: () => void }) {
-  const { characters, activeCharacterId, userProfile, customThemes, addCustomTheme, updateCharacter, updateTheme, addToast } = useOS();
+  const { characters, activeCharacterId, userProfile, theme, addCustomTheme, updateCharacter, updateTheme, addToast } = useOS();
   useEffect(() => { trackEvent('打开周年赠礼'); }, []);
   const [choosing, setChoosing] = useState(false);
   const [characterId, setCharacterId] = useState(characters.find(c => c.id === activeCharacterId)?.id || characters[0]?.id || '');
@@ -73,15 +72,23 @@ export default function AnniversaryGiftPopup({ onClose }: { onClose: () => void 
     try {
       if (selectedCharacter && (frame || chat)) {
         const nextTheme = frame ? createAnniversaryTheme(
-          resolveChatTheme(selectedCharacter.bubbleStyle, customThemes, PRESET_THEMES), selectedCharacter.id,
+          PRESET_THEMES.default, selectedCharacter.id,
         ) : undefined;
         if (nextTheme) await addCustomTheme(nextTheme);
         updateCharacter(selectedCharacter.id, {
           ...(chat ? { chatBackground: chatWallpaper } : {}),
-          ...(nextTheme ? { bubbleStyle: nextTheme.id } : {}),
+          bubbleStyle: nextTheme?.id || PRESET_THEMES.default.id,
         });
       }
-      if (phone) await updateTheme({ wallpaper: phoneWallpaper });
+      // 赠礼配回最初的默认紫色；浅色画作配深紫文字，壁纸仍只替换勾选项。
+      const { wallpaper: _defaultWallpaper, ...purpleAppearance } = NOSTALGIA_APPEARANCE;
+      const hasSkinLeaves = theme.desktopDecorations?.some(d => d.id.startsWith('acnh-leaf-'));
+      await updateTheme({
+        ...purpleAppearance,
+        contentColor: '#514168',
+        ...(phone ? { wallpaper: phoneWallpaper } : {}),
+        ...(hasSkinLeaves ? { desktopDecorations: theme.desktopDecorations!.filter(d => !d.id.startsWith('acnh-leaf-')) } : {}),
+      });
       trackEvent('应用周年赠礼', { 桌面壁纸: phone ? '是' : '否', 聊天壁纸: chat ? '是' : '否', 头像框: frame ? '是' : '否' });
       addToast('周年装扮已应用，尊贵感拉满 ✨', 'success');
       onClose();
@@ -174,7 +181,7 @@ export default function AnniversaryGiftPopup({ onClose }: { onClose: () => void 
               <label className="anniversary-option"><input type="checkbox" checked={phone} onChange={e => setPhone(e.target.checked)} /><span>手机桌面壁纸<small>整部手机共用</small></span></label>
               <select aria-label="周年手机壁纸" disabled={!phone || busy} value={phoneWallpaper} onChange={e => setPhoneWallpaper(e.target.value)}>{ANNIVERSARY_WALLPAPERS.map(w => <option key={w.id} value={w.url}>{w.name}</option>)}</select>
             </div>
-            <p className="anniversary-hint">勾选的装扮会替换对应设置，原来的气泡配色和样式会保留。</p>
+            <p className="anniversary-hint">换装会同步切换为默认紫色主题；聊天装扮搭配默认紫色气泡，壁纸与头像框按勾选项应用。</p>
           </fieldset>}
           {error && <p className="anniversary-error" role="alert">{error}</p>}
         </div>

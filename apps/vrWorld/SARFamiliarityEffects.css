@@ -7,3 +7,7 @@
 .srf-fx button.srf-fx-primary{background:#79614d;color:#fffdf7;border-color:#79614d}
 
 @media(prefers-reduced-motion:reduce){.srf-fx .srf-fx-celebration.is-coupons .srf-fx-particles>i{top:18px;left:clamp(5px,var(--x),calc(100% - 67px));transform:rotate(var(--turn));opacity:.75}}
+
+.srf-fx-photo-controls>summary{display:none}
+
+.srf-global-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:480;contain:strict}.srf-global-confetti>i{position:absolute;left:var(--x);top:-28px;width:9px;height:17px;background:var(--color);animation:srf-global-fall 2.7s var(--delay) ease-in both}.srf-global-confetti>i:nth-child(3n){width:7px;height:7px;border-radius:50%}.srf-global-confetti>i:nth-child(4n){width:5px;height:22px}@keyframes srf-global-fall{0%{opacity:0;transform:translate3d(0,-30px,0) rotate(0deg)}10%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translate3d(var(--drift),calc(100dvh + 60px),0) rotate(var(--turn))}}@media(prefers-reduced-motion:reduce){.srf-global-confetti{display:none}}

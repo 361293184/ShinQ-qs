@@ -5,6 +5,7 @@ import { CAIAN_SCENES } from '../../utils/vrWorld/sarFamiliarity/caian';
 import { AIVEN_SCENES } from '../../utils/vrWorld/sarFamiliarity/aiven';
 import { freshFamiliarity, type FamiliarityProgress, type FamiliarityState } from '../../utils/vrWorld/sarFamiliarity/storageTypes';
 import type { FamiliarityNpc, FamiliarityScene } from '../../utils/vrWorld/sarFamiliarity/types';
+import { canPreviewFamiliarityEvent } from '../../utils/vrWorld/sarFamiliarity/devPreview';
 import { SARPortrait } from './SARNpcArt';
 import './sar-familiarity-roster.css';
 
@@ -28,11 +29,11 @@ const rankNames = ['一', '二', '三', '四', '五'];
 const formatDate = (at: number) => new Date(at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 
 function MemoryRow({ scene, progress, index, onOpen }: { scene: FamiliarityScene; progress: FamiliarityProgress; index: number; onOpen: () => void }) {
-    const completed = progress.completed[scene.id];
-    const label = completed ? scene.title : scene.kind === 'event' ? `${rankNames[scene.rank - 1]}星事件` : `${scene.kind === 'topic' ? '话题' : '彩蛋'} ${String(index + 1).padStart(2, '0')}`;
-    return <button className={`sar-roster-memory ${completed ? 'is-complete' : 'is-locked'}`} type="button" disabled={!completed} onClick={onOpen} aria-label={completed ? `回顾${scene.title}` : `${label} · 尚未解锁`}>
-        <span className="sar-roster-memory-icon">{completed ? <Play size={15} weight="fill"/> : <LockKey size={15}/>}</span>
-        <span className="sar-roster-memory-title"><strong>{label}</strong><small>{completed ? `${formatDate(completed.at)} · 已收录` : '尚未解锁'}</small></span>
+    const completed = progress.completed[scene.id], preview = !completed && canPreviewFamiliarityEvent(scene), available = !!completed || preview;
+    const label = available ? scene.title : scene.kind === 'event' ? `${rankNames[scene.rank - 1]}星事件` : `${scene.kind === 'topic' ? '话题' : '彩蛋'} ${String(index + 1).padStart(2, '0')}`;
+    return <button className={`sar-roster-memory ${available ? 'is-complete' : 'is-locked'}`} type="button" disabled={!available} onClick={onOpen} aria-label={available ? `回顾${scene.title}` : `${label} · 尚未解锁`}>
+        <span className="sar-roster-memory-icon">{available ? <Play size={15} weight="fill"/> : <LockKey size={15}/>}</span>
+        <span className="sar-roster-memory-title"><strong>{label}</strong><small>{completed ? `${formatDate(completed.at)} · 已收录` : preview ? '临时开放 · 测试回顾' : '尚未解锁'}</small></span>
         {scene.kind === 'event' && <span className="sar-roster-memory-rank">{'★'.repeat(scene.rank)}</span>}
     </button>;
 }
@@ -61,7 +62,7 @@ export function SARFamiliarityRoster({ onBack, onOpenScene }: { onBack: () => vo
         target.render_game_to_text = render;
         return () => { if (target.render_game_to_text === render) delete target.render_game_to_text; };
     }, [npc, tab, state, error]);
-    const row = (scene: FamiliarityScene, index: number) => <MemoryRow key={scene.id} scene={scene} index={index} progress={progress} onOpen={() => { if (!error && progress.completed[scene.id]) onOpenScene(npc, scene.id); }}/>;
+    const row = (scene: FamiliarityScene, index: number) => <MemoryRow key={scene.id} scene={scene} index={index} progress={progress} onOpen={() => { if (!error && (progress.completed[scene.id] || canPreviewFamiliarityEvent(scene))) onOpenScene(npc, scene.id); }}/>;
     return <section className="sar-familiarity-roster" ref={root}>
         <header className="sar-hub-header"><button type="button" onClick={onBack} aria-label="返回收藏图鉴"><ArrowLeft size={21}/></button><div><small>SAR · ROSTER</small><h2>名册</h2></div></header>
         <nav className="sar-collection-sections" aria-label="图鉴页面"><button type="button" onClick={onBack}><BookOpen size={16}/>收藏</button><button type="button" aria-current="page"><Users size={16} weight="fill"/>名册</button></nav>

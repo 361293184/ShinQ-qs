@@ -7,12 +7,14 @@ import { familiarityScene, familiarityText } from '../../utils/vrWorld/sarFamili
 import { advanceFamiliarity, deliverFamiliarityMessages, familiarityGreeting, familiarityProgress, saveFamiliarityDraft, startFamiliarity, visitFamiliarity } from '../../utils/vrWorld/sarFamiliarity/state';
 import type { FamiliarityCursor } from '../../utils/vrWorld/sarFamiliarity/storageTypes';
 import type { FamiliarityNpc } from '../../utils/vrWorld/sarFamiliarity/types';
-import { SARDialogueCast, SARPortrait } from './SARNpcArt';
+import { SARDialogueCast } from './SARNpcArt';
+import { SARDialogueProp } from './SARDialogueProp';
 import { SARFamiliarityEffects } from './SARFamiliarityEffects';
 import { SARDialogueChoices } from './SARDialogueChoices';
 import { SARDialogueMeta } from './SARDialogueMeta';
 import { SARDialogueBackdrop } from './SARDialogueBackdrop';
-import { dialogueSentences } from '../../utils/vrWorld/sarFamiliarity/dialogueText';
+import { dialogueSentences, familiarityLineExpression } from '../../utils/vrWorld/sarFamiliarity/dialogueText';
+import { canPreviewFamiliarityEvent } from '../../utils/vrWorld/sarFamiliarity/devPreview';
 import { keepDialogueGuest } from '../../utils/vrWorld/sarDialogueStaging';
 import { isSARActivityOccupant } from '../../utils/vrWorld/participation';
 import './sar-familiarity-dialog.css';
@@ -24,6 +26,8 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
     const [market,setMarket]=useState<FishingMarketState|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
     const [replay,setReplay]=useState<FamiliarityCursor|null>(null),[finished,setFinished]=useState(false),[draft,setDraft]=useState<Record<string,unknown>>({});
     const [page,setPage]=useState({key:'',index:0});
+    const [dismissedProp,setDismissedProp]=useState('');
+    const [preview,setPreview]=useState(false);
     const root=useRef<HTMLElement>(null),lock=useRef(false),mounted=useRef(true),opened=useRef(false);
     const draftTimer=useRef<ReturnType<typeof setTimeout>|null>(null),draftWrite=useRef<{cursor:FamiliarityCursor;draft:Record<string,unknown>}|null>(null);
     const flushDraft=()=>{
@@ -42,8 +46,8 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
     const open=async()=>{
         if(sceneId){
             const current=readFishingMarketState(),past=familiarityProgress(current,npc).completed[sceneId],s=familiarityScene(sceneId);
-            if(!past||!s||s.npc!==npc)throw new Error('这段回忆还没有解锁');
-            setMarket(current);setReplay({runId:'replay',sceneId,nodeId:s.start,line:0,revision:0,startedAt:past.at,flags:{...past.flags},drafts:{},userName});opened.current=true;return;
+            if(!s||s.npc!==npc||(!past&&!canPreviewFamiliarityEvent(s)))throw new Error('这段回忆还没有解锁');
+            setPreview(!past);setMarket(current);setReplay({runId:'replay',sceneId,nodeId:s.start,line:0,revision:0,startedAt:past?.at||Date.now(),flags:{...past?.flags},drafts:{},userName});opened.current=true;return;
         }
         let current=await visitFamiliarity(npc,options);
         const offer=current.sarFamiliarity?.npcs[npc].offerId;
@@ -63,8 +67,8 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
     useEffect(()=>{
         if(!cursor)return;
         const saved=sceneId?market?.sarFamiliarity?.souvenirs.find(s=>s.sceneId===sceneId&&s.nodeId===cursor.nodeId)?.draft:undefined;
-        setDraft({...cursor.drafts[cursor.nodeId]||saved||{date:new Date(sceneId?cursor.startedAt:Date.now()).toLocaleDateString('zh-CN')},...(sceneId?{confirmed:true}:{})});
-    },[cursor?.runId,cursor?.nodeId]);
+        setDraft({...cursor.drafts[cursor.nodeId]||saved||{date:new Date(sceneId?cursor.startedAt:Date.now()).toLocaleDateString('zh-CN')},...(sceneId&&!preview?{confirmed:true}:{})});
+    },[cursor?.runId,cursor?.nodeId,preview]);
     const changeDraft=(value:Record<string,unknown>)=>{
         setDraft(value);
         if(node?.effect?.kind==='mystery-button'&&value.mysteryPressed&&!draft.mysteryPressed){advance(undefined,value);return;}
@@ -80,7 +84,7 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
         if(draftTimer.current)clearTimeout(draftTimer.current);draftTimer.current=null;draftWrite.current=null;
         if(sceneId){
             const spoken=node.lines[cursor.line];
-            const updated={...cursor,guestPresent:keepGuest,cast:{...cursor.cast,...spoken?.castExpressions,...(spoken?.speaker==='caian'||spoken?.speaker==='aiven'?{[spoken.speaker]:spoken.expression||'normal'}:{})},speaker:spoken?.speaker==='caian'||spoken?.speaker==='aiven'?spoken.speaker:cursor.speaker};
+            const updated={...cursor,guestPresent:keepGuest,cast:{...cursor.cast,...spoken?.castExpressions,...(spoken?.speaker==='caian'||spoken?.speaker==='aiven'?{[spoken.speaker]:familiarityLineExpression(spoken)}:{})},speaker:spoken?.speaker==='caian'||spoken?.speaker==='aiven'?spoken.speaker:cursor.speaker};
             if(cursor.line<node.lines.length-1){setReplay({...updated,line:cursor.line+1,revision:cursor.revision+1});return;}
             const selected=choice===undefined?undefined:node.choices?.[choice];
             if(node.choices?.length&&!selected)return;
@@ -92,46 +96,51 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
         if(!next.sarFamiliarity?.npcs[npc].pending){setFinished(true);onClose();}
         void deliverFamiliarityMessages().catch(()=>setError('回忆已保存，私聊彩蛋待重试'));
     });
-    const visual=node?.effect;
+    // Props belong to one authored reveal, never the entire conversation branch.
+    const propKey=`${cursor?.runId}:${cursor?.sceneId}:${cursor?.nodeId}`;
+    const visual=node?.effect&&(node.effect.kind==='confetti'||(cursor?.line||0)===(node.effectLine||0))&&dismissedProp!==propKey?node.effect:undefined;
     // Freeze greetings for this visit; storage refreshes must not replace a sentence mid-read.
     const greetings=useMemo(()=>market?familiarityGreeting(npc,market):[],[npc,market?.seed,!!node,finished]);
-    const sentences=node?dialogueSentences(line?familiarityText(line.text,cursor?.userName||userName,cursor?.flags):visual?.title||' ')
+    const sentences=node?(line?dialogueSentences(familiarityText(line.text,cursor?.userName||userName,cursor?.flags)):[node.effect?.title||' '])
         :sceneId&&finished?['这段回忆，已经好好收在这里了。']:greetings.flatMap(dialogueSentences);
     const pageKey=`${npc}:${sceneId||''}:${cursor?.runId||'greeting'}:${cursor?.nodeId||''}:${cursor?.line||0}:${finished}`;
     const pageIndex=page.key===pageKey?Math.min(page.index,Math.max(0,sentences.length-1)):0;
     const lastSentence=pageIndex>=sentences.length-1;
-    const waitingForEffect=!!node&&lastLine&&!sceneId&&!!visual?.interactive&&!draft.confirmed;
-    const showChoices=!!market&&lastSentence&&!waitingForEffect&&!!node&&lastLine&&!!node.choices?.length;
+    const waitingForEffect=!!node&&(!sceneId||preview)&&!!visual?.interactive&&!draft.confirmed;
+    const showChoices=!!market&&lastSentence&&!visual&&!waitingForEffect&&!!node&&lastLine&&!!node.choices?.length;
     const text=sentences[pageIndex]||(market?' ':'正在走进活动室…');
     const continueDialogue=()=>{
         if(busy||showChoices)return;
         if(!lastSentence)setPage({key:pageKey,index:pageIndex+1});
+        else if(visual&&lastLine&&node?.choices?.length&&!waitingForEffect)setDismissedProp(propKey);
         else if(node&&!waitingForEffect)advance();
         else if(!node)onClose();
     };
-    const nextHint=busy?'保存中…':waitingForEffect&&lastSentence?'先完成上方操作':node&&lastLine&&lastSentence&&!node.next&&!node.choices?.length?'点击收好这段回忆':'点击继续';
+    const nextHint=busy?'保存中…':waitingForEffect&&lastSentence?'先完成上方操作':node&&lastLine&&lastSentence&&!node.next&&!node.choices?.length?'点击收好这段回忆':visual&&visual.kind!=='confetti'&&lastSentence?'点击收起，继续对话':'点击继续';
     useEffect(()=>{
         const target=window as Window&{render_game_to_text?:()=>string;advanceTime?:(ms:number)=>void};
-        const render=()=>JSON.stringify({mode:'sar-familiarity',npc,replay:!!sceneId,stars:progress?.stars,scene:scene?.id,node:cursor?.nodeId,line:cursor?.line,sentence:pageIndex,text,choices:showChoices?node?.choices?.map(c=>familiarityText(c.label,userName,cursor?.flags)):[],effect:visual?.kind,confirmed:!!draft.confirmed,busy,error,finished});
+        const render=()=>JSON.stringify({mode:'sar-familiarity',npc,replay:!!sceneId,preview,stars:progress?.stars,scene:scene?.id,node:cursor?.nodeId,line:cursor?.line,sentence:pageIndex,text,choices:showChoices?node?.choices?.map(c=>familiarityText(c.label,userName,cursor?.flags)):[],effect:visual?.kind,confirmed:!!draft.confirmed,busy,error,finished});
         target.render_game_to_text=render;return()=>{if(target.render_game_to_text===render)delete target.render_game_to_text;};
-    },[npc,sceneId,progress?.stars,scene,cursor,pageIndex,text,showChoices,node,draft,busy,error,finished,visual,userName]);
+    },[npc,sceneId,progress?.stars,scene,cursor,pageIndex,text,showChoices,node,draft,busy,error,finished,visual,userName,preview]);
     const keepGuest=!!scene&&!!cursor&&keepDialogueGuest(scene.nodes,cursor.nodeId,cursor.line,npc,cursor.guestPresent??!!cursor.cast?.[npc==='caian'?'aiven':'caian']);
     const castSpeaker=line?.speaker==='caian'||line?.speaker==='aiven'?line.speaker:keepGuest?cursor?.speaker||npc:npc;
-    const cast={...cursor?.cast,...line?.castExpressions,...(line?.speaker==='caian'||line?.speaker==='aiven'?{[line.speaker]:line.expression||'normal'}:{})};
+    const cast={...cursor?.cast,...(!line&&visual&&npc==='caian'?{caian:'normal' as const}:{}),...line?.castExpressions,...(line?.speaker==='caian'||line?.speaker==='aiven'?{[line.speaker]:familiarityLineExpression(line,pageIndex)}:{})};
     const expression=cast[castSpeaker]||'normal';
     const keyDown=(e:React.KeyboardEvent)=>{
         if(e.key==='Escape'){e.stopPropagation();onClose();}
         if(e.key!=='Tab')return;
-        const focus=Array.from(root.current?.querySelectorAll<HTMLElement>('button:not([disabled]),input,select,[tabindex="0"]')||[]),first=focus[0],last=focus.at(-1);
+        const focus=Array.from(root.current?.querySelectorAll<HTMLElement>('button:not([disabled]),input,select,summary,[tabindex="0"]')||[]),first=focus[0],last=focus.at(-1);
         if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
     };
     return <section ref={root} className={`srf-dialog srf-${npc} ${visual?'has-effect':''}`} role="dialog" aria-modal="true" aria-label={`${name}${sceneId?'的回忆':'的日常'}`} onKeyDown={keyDown}>
         <SARDialogueBackdrop/>
         <div className="srf-body">
             <div className={`srf-stage ${visual?'with-effect':''}`}>
-                {visual?<SARFamiliarityEffects key={`${cursor?.runId}:${cursor?.nodeId}`} effect={visual} npc={npc} flags={cursor?.flags||{}} userName={cursor?.userName||userName} userChibi={userProfile?.vrState?.chibi?.img}
-                    characters={characters.map(c=>({id:c.id,name:c.name,chibi:c.vrState?.chibi?.img}))} draft={draft} onDraftChange={changeDraft} onEditUserChibi={onEditUserChibi} replay={!!sceneId}/>
-                    :<SARDialogueCast lead={npc} speaker={castSpeaker} expression={scene?expression:finished?'happy':sentences.slice(0,pageIndex+1).reduce<ReturnType<typeof sarGreetingExpression>|undefined>((previous,sentence,index)=>sarGreetingExpression(npc,sentence,index,previous),undefined)} castExpressions={cast} keepGuest={keepGuest}/>}
+                <SARDialogueCast lead={npc} speaker={castSpeaker} expression={scene?expression:finished?'happy':sentences.slice(0,pageIndex+1).reduce<ReturnType<typeof sarGreetingExpression>|undefined>((previous,sentence,index)=>sarGreetingExpression(npc,sentence,index,previous),undefined)} castExpressions={cast} keepGuest={keepGuest}/>
+                {visual&&<SARDialogueProp key={propKey} kind={visual.kind} interactive={visual.interactive}>
+                        <SARFamiliarityEffects key={propKey} inScene effect={visual} npc={npc} flags={cursor?.flags||{}} userName={cursor?.userName||userName} userChibi={userProfile?.vrState?.chibi?.img}
+                            characters={characters.map(c=>({id:c.id,name:c.name,chibi:c.vrState?.chibi?.img}))} draft={draft} onDraftChange={changeDraft} onEditUserChibi={onEditUserChibi} replay={!!sceneId&&!preview}/>
+                </SARDialogueProp>}
             </div>
             <div className="srf-script">
                 <SARDialogueMeta npc={npc} speaker={line?.speaker==='narrator'?'旁白':line?.speaker==='sully'?'Sully':line?.speaker==='caian'?'凯恩':line?.speaker==='aiven'?'艾文':name}
@@ -141,7 +150,6 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
                     {finished&&!sceneId&&<small className="srf-collected">回忆已收入「图鉴 · 名册」</small>}
                     <span className="srf-next">{showChoices?'请选择回应':nextHint}<ArrowRight size={16}/></span>
                 </button>
-                {visual&&<div className="srf-mini-portrait"><SARPortrait who={castSpeaker} expression={expression}/></div>}
                 {error&&<p className="srf-error" role="alert">{error}{!market&&<button disabled={busy} onClick={()=>void run(open)}>重新打开</button>}</p>}
             </div>
         </div>

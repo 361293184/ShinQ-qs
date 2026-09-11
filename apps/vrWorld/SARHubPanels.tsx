@@ -14,6 +14,7 @@ import { SARNpcChibi } from './SARNpcArt';
 import { SARCollectionView } from './SARCollectionView';
 import { KanataTitleEditor } from './KanataTitleEditor';
 import './sar-hub.css';
+import './sar-collection-theme.css';
 
 export type SARHubPanel = 'settings' | 'warehouse';
 const WAREHOUSE_PAGE_SIZE = 12;
@@ -95,7 +96,7 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
     return <div className="sar-hub-backdrop">
-        <section ref={root} className="sar-hub-panel" role="dialog" aria-modal="true" aria-label={panel === 'settings' ? '活动室设置' : collection ? '收集图鉴' : '随身仓库'} onKeyDown={keyDown}>
+        <section ref={root} className={`sar-hub-panel${collection ? ' is-collection' : ''}`} role="dialog" aria-modal="true" aria-label={panel === 'settings' ? '活动室设置' : collection ? '收集图鉴' : '随身仓库'} onKeyDown={keyDown}>
             {collection && market ? <SARCollectionView market={market} owner={owner} actors={actors} onOwnerChange={setOwnerId} onClose={() => setCollection(false)} backRef={collectionBack} onOpenFamiliarity={onOpenFamiliarity}/> : <>
             <header className="sar-hub-header"><button type="button" onClick={onClose} aria-label="返回活动室"><ArrowLeft size={21}/></button><div><small>SAR · ACTIVITY ROOM</small><h2>{panel === 'settings' ? '活动室设置' : '随身仓库'}</h2></div>{panel === 'warehouse' && <button className="sar-hub-collection-link" type="button" aria-label="打开收集图鉴" disabled={!market || !!error} onClick={() => { setSelectedId(null); setCollection(true); }}><BookOpen size={20}/><span>图鉴</span></button>}{panel === 'warehouse' && <SARFacilityGuide facility="warehouse"/>}</header>
             {panel === 'settings' ? <main className="sar-hub-settings">

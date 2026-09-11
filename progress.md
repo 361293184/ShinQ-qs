@@ -910,3 +910,36 @@ TODO — Qixi rewrite
 - Exposed "指定角色" beside "刷新" on the board. Its existing selection page returns directly to the board when entered there. Added an immediate shared guard for refresh/invite double clicks.
 - Updated guide copy and regressions. 97 targeted tests passed. Isolated browser checks verified NPC and roaming-character refreshes, explicit invitation of a manual-only character, duplicate-click protection, direct return navigation, 320px layout and absence of the extra permission setting. Standard client state and screenshots also verified.
 - Production build passed (1m 12s).
+
+2026-09-11 — collection names, Aiven fish sales and exclusive keepsakes (in progress)
+- Collection owner labels now resolve current profile names; old fish/dinosaur owner snapshots no longer leak user IDs. Fish catalog, live renames and dinosaur origin/detail browser checks passed.
+- Added sell disposition + optional saleWords to the same character fishing response. Actual daily price, quality premium, shared daily buyback quota and wallet bounds are verified atomically. Saved Aiven reply/expression and payment survive delivery retries and SAR backup; user fish detail and character activity/chat cards show the receipt. Five authored replies use local assets without a model call.
+- Added Collection -> Exclusive keepsakes shelf over existing earned souvenirs and story-only dinosaur collection history. NPC filters, twelve/page, original photo replay and no reward replay. Fixed focus loss after filtering so Escape returns properly.
+- Relevant suite: 9 files / 100 tests passed; name, fish-sale, keepsakes browser scripts passed. Standard client captured collection navigation and state with no errors. TypeScript diagnostic output matches pre-existing baseline exactly (10,699 bytes). Build not yet run for these changes.
+- Latest user asks to greatly refine Caian artifacts visually. Current next work: redesign membership/admin cards, meeting record, photo presentation and memory card plus collection previews; preserve original saved photo geometry, identity snapshots, progress and reward logic.
+- Art direction: Caian's carefully filed keepsakes; ivory paper, deep ink and a restrained brass accent. Content: a dominant physical object, then its original note and provenance, then return. Interaction: brief object entrance, photo front/back reveal, subtle card lift on pointer devices; respect reduced motion.
+- Concurrent changes in components/os/AnniversaryGiftPopup.tsx, utils/anniversaryGifts.ts and docs/anniversary-gifts.md are not ours; preserve and exclude from our commit.
+
+- 用户纠正演出方向：保持完整立绘＋对话，物品只在真正拿出时进入前景，下一句收起；使用逐节点 authored effectLine，避免凯恩翻找卡片、艾文收线时提前泄露物品。保留收藏页实物样式。手机前景限制在立绘下半部，不移动房间和人物。
+- 应用户要求，开发服务的名册临时开放两位 NPC 各三个星级事件；通过 DEV 门禁的内存预览运行交互，不修改实际进度或发奖，正式构建不开放。
+
+- 验证：新增物品前景组件始终保留原立绘 DOM；凯恩翻找时不展示，实际拿出时显示，下一行收起，存档刷新不会重新出现；带选项的展示先收起再选择。320/390 手机截图、五种实物、证件确认、照片翻面与展开构图均检查。
+- 六段开发预览经真实图鉴 → 名册入口完整读完（C1 21、C2 117、C3 106、A1 13、A2 26、A3 39 次操作），逐段比较存档完全相同；生产门禁通过 esbuild 置 DEV=false 实测仍锁定。
+- 回归：售鱼/会话/价格/收藏/解析 73 个测试、星级事件/边界/优惠/整包备份 33 个测试通过；原个人线浏览器集成通过；标准 web-game client 的台词状态与截图无异常。最终 pnpm build 成功（43.13s），git diff --check 无问题。
+- 保留并排修改：周年庆三处文件，以及 AppErrorBoundary、preloadableLazy、chunkLoadRecovery 和对应测试；未将它们当成本次 SAR 修改覆盖。
+
+- 最终全量 tsc 已结束：本次 SAR 文件无新增类型错误；原有基线错误仍在，另有并排修改的 utils/preloadableLazy.test.ts 中 caught 为 unknown（TS18046）。没有把全量类型检查记为通过。
+
+- 本轮：证件清晰度、SAR 句末标点、凯恩三个星级事件的逐句表情重配，移除手动接入额外提示词并加入公共 SAR/两人介绍。视觉仍是立绘＋纸质道具，文字清晰优先；卡片正向排版，以卡片、身份信息、确认按钮为层次；保留轻淡入、合照翻面和构图展开，取消会模糊文本的旋转/整层滤镜。
+
+- 本轮完成：凯恩七种、艾文六种表情按固定剧情逐句编排，六段星级事件逐句检查无连续超过三句同表情；长句支持 sentenceExpressions，存档与回顾保留末句表情，凯恩平常更多 normal，拆台后才 embarrassed。陈述句补齐句号，问号/感叹号/停顿与动作原样保留。
+- 接入提示词：移除额外手动活动段落，统一加入 SAR 与两位管理员的公共介绍；不改手动/自动调度；公共介绍不虚构相识或星级私密经历。修正用户当前 SAR 房间名，钓鱼活动说明包含售鱼给艾文。
+- 实物支持点击或放大按钮打开独立只读详情，完整查看与关闭不确认领取、不推进台词；Escape 只关详情并恢复焦点。证件取消整层滤镜与旋转，按钮保留在纸卡下方，放大入口放左侧避开脸部。
+- 艾文礼炮参考周年开屏的全屏散落方式，改为 document.body Portal，56 片有限 CSS 粒子覆盖视口，不占物品窗口、不挡点击，减少动态效果时隐藏；离开礼炮节点清除。
+- 验证：10 个相关测试文件先通过 81 项，补充表情/标点/公共介绍测试后相关两文件 22 项通过（合计 86 项）；物品放大/不误确认/焦点返回/全屏礼炮/节点清理浏览器检查通过；五种实物、证件确认、合照翻面和 320/390 布局回归通过；标准 web-game client 完成并检查截图。pnpm build 成功；全量 tsc 仍是既有错误与并行 preloadableLazy 测试错误，本轮文件无新增类型错误。
+
+- 收藏图鉴主题修正：统一为随全局主色变化的浅底、正文、次要文字、分隔线和强调色；导航继承当前页背景，收藏、专属纪念、名册共用主题变量，消除绿底配棕色提示条的割裂。保留物品材质和角色原画颜色；只调整配色，原有切换/展开动画不变。
+
+- 收藏配色验证：隔离浏览器通过系统 updateTheme 切换粉、蓝、绿三套全局配色，收藏/专属纪念/名册即时同步，导航透明继承页底、选中态与返回按钮同色，390 px 无横向溢出；截图已检查。最终发布构建通过（1m16s）。用户授权将当前分支全部改动推送远端，包括已存在的周年赠礼与资源加载恢复修改；顺手补齐资源加载测试里 unknown 的类型收窄。
+
+- 推送前回归：SAR、售鱼、整包备份、周年赠礼、资源加载恢复等 28 个测试文件共 253 项全部通过；已对齐 origin/master（仅本分支新增 13 个提交，无落后），将本地既有提交及本批 67 文件改动一并推送 codex/dino-cafe-art。

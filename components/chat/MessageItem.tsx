@@ -3,6 +3,7 @@ import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anni
 
 
 import React, { useEffect, useRef, useState } from 'react';
+const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { Message, ChatTheme } from '../../types';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
@@ -2534,6 +2535,7 @@ const MessageItem = React.memo(({
                         )}
                         {/* 留言簿：把角色在墙上留的原话也显示出来 */}
                         {md.privateWords && <blockquote className="mt-2 border-l-2 border-teal-200/50 pl-2 text-[12px] leading-relaxed text-indigo-50 whitespace-pre-wrap">{md.privateWords}</blockquote>}
+                        {md.fishing?.sale && <React.Suspense fallback={null}><AivenFishSaleReceipt sale={md.fishing.sale} sellerName={charName || 'Ta'} sellerWords={md.fishing.sale.sellerWords}/></React.Suspense>}
                         {(md.marketActivity || md.marketEventId) && <details className="mt-2 text-[11px] text-indigo-200/80">
                             <summary className="cursor-pointer">展开经过与原话</summary>
                             <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>

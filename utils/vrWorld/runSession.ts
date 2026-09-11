@@ -477,7 +477,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                 historyMsgs.splice(0, historyMsgs.length, ...await DB.getRecentMessagesByCharId(char.id, contextLimit));
                 room = { ...room, name: sarMode === 'fishing' ? '彼方水域' : '内部布告板',
                     blurb: sarMode === 'fishing' ? 'SAR 门外的水域，天气影响水下出没的生物。' : '只属于这一家玩家的市场，有行情、挂单、需求与留言。',
-                    affordance: sarMode === 'fishing' ? '你可以钓鱼，决定保留或放生，并独立决定是否私聊分享。' : '你可以用自己的游戏钱币与其他玩家交易、发需求、回复或匿名喊话。' };
+                    affordance: sarMode === 'fishing' ? '你可以钓鱼，决定保留、放生或在允许时卖给艾文，并独立决定是否私聊分享。' : '你可以用自己的游戏钱币与其他玩家交易、发需求、回复或匿名喊话。' };
                 if (sarMode === 'fishing') {
                     const pending = pendingFishingTrip(market, char.id);
                     if (!pending) {

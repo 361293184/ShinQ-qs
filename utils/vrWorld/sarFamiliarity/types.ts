@@ -6,6 +6,8 @@ export interface FamiliarityLine {
     speaker: FamiliarityNpc | 'narrator' | 'sully';
     text: string;
     expression?: SARExpression;
+    /** Optional authored expressions for the individual sentence pages of this line. */
+    sentenceExpressions?: SARExpression[];
     castExpressions?: Partial<SARCastExpressions>;
 }
 export type FamiliarityReward =
@@ -32,6 +34,8 @@ export interface FamiliarityNode {
     choices?: FamiliarityChoice[];
     next?: string;
     effect?: FamiliarityEffect;
+    /** Authored line that reveals the prop; defaults to the first line (or an empty-node beat). */
+    effectLine?: number;
     /** Collected along the chosen route and applied once on scene completion; replay never grants. */
     rewards?: FamiliarityReward[];
 }

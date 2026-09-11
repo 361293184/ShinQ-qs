@@ -52,7 +52,7 @@ function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishin
         '行为成功与否以程序结算为准，小剧场里的欠饼干、吵架等不构成现实债务或现实关系变化。',
     ];
     if (roomId === 'sar' && sarActivity === 'fishing') return [
-        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留/放生以及可选的私聊分享。`,
+        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留、放生或在允许时卖给艾文，以及可选的私聊分享。`,
         '反应和分享可以有个性，但必须与本次去向一致，不得把玩笑写成赠送、交易或额外鱼获。首次图鉴解锁由程序自动播报，不用你另写公开发帖。',
     ];
     if (roomId === 'sar' && sarActivity) return [

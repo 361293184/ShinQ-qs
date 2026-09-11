@@ -13,6 +13,7 @@ import { createFishingMarketState, saveFishingMarketState } from '../../utils/vr
 import { ensureSARCommerce, readSARCommerce } from '../../utils/vrWorld/sarCommerce';
 import { SAR_MODULE_CATALOG } from '../../utils/vrWorld/sarModuleShop';
 import { getSARModules } from '../../utils/vrWorld/sarGacha';
+import { SAR_FACILITY_IDS, sarFacilityGuideKey } from '../../utils/vrWorld/sarFacilityGuides';
 const Garden = React.lazy(() => import('../../apps/vrWorld/dinosaur/DinosaurGarden').then(module => ({ default: module.DinosaurGarden })));
 function Harness() {
     const os = useOS(), backRef = useRef<(() => boolean) | null>(null);
@@ -29,7 +30,7 @@ function Harness() {
     return <p>设施已关闭</p>;
 }
 async function boot() {
-    if (new URLSearchParams(location.search).get('guide') === 'off') localStorage.setItem('sar-facility-guide-gacha-v1', 'done');
+    if (new URLSearchParams(location.search).get('guide') === 'off') for (const facility of SAR_FACILITY_IDS) localStorage.setItem(sarFacilityGuideKey(facility), 'done');
     const characters = await DB.getAllCharacters();
     if (characters.some(char => !char.id.startsWith('qa-facility-'))) throw Error('Use a fresh isolated browser profile for this fixture.');
     if (!characters.length) {

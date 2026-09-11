@@ -25,7 +25,7 @@ if(!params.has('resume')&&!params.has('replay')&&(params.has('node')||params.has
         const text=(window as any).render_game_to_text?.(),view=text?JSON.parse(text):{};
         if(view.mode!=='sar-familiarity'||view.busy||!view.scene){requestAnimationFrame(position);return;}
         const state=readFishingMarketState(),cursor=state.sarFamiliarity!.npcs[npc].pending!;
-        cursor.nodeId=params.get('node')||scene!.start;cursor.line=Number(params.get('line')||0);
+        cursor.userName='小雨';cursor.nodeId=params.get('node')||scene!.start;cursor.line=Number(params.get('line')||0);
         saveFishingMarketState(state);document.documentElement.dataset.qaPositioned='true';
     };
     requestAnimationFrame(position);

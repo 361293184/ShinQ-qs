@@ -6,6 +6,7 @@ const browser=await chromium.launch({headless:true});
 const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),page=await context.newPage(),errors=[];
 page.on('pageerror',e=>errors.push(e.message));
 await context.route('**/*',route=>['127.0.0.1','localhost'].includes(new URL(route.request().url()).hostname)?route.continue():route.fulfill({status:200,body:'',headers:{'access-control-allow-origin':'*'}}));
+await context.addInitScript(()=>['gacha','water','garden','warehouse','shop','board','cabinet'].forEach(id=>localStorage.setItem('sar-facility-guide-'+id+'-v1','done')));
 const button=name=>page.getByRole('button',{name,exact:true});
 const shot=async(name)=>{await page.waitForFunction(()=>Array.from(document.querySelectorAll('.srf-dialog .sar-npc-portrait')).every(el=>el.getAttribute('aria-busy')!=='true'));await page.screenshot({path:`${out}/${name}.png`,animations:'disabled'});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'horizontal overflow');};
 const close=async()=>{if(await button('离开对话').count())await button('离开对话').click();};
@@ -55,7 +56,7 @@ try{
     await node('C3-SPECIAL','reward');await shot('07-memory-card');
     await node('A2-E03','rain');await shot('08-coupon-rain');
     await node('A3-SPECIAL','loot');await shot('09-loot-burst');
-    await node('A3-SPECIAL','chimera');await page.locator('.srf-fx-chimera canvas').waitFor({timeout:20000});await page.waitForFunction(()=>document.querySelector('.srf-fx-chimera-model')?.getAttribute('data-model-ready')==='true');await page.waitForTimeout(900);await shot('10-chimera');
+    await node('A3-SPECIAL','chimera');await next();await page.locator('.srf-fx-chimera canvas').waitFor({timeout:20000});await page.waitForFunction(()=>document.querySelector('.srf-fx-chimera-model')?.getAttribute('data-model-ready')==='true');await page.waitForTimeout(900);await shot('10-chimera');
     await node('A3-E03','button');await button('按下神秘按钮').click();await page.waitForFunction(()=>JSON.parse(window.render_game_to_text()).node==='confetti');await shot('19-mystery-confetti');
     await close();await button('打开仓库').click();await page.getByTestId('sar-wallet-balance').waitFor();await button('纪念').click();await shot('11-keepsakes');
     await page.getByRole('button',{name:/^第一次 SAR 会议 ·/}).click();await button('收好纪念物').waitFor();await shot('12-keepsake-photo');await button('看看背面').click();await shot('13-photo-back');await page.keyboard.press('Escape');assert.equal(await button('收好纪念物').count(),0);

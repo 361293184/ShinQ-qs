@@ -1,16 +1,23 @@
 import type { CharacterProfile, VRCardMeta } from '../../types';
 import { DB } from '../db';
 import { logMarketEvent, mutateFishingMarket, readFishingMarketState, speciesById, type FishingTrip } from './fishingMarket';
+import { AIVEN_FISH_SALE_REPLIES } from './fishingSale';
 
 export function fishingTripCard(trip: FishingTrip) {
     const c = trip.catch, result = trip.result!;
-    const activity = `${c.ownerName}在${c.weatherLabel}的彼方水域钓到${speciesById(c.speciesId)!.name}（${c.sizeCm} cm，${c.quality} 星），${result.disposition === 'release' ? '已放生' : '已保留'}。`;
+    const reply = trip.sale ? AIVEN_FISH_SALE_REPLIES[trip.sale.replyIndex] : undefined;
+    const activity = `${c.ownerName}在${c.weatherLabel}的彼方水域钓到${speciesById(c.speciesId)!.name}（${c.sizeCm} cm，${c.quality} 星），${result.disposition === 'release' ? '已放生' : trip.sale ? `已卖给艾文，获得 ${trip.sale.amount} 鳞币` : '已保留'}。`;
     const metadata: VRCardMeta = { vrCard: true, room: 'sar', activity, behavior: result.reaction, marketActivity: true,
         fishing: { catchId: c.id, speciesId: c.speciesId, speciesName: speciesById(c.speciesId)!.name, sizeCm: c.sizeCm, quality: c.quality,
-            weatherLabel: c.weatherLabel, weatherSource: c.weatherSource, decision: result.disposition } };
+            weatherLabel: c.weatherLabel, weatherSource: c.weatherSource, decision: result.disposition,
+            ...(trip.sale && reply ? { sale: { ...trip.sale, reply: reply.text, expression: reply.expression, sellerWords: result.saleWords } } : {}) } };
     const content = ['「彼方 · 水域」', '程序事实：' + activity,
         `天气来源：${c.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实'}。`,
         '角色反应（主观表达）：' + result.reaction,
+        ...(trip.sale && reply ? [
+            ...(result.saleWords ? ['交鱼时的原话：' + JSON.stringify(result.saleWords)] : []),
+            `艾文的成交回应（${reply.expression}）：${JSON.stringify(reply.text)}`,
+        ] : []),
         result.shareToUser ? '角色选择另外私聊分享；是否送达以聊天中的实际消息为准。' : '角色没有选择私聊分享。'].join('\n');
     return { activity, metadata, content };
 }

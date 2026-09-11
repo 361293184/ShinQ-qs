@@ -1,8 +1,9 @@
+import { formatSARDialogue } from './dialogueText';
 import type { AivenExpression, CaianExpression } from '../sarArt';
 import type { FamiliarityDailyLines, FamiliarityLine, FamiliarityNode, FamiliarityRank, FamiliarityReward, FamiliarityScene } from './types';
 
-const a = (text: string, expression: AivenExpression = 'normal'): FamiliarityLine => ({ speaker: 'aiven', text, expression });
-const c = (text: string, expression: CaianExpression = 'normal'): FamiliarityLine => ({ speaker: 'caian', text, expression });
+const a = (text: string, expression: AivenExpression = 'normal'): FamiliarityLine => ({ speaker: 'aiven', text: formatSARDialogue(text), expression });
+const c = (text: string, expression: CaianExpression = 'normal'): FamiliarityLine => ({ speaker: 'caian', text: formatSARDialogue(text), expression });
 const n = (text: string): FamiliarityLine => ({ speaker: 'narrator', text });
 type Reply = [label: string, lines: FamiliarityLine[], rewards?: FamiliarityReward[]];
 
@@ -184,88 +185,88 @@ const events: FamiliarityScene[] = [
     {
         id: 'A1-SPECIAL', npc: 'aiven', rank: 1, kind: 'event', title: '不是鱼', start: 'start',
         nodes: {
-            start: { lines: [a('……'), a('刚才钓到一个东西。')], choices: [
+            start: { lines: [a('……', 'normal'), a('刚才钓到一个东西。', 'interested')], choices: [
                 { label: '鱼？', next: 'fish' }, { label: '恐龙？', next: 'dinosaur' }, { label: '尸体？', next: 'body' },
             ] },
             fish: { lines: [a('不是。')], next: 'show' },
             dinosaur: { lines: [a('不是。')], next: 'show' },
-            body: { lines: [a('鱼不喜欢尸体')], next: 'show' },
-            show: { lines: [a('这个。'), n('艾文拿出：猫科语法模块')], effect: { kind: 'notice', title: '猫科语法模块', text: '艾文从水里钓上来的模块。' }, choices: [
+            body: { lines: [a('鱼不喜欢尸体', 'interested')], next: 'show' },
+            show: { lines: [a('这个。', 'normal'), n('艾文拿出：猫科语法模块')], effectLine: 1, effect: { kind: 'notice', title: '猫科语法模块', text: '艾文从水里钓上来的模块。' }, choices: [
                 { label: '为什么模块会在水里？', next: 'water' }, { label: '还能用吗？', next: 'working' }, { label: '你钓鱼还能钓这个？！', next: 'catch' },
             ] },
             water: { lines: [a('不知道。')], next: 'give' },
-            working: { lines: [a('凯恩试过了。'), c('为什么是我试啊喵？！', 'embarrassed'), a('能用。')], next: 'give' },
-            catch: { lines: [a('现在看来可以。')], next: 'give' },
-            give: { lines: [a('给你。')], choices: [
+            working: { lines: [a('凯恩试过了。', 'normal'), c('为什么是我试啊喵？！', 'embarrassed'), a('能用。', 'happy')], next: 'give' },
+            catch: { lines: [a('现在看来可以。', 'interested')], next: 'give' },
+            give: { lines: [a('给你。', 'normal')], choices: [
                 { label: '真的给我？', next: 'really' }, { label: '不会进水坏了吗？', next: 'wet' }, { label: '你不要？', next: 'want' },
             ] },
-            really: { lines: [a('嗯。')], next: 'reward' },
-            wet: { lines: [a('防水。大概。')], next: 'reward' },
-            want: { lines: [a('我不需要说喵。')], next: 'reward' },
+            really: { lines: [a('嗯。', 'happy')], next: 'reward' },
+            wet: { lines: [a('防水。大概。', 'normal')], next: 'reward' },
+            want: { lines: [a('我不需要说喵。', 'normal')], next: 'reward' },
             reward: { lines: [c('我本来也不需要啊喵！！', 'embarrassed'), n('获得：猫科语法包 ×1')], rewards: [{ kind: 'module', title: '猫科语法包', count: 1 }, { kind: 'unlock', feature: 'abnormal-catch' }], next: 'end' },
-            end: { lines: [n('解锁彩蛋类型：异常钓获'), a('……下一个应该是鱼。')] },
+            end: { lines: [n('解锁彩蛋类型：异常钓获'), a('……下一个应该是鱼。', 'interested')] },
         },
     },
     {
         id: 'A2-SPECIAL', npc: 'aiven', rank: 2, kind: 'event', title: '今天的风儿很喧嚣啊', start: 'start',
         nodes: {
-            start: { lines: [a('今天的风儿很喧嚣啊。')], choices: [
+            start: { lines: [a('今天的风儿很喧嚣啊。', 'interested')], choices: [
                 { label: '你被文艺少年模块污染了吗', next: 'ordinary' }, { label: '活动室哪来的风', next: 'ordinary' }, { label: '可是风儿似乎又在哭泣啊', next: 'understood', flags: { 'aiven-understood-wind': true } },
             ] },
             ordinary: { lines: [a('……', 'normal')], next: 'discount' },
             understood: { lines: [a('……', 'happy')], next: 'discount' },
-            discount: { lines: [c('诶诶！！', 'curious'), c('今天模块商店怎么突然打八折了？！', 'curious'), n('模块商店限时折扣 80%，剩余时间：？？？')], effect: { kind: 'discount', title: '模块商店限时折扣 80%', text: '剩余时间：？？？' }, rewards: [{ kind: 'discount', percent: 20, scope: 'all', minutes: 30 }], next: 'wind' },
-            wind: { lines: [c('为什么？！', 'curious'), a('风。'), c('什么风？！', 'curious'), a('喧嚣的风。')], choices: [
+            discount: { lines: [c('诶诶！！', 'curious'), c('今天模块商店怎么突然打八折了？！', 'curious'), n('模块商店限时折扣 80%，剩余时间：？？？')], effectLine: 1, effect: { kind: 'discount', title: '模块商店限时折扣 80%', text: '剩余时间：？？？' }, rewards: [{ kind: 'discount', percent: 20, scope: 'all', minutes: 30 }], next: 'wind' },
+            wind: { lines: [c('为什么？！', 'curious'), a('风。', 'normal'), c('什么风？！', 'curious'), a('喧嚣的风。', 'interested')], choices: [
                 { label: '你干的？', next: 'you' }, { label: '这是什么神秘仪式？', next: 'ritual' }, { label: '快！趁现在买！', next: 'buy' },
             ] },
             you: { lines: [a('谁知道呢。')], next: 'teacher' },
-            ritual: { lines: [a('或许是吧。'), a('似乎有神秘力量驱使着我说出这种台词。')], next: 'teacher' },
-            buy: { lines: [a('嗯。'), a('你成长了。')], next: 'teacher' },
+            ritual: { lines: [a('或许是吧。', 'interested'), a('似乎有神秘力量驱使着我说出这种台词。', 'normal')], next: 'teacher' },
+            buy: { lines: [a('嗯。', 'normal'), a('你成长了。', 'happy')], next: 'teacher' },
             teacher: { lines: [c('为什么这种时候突然像老师一样？！', 'embarrassed')], next: 'confetti' },
             confetti: { lines: [n('砰！'), n('砰！砰！')], effect: { kind: 'confetti', title: '活动室礼炮突然启动' }, next: 'button' },
-            button: { lines: [c('谁装的礼炮？！', 'curious'), a('……'), c('艾文，你手里那个按钮是什么？', 'curious'), c('那就是你干的吧？！', 'embarrassed'), a('是吗。')], next: 'title' },
+            button: { lines: [c('谁装的礼炮？！', 'curious'), a('……', 'normal'), c('艾文，你手里那个按钮是什么？', 'curious'), c('那就是你干的吧？！', 'embarrassed'), a('是吗。', 'interested')], next: 'title' },
             title: { lines: [n('获得隐藏称号：听懂风的人'), n('曾经与艾文完成过一次意义不明的交流。没有任何属性加成。')], effect: { kind: 'notice', title: '听懂风的人', text: '曾经与艾文完成过一次意义不明的交流。没有任何属性加成。' }, rewards: [{ kind: 'title', title: '听懂风的人' }, { kind: 'unlock', feature: 'titles' }, { kind: 'unlock', feature: 'environment' }], next: 'end' },
-            end: { lines: [n('解锁彩蛋类型：环境异常'), a('……风停了。'), c('商店折扣怎么还没停？！', 'curious'), a('可能有延迟。')] },
+            end: { lines: [n('解锁彩蛋类型：环境异常'), a('……风停了。', 'normal'), c('商店折扣怎么还没停？！', 'curious'), a('可能有延迟。', 'interested')] },
         },
     },
     {
         id: 'A3-SPECIAL', npc: 'aiven', rank: 3, kind: 'event', title: '今天有点多', start: 'start',
         nodes: {
-            start: { lines: [a('（User名）。'), a('帮忙。')], choices: [
+            start: { lines: [a('（User名）。', 'normal'), a('帮忙。', 'interested')], choices: [
                 { label: '怎么了？', next: 'what' }, { label: '你居然会主动叫我帮忙', next: 'help' }, { label: '鱼把你钓走了？', next: 'fished' },
             ] },
-            what: { lines: [a('今天有点多。')], next: 'loot' },
-            help: { lines: [a('嗯。所以帮忙。')], next: 'loot' },
-            fished: { lines: [a('还没有。')], next: 'loot' },
+            what: { lines: [a('今天有点多。', 'interested')], next: 'loot' },
+            help: { lines: [a('嗯。所以帮忙。', 'normal')], next: 'loot' },
+            fished: { lines: [a('还没有。', 'normal')], next: 'loot' },
             // This heap is stage scenery. Only the explicitly gifted card and chimera are rewards.
             loot: { lines: [], effect: { kind: 'loot-burst', title: '今天有点多', items: ['猫科语法包 ×1', '恶役大小姐协议 ×1', '一只雨靴', '三条鱼', '凯恩的管理员胸牌', '艾文的备用存档卡 ×1', '模块商店九折券 ×3'] }, choices: [
                 { label: '你到底在钓什么？', next: 'fishing' }, { label: '这水池下面是不是仓库？', next: 'warehouse' }, { label: '为什么凯恩的胸牌在里面？', next: 'badge' },
             ] },
-            fishing: { lines: [a('鱼。')], next: 'caian' },
-            warehouse: { lines: [a('不知道。可能。')], next: 'caian' },
-            badge: { lines: [a('它渴望自由。')], next: 'caian' },
-            caian: { lines: [c('艾文！！我管理员胸牌呢？！', 'embarrassed'), a('找到了。'), c('为什么会在那里？！', 'curious'), a('这个是……'), c('啊，这不是你的备用存档卡嘛！', 'curious'), c('你根本没有爱惜啊！早知道不帮你做了！', 'embarrassed'), a('（user名），这个给你。')], choices: [
+            fishing: { lines: [a('鱼。', 'interested')], next: 'caian' },
+            warehouse: { lines: [a('不知道。可能。', 'normal')], next: 'caian' },
+            badge: { lines: [a('它渴望自由。', 'happy')], next: 'caian' },
+            caian: { lines: [c('艾文！！我管理员胸牌呢？！', 'embarrassed'), a('找到了。', 'normal'), c('为什么会在那里？！', 'curious'), a('这个是……', 'interested'), c('啊，这不是你的备用存档卡嘛！', 'curious'), c('你根本没有爱惜啊！早知道不帮你做了！', 'embarrassed'), a('（user名），这个给你。', 'shy')], choices: [
                 { label: '为什么给我？', next: 'why-card' }, { label: '你自己不用？', next: 'your-card' }, { label: '这是三星奖励？', next: 'three-stars' },
             ] },
-            'why-card': { lines: [a('是你钓上来的。')], next: 'card' },
-            'your-card': { lines: [a('或许你能用到。')], next: 'card' },
-            'three-stars': { lines: [a('或许放在五星事件比较合适。'), a('开玩笑的，这是你的了。')], next: 'card' },
-            card: { lines: [n('获得：艾文的备用存档卡 ×1'), a('还有一个。')], effect: { kind: 'memory-card', title: '艾文的备用存档卡', text: '凯恩为艾文制作的备用存档卡。' }, rewards: [{ kind: 'souvenir', id: 'aiven-backup-card', title: '艾文的备用存档卡', description: '凯恩为艾文制作的备用存档卡。艾文说：「或许你能用到。」' }], next: 'chimera' },
-            chimera: { lines: [n('再次收线'), n('钓上来：？？？橡皮泥恐龙')], effect: { kind: 'chimera', title: '？？？', text: '霸王龙身体、三角龙角、剑龙骨板、腕龙脖子，配色异常。' }, choices: [
+            'why-card': { lines: [a('是你钓上来的。', 'normal')], next: 'card' },
+            'your-card': { lines: [a('或许你能用到。', 'shy')], next: 'card' },
+            'three-stars': { lines: [a('或许放在五星事件比较合适。', 'normal'), a('开玩笑的，这是你的了。', 'happy')], next: 'card' },
+            card: { lines: [n('获得：艾文的备用存档卡 ×1'), a('还有一个。', 'interested')], effect: { kind: 'memory-card', title: '艾文的备用存档卡', text: '凯恩为艾文制作的备用存档卡。' }, rewards: [{ kind: 'souvenir', id: 'aiven-backup-card', title: '艾文的备用存档卡', description: '凯恩为艾文制作的备用存档卡。艾文说：「或许你能用到。」' }], next: 'chimera' },
+            chimera: { lines: [n('再次收线'), n('钓上来：？？？橡皮泥恐龙')], effectLine: 1, effect: { kind: 'chimera', title: '？？？', text: '霸王龙身体、三角龙角、剑龙骨板、腕龙脖子，配色异常。' }, choices: [
                 { label: '这是什么恐龙？', next: 'species' }, { label: '好丑', next: 'ugly' }, { label: '好可爱', next: 'cute' }, { label: '这是生物学犯罪', next: 'crime' },
             ] },
-            species: { lines: [a('不知道。')], next: 'give-chimera' },
-            ugly: { lines: [a('嗯。留着吧。')], next: 'give-chimera' },
+            species: { lines: [a('不知道。', 'interested')], next: 'give-chimera' },
+            ugly: { lines: [a('嗯。留着吧。', 'normal')], next: 'give-chimera' },
             cute: { lines: [a('嗯。我也觉得。', 'happy')], next: 'give-chimera' },
-            crime: { lines: [a('已经发生了。')], next: 'give-chimera' },
-            'give-chimera': { lines: [a('给你。'), n('获得特殊恐龙：？？？')], rewards: [{ kind: 'dinosaur', speciesId: 'aiven-chimera' }, { kind: 'unlock', feature: 'cross-system' }], next: 'record' },
-            record: { lines: [n('名称：？？？\n分类：橡皮泥恐龙\n发现地点：SAR 活动室水域\n发现者：Aiven / （User名）\n艾文备注：「不知道是什么。」「所以不用纠正。」'), n('解锁彩蛋类型：跨系统串线'), a('……'), a('好了。')], choices: [
+            crime: { lines: [a('已经发生了。', 'normal')], next: 'give-chimera' },
+            'give-chimera': { lines: [a('给你。', 'shy'), n('获得特殊恐龙：？？？')], rewards: [{ kind: 'dinosaur', speciesId: 'aiven-chimera' }, { kind: 'unlock', feature: 'cross-system' }], next: 'record' },
+            record: { lines: [n('名称：？？？\n分类：橡皮泥恐龙\n发现地点：SAR 活动室水域\n发现者：Aiven / （User名）\n艾文备注：「不知道是什么。」「所以不用纠正。」'), n('解锁彩蛋类型：跨系统串线'), a('……', 'normal'), a('好了。', 'happy')], choices: [
                 { label: '今天到底怎么回事', next: 'today' }, { label: '下次还叫我', next: 'next-time' }, { label: '累死了', next: 'tired' },
             ] },
             today: { lines: [a('不知道。但是挺好。', 'happy')], next: 'end' },
-            'next-time': { lines: [a('嗯。本来就打算。')], next: 'end' },
-            tired: { lines: [a('辛苦了。')], next: 'end' },
-            end: { lines: [a('……'), a('明天应该会正常一点。'), c('你最好是！！', 'embarrassed')] },
+            'next-time': { lines: [a('嗯。本来就打算。', 'shy')], next: 'end' },
+            tired: { lines: [a('辛苦了。', 'normal')], next: 'end' },
+            end: { lines: [a('……', 'normal'), a('明天应该会正常一点。', 'normal'), c('你最好是！！', 'embarrassed')] },
         },
     },
 ];

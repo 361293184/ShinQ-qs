@@ -1,5 +1,6 @@
 import type { CharacterProfile } from '../../types';
 import { DB } from '../db';
+import { remainingSARBuyback, SAR_WALLET_LIMIT } from './sarEconomy';
 import {
     FISH_CATALOG, availableCatches, buyListing, catchValue, commentOnPost, createListing, createRequest, fulfillRequest,
     logMarketEvent, marketCatchSnapshot, mutateFishingMarket, readFishingMarketState, removeMarketPost, speciesById,
@@ -12,24 +13,29 @@ const tag = (text: string, key: string) => text.match(new RegExp(`<${key}>\\s*([
 export const parseFishingReaction = (text: string): FishingReaction | null => {
     try {
         const value = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
-        if (!value || !['keep', 'release'].includes(value.disposition) || typeof value.reaction !== 'string' || !value.reaction.trim()) return null;
+        if (!value || !['keep', 'release', 'sell'].includes(value.disposition) || typeof value.reaction !== 'string' || !value.reaction.trim()) return null;
+        if (value.saleWords !== undefined && value.saleWords !== null && typeof value.saleWords !== 'string') return null;
         if (value.shareToUser !== null && (!value.shareToUser || typeof value.shareToUser.text !== 'string' || !value.shareToUser.text.trim())) return null;
-        return { disposition: value.disposition, reaction: value.reaction.trim().slice(0, 1800), shareToUser: value.shareToUser === null ? null : { text: value.shareToUser.text.trim().slice(0, 600) } };
+        return { disposition: value.disposition, reaction: value.reaction.trim().slice(0, 1800), shareToUser: value.shareToUser === null ? null : { text: value.shareToUser.text.trim().slice(0, 600) },
+            ...(value.disposition === 'sell' && value.saleWords?.trim() ? { saleWords: value.saleWords.trim().slice(0, 600) } : {}) };
     } catch { return null; }
 };
 export const buildFishingTurn = (actor: MarketActor, caught: FishingCatch, state: FishingMarketState, userName: string) => {
     const species = speciesById(caught.speciesId)!;
     const entry = personalFishingCollection(state, actor.id).find(e => e.speciesId === caught.speciesId);
     const previousOwned = state.inventory.filter(c => c.ownerId === actor.id && c.speciesId === caught.speciesId && c.id !== caught.id).length;
+    const price = catchValue(state, caught), remaining = remainingSARBuyback(state.buybackBudgets, actor.id);
+    const canSell = species.category === 'fish' && price <= remaining && (state.accounts[actor.id] || 0) + price <= SAR_WALLET_LIMIT;
     return `你现在在彼方的水域钓鱼。这是游戏内实际结算，不是临时芯片事故。
 程序判定的唯一鱼获（已经暂存，不可改写物种、大小或星级）：
 ${JSON.stringify({ species: species.name, material: species.category === 'fish' ? '鱼' : '橡皮泥模型', sizeCm: caught.sizeCm, quality: caught.quality, description: species.blurb, weather: caught.weatherLabel, weatherSource: caught.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实' })}
 你自己的相关收藏：${JSON.stringify({ previouslyOwned: previousOwned, obtainedIncludingThisCatch: entry?.acquisitionIds.length || 1, firstDiscovery: !entry?.historicalIncomplete && entry?.acquisitionIds.length === 1, historicalCountIncomplete: !!entry?.historicalIncomplete })}。这不是其他角色的库存。
-按 ${actor.name} 的性格完成这一竿：反应、保留或放生，以及是否私聊分享给 ${userName}。不需要每次都分享；首次发现、特别喜欢或与最近聊天有关时，可以自然地想起对方。是否分享与保留/放生独立。
-${species.category === 'fish' ? 'disposition 只能 keep（保留）或 release（放生），只处理这一件鱼获。' : '这是橡皮泥模型，不是活物；disposition 只能 keep（收藏），不能放生。'}
-分享只是发消息，不是赠送；本轮没有挂卖、定价或交易动作。个人图鉴首次解锁由程序自动在彼方公共留言簿播报，不需要你另外发帖。
-只输出一个 JSON 对象，不附加说明；不分享时 shareToUser 为 null。语言遵循你原有设定。反应和分享必须与所选去向一致，不能声称已经赠送或成交。
-{"disposition":"keep","reaction":"你对这次鱼获的真实反应","shareToUser":{"text":"直接发给用户的原话"}}`;
+按 ${actor.name} 的性格完成这一竿：反应、保留、放生或卖给艾文，以及是否私聊分享给 ${userName}。不需要每次都分享；首次发现、特别喜欢或与最近聊天有关时，可以自然地想起对方。是否分享与鱼获去向独立。
+${species.category === 'fish' ? `disposition 可选 keep（保留）、release（放生）${canSell ? '、sell（钓完后把这条鱼卖给艾文）' : '；当前不可售卖，不能选 sell'}，只处理这一件鱼获。` : '这是橡皮泥模型，不是活物；disposition 只能 keep（收藏），不能放生，也不能卖给艾文。'}
+艾文按当天鱼类行情收鱼：这一条含品质加价 ${price} 鳞币，你今日还可回收 ${remaining} 鳞币，当前是否可卖：${canSell ? '是' : '否'}。金额由程序结算，不可自己定价；不处理其他库存。选 sell 时可在 saleWords 里写一句交鱼时对艾文说的话，也可以不说。艾文的回应由程序选取，不要替他编台词。售鱼属于本次钓鱼收尾，无需再逛布告板。
+分享只是发消息，不是赠送。个人图鉴首次解锁由程序自动在彼方公共留言簿播报，不需要你另外发帖。售鱼失败不会发送成交分享，也不会收走鱼。
+只输出一个 JSON 对象，不附加说明；不分享时 shareToUser 为 null，不售鱼或没有对艾文说话时 saleWords 为 null。语言遵循你原有设定，反应和分享必须与所选去向一致，不能捏造额外赠送、挂单或金额。
+{"disposition":"keep","reaction":"你对这次鱼获的真实反应","saleWords":null,"shareToUser":{"text":"直接发给用户的原话"}}`;
 };
 
 export interface MarketPlan {
@@ -108,7 +114,7 @@ export const flushMarketReceipts = (characters: CharacterProfile[]): Promise<voi
     const run = async () => {
         const state=readFishingMarketState();
         for(const char of characters) {
-            const tripEvents = new Set((state.fishingTrips || []).flatMap(t => ['caught_' + t.catch.id, 'fishing_result_' + t.catch.id, 'fishing_release_' + t.catch.id]));
+            const tripEvents = new Set((state.fishingTrips || []).flatMap(t => ['caught_' + t.catch.id, 'fishing_result_' + t.catch.id, 'fishing_release_' + t.catch.id, 'aiven_fish_sale_' + t.catch.id]));
             const pending=state.ledger.filter(e=>!tripEvents.has(e.id)&&e.participants.includes(char.id)&&!e.deliveredTo.includes(char.id));
             if(!pending.length)continue;
             const existing=await DB.getVRCardsByCharId(char.id);

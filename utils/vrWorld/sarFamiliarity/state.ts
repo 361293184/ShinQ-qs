@@ -1,3 +1,4 @@
+import { familiarityLineExpression } from './dialogueText';
 import { keepDialogueGuest } from '../sarDialogueStaging';
 import { addCatchToState, FISH_CATALOG, marketHash, marketRandom, mutateFishingMarket, readFishingMarketState, simulatedFishingWeather, type FishingMarketState, type FishingWeatherKind } from '../fishingMarket';
 import { ensureSARCommerce } from '../sarCommerce';
@@ -120,7 +121,7 @@ export const advanceFamiliarity = async (npc: FamiliarityNpc, expected: Pick<Fam
         if (!scene || !node) throw new Error('这段对话暂时无法继续，进度已保留');
         cursor.guestPresent=keepDialogueGuest(scene.nodes,cursor.nodeId,cursor.line,npc,cursor.guestPresent??!!cursor.cast?.[npc==='caian'?'aiven':'caian']);
         const spoken=node.lines[cursor.line];
-        if(spoken?.speaker==='caian'||spoken?.speaker==='aiven'){cursor.cast={...cursor.cast,...spoken.castExpressions,[spoken.speaker]:spoken.expression||'normal'};cursor.speaker=spoken.speaker;}
+        if(spoken?.speaker==='caian'||spoken?.speaker==='aiven'){cursor.cast={...cursor.cast,...spoken.castExpressions,[spoken.speaker]:familiarityLineExpression(spoken)};cursor.speaker=spoken.speaker;}
         if (options.draft) cursor.drafts[cursor.nodeId]=structuredClone(options.draft);
         if (cursor.line < node.lines.length-1) { cursor.line++;cursor.revision++;return next; }
         const choice = options.choice === undefined ? undefined : node.choices?.[options.choice];

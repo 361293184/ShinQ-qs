@@ -3,6 +3,7 @@ import { SAR_STARTING_BALANCE, SAR_WANDERER_BALANCE, SAR_DAILY_BUYBACK, SAR_ECON
 import type { CharacterProfile, RealtimeConfig, UserProfile } from '../../types';
 import type { DinosaurGarden, DinoOrigin } from './dinosaurTypes';
 import { readDinosaurGarden } from './dinosaurStorage';
+import { AIVEN_FISH_SALE_REPLIES, validAivenFishSale, type AivenFishSale } from './fishingSale';
 
 // A leaf module: importing the backup adapter must not pull in DB/prompt execution.
 export const FISHING_MARKET_STORAGE_KEY = 'vr_fishing_market_v1';
@@ -42,6 +43,7 @@ export interface MarketLedgerItem {
     id: string; at: number; text: string; participants: string[]; deliveredTo: string[];
     quotes?: { name: string; content: string }[];
     sarPurchase?: { kind: 'draw' | 'module'; itemId: string; paid: number; firstCopy?: boolean };
+    aivenSale?: AivenFishSale;
 }
 export interface FishingCollectionEntry {
     actorId: string; actorName: string; speciesId: string;
@@ -51,11 +53,13 @@ export interface FishingCollectionEntry {
     announcement?: { id: string; published: boolean };
 }
 export interface FishingReaction {
-    disposition: 'keep' | 'release'; reaction: string; shareToUser: { text: string } | null;
+    disposition: 'keep' | 'release' | 'sell'; reaction: string; shareToUser: { text: string } | null;
+    saleWords?: string;
 }
 export interface FishingTrip {
     catch: FishingCatch; status: 'pending' | 'settled';
     result?: FishingReaction; settledAt?: number; cardSent?: boolean; shareSent?: boolean;
+    sale?: AivenFishSale;
 }
 export interface FishingMarketState {
     sarFamiliarity?: import('./sarFamiliarity/storageTypes').FamiliarityState;
@@ -145,7 +149,9 @@ export const readFishingMarketState = (storage: Pick<Storage, 'getItem'> = local
     if (raw.sarCharacterModules !== undefined && (!raw.sarCharacterModules || typeof raw.sarCharacterModules !== 'object' || Array.isArray(raw.sarCharacterModules)
         || Object.values(raw.sarCharacterModules).some(bag => !bag || typeof bag !== 'object' || Array.isArray(bag) || Object.values(bag).some(n => !Number.isSafeInteger(n) || n < 0)))) throw new Error('角色仓库存档异常，请先备份');
     if (raw.collectionEntries !== undefined && (!Array.isArray(raw.collectionEntries) || raw.collectionEntries.some(e => !e || typeof e.actorId !== 'string' || !speciesById(e.speciesId) || !Number.isFinite(e.firstObtainedAt) || !Array.isArray(e.acquisitionIds) || e.acquisitionIds.some(id => typeof id !== 'string') || (e.announcement && (typeof e.announcement.id !== 'string' || typeof e.announcement.published !== 'boolean'))))) throw new Error('个人图鉴存档无法读取；没有覆盖原存档');
-    if (raw.fishingTrips !== undefined && (!Array.isArray(raw.fishingTrips) || raw.fishingTrips.some(t => !t?.catch?.id || typeof t.catch.ownerId !== 'string' || !speciesById(t.catch.speciesId) || !Number.isFinite(t.catch.caughtAt) || !['pending', 'settled'].includes(t.status) || (t.status === 'settled' && (!t.result || !['keep', 'release'].includes(t.result.disposition) || typeof t.result.reaction !== 'string' || (t.result.shareToUser !== null && typeof t.result.shareToUser?.text !== 'string')))))) throw new Error('钓鱼记录无法读取；没有覆盖原存档');
+    if (raw.fishingTrips !== undefined && (!Array.isArray(raw.fishingTrips) || raw.fishingTrips.some(t => !t?.catch?.id || typeof t.catch.ownerId !== 'string' || !speciesById(t.catch.speciesId) || !Number.isFinite(t.catch.caughtAt) || !['pending', 'settled'].includes(t.status) || (t.status === 'settled' && (!t.result || !['keep', 'release', 'sell'].includes(t.result.disposition) || typeof t.result.reaction !== 'string' || (t.result.shareToUser !== null && typeof t.result.shareToUser?.text !== 'string')))))) throw new Error('钓鱼记录无法读取；没有覆盖原存档');
+    if (raw.fishingTrips?.some(t => (t.sale !== undefined && !validAivenFishSale(t.sale)) || (t.result?.disposition === 'sell' && !t.sale))
+        || raw.ledger.some(e => e.aivenSale !== undefined && !validAivenFishSale(e.aivenSale))) throw new Error('售鱼回执无法读取；没有覆盖原存档');
     if (raw.sarFamiliarity !== undefined) validateFamiliarity(raw.sarFamiliarity);
     return migrateFishingCollection({ ...raw, ...(raw.dinosaurGarden ? {dinosaurGarden:readDinosaurGarden(raw.dinosaurGarden)} : {}), research: raw.research || {}, discovered: raw.discovered || [],
         listings: raw.listings.map(p => ({ ...p, comments: p.comments || [] })),
@@ -180,6 +186,9 @@ export const listMarketActors = (user: UserProfile, characters: CharacterProfile
     { id: 'user', name: user.name || '我', kind: 'user' },
     ...characters.map(c => ({ id: c.id, name: c.name, kind: 'character' as const })),
 ];
+/** Ownership stays keyed by ID; collection labels follow the current profile after a rename. */
+export const marketActorName = (actors: MarketActor[], actorId: string | undefined, savedName?: string): string =>
+    actors.find(actor => actor.id === actorId)?.name || (actorId === 'user' ? '我' : savedName || '未记录姓名');
 export const ensureActorAccounts = (state: FishingMarketState, actors: MarketActor[]): FishingMarketState => {
     const accounts = { ...state.accounts };
     for (const a of actors) {
@@ -366,6 +375,20 @@ export const hatchEgg = (state: FishingMarketState, actor: MarketActor, id: stri
     return logMarketEvent({ ...state, inventory: state.inventory.map(c => c.id === id ? { ...c, speciesId: f.id, incubatingUntil: undefined, studied: false, displayed: false } : c),
         discovered: [...new Set([...state.discovered, f.id])] }, actor.name + '的恐龙蛋孵出了' + f.name + '，可陈列、观察或交易。', [actor.id], undefined, now);
 };
+export function sellFishToAiven(state: FishingMarketState, actor: MarketActor, catchId: string, at = Date.now(), words = ''): { state: FishingMarketState; sale: AivenFishSale } {
+    const current = ensureMarketDay(state, at);
+    const caught = requireCatch(current, actor, catchId, at);
+    if (speciesById(caught.speciesId)?.category !== 'fish') throw new Error('艾文这里只收鱼，橡皮泥恐龙可以收藏或挂板转让');
+    const sale = { amount: catchValue(current, caught), at, replyIndex: marketHash(`${catchId}:${at}`) % AIVEN_FISH_SALE_REPLIES.length };
+    const next = handleCollection(current, actor, catchId, 'sell', at);
+    const reply = AIVEN_FISH_SALE_REPLIES[sale.replyIndex];
+    const receipt = next.ledger[next.ledger.length - 1];
+    receipt.id = 'aiven_fish_sale_' + catchId;
+    receipt.text = `${actor.name}把${speciesById(caught.speciesId)!.name}卖给艾文，按当日行情与品质结算，获得 ${sale.amount} 鳞币。图鉴记录保留。`;
+    receipt.quotes = [...(words.trim() ? [{ name: actor.name, content: words.trim().slice(0, 600) }] : []), { name: '艾文', content: reply.text }];
+    receipt.aivenSale = sale;
+    return { state: next, sale };
+}
 const PASSERSBY = ['戴草帽的路人', '匿名交易员7号', '水边观察员', '不愿透露姓名的鱼贩'];
 const JOKES = ['你们到底想干嘛！！', '这价格是鱼自己报的吗？', '问就是长期价值。', '我宣布今天不接飞刀。'];
 /** Only passersby use templates; user characters always get their own LLM turn. */
@@ -442,11 +465,16 @@ export function settleFishingTrip(state: FishingMarketState, actor: MarketActor,
     if (!trip) throw new Error('这不是该角色正在处理的鱼获');
     if (trip.status === 'settled') return state;
     if (result.disposition === 'release' && speciesById(trip.catch.speciesId)?.category !== 'fish') throw new Error('橡皮泥模型不能放生');
+    if (!['keep', 'release', 'sell'].includes(result.disposition)) throw new Error('没有识别这次鱼获的去向');
     if (!state.inventory.some(c => c.id === catchId && c.ownerId === actor.id)) throw new Error('本次鱼获已不在收藏中');
     const next = { ...state, fishingTrips: state.fishingTrips!.map(t => t === trip ? { ...t, status: 'settled' as const, result, settledAt: at } : t) };
-    const settled = result.disposition === 'release' ? handleCollection(next, actor, catchId, 'release', at) : next;
+    let settled = result.disposition === 'release' ? handleCollection(next, actor, catchId, 'release', at) : next;
+    if (result.disposition === 'sell') {
+        const sold = sellFishToAiven(next, actor, catchId, at, result.saleWords);
+        settled = { ...sold.state, fishingTrips: sold.state.fishingTrips!.map(t => t.catch.id === catchId ? { ...t, sale: sold.sale } : t) };
+    }
     if (result.disposition === 'release') settled.ledger[settled.ledger.length - 1].id = 'fishing_release_' + catchId;
-    const recorded = logMarketEvent(settled, actor.name + '完成这一竿：' + speciesById(trip.catch.speciesId)!.name + (result.disposition === 'release' ? '已放生' : '已保留在自己的收藏柜') + '。' + (result.shareToUser ? '分享原话等待发送。' : '没有选择私聊分享。'), [actor.id], [{ name: actor.name, content: result.reaction }], at);
+    const recorded = logMarketEvent(settled, actor.name + '完成这一竿：' + speciesById(trip.catch.speciesId)!.name + (result.disposition === 'release' ? '已放生' : result.disposition === 'sell' ? '已卖给艾文' : '已保留在自己的收藏柜') + '。' + (result.shareToUser ? '分享原话等待发送。' : '没有选择私聊分享。'), [actor.id], [{ name: actor.name, content: result.reaction }], at);
     recorded.ledger[recorded.ledger.length - 1].id = 'fishing_result_' + catchId;
     return recorded;
 }

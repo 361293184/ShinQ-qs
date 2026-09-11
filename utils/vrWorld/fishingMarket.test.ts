@@ -13,6 +13,20 @@ const fish = (owner=a,id='fish-1',speciesId='glass-minnow'): M.FishingCatch => (
 beforeEach(()=>localStorage.clear());
 
 describe('local fishing economy',()=>{
+    it('uses current profile names for old collections without changing stored ownership',()=>{
+        const caught=fish({id:'user',name:'user',kind:'user'});
+        let actors=M.listMarketActors({name:'雨眠'} as any,[{id:'a',name:'艾文'}] as any);
+        expect(M.marketActorName(actors,caught.ownerId,caught.ownerName)).toBe('雨眠');
+        actors=M.listMarketActors({name:'小雨'} as any,[{id:'a',name:'新名字'}] as any);
+        expect(M.marketActorName(actors,caught.ownerId,caught.ownerName)).toBe('小雨');
+        expect(M.marketActorName(actors,'a','艾文')).toBe('新名字');
+        expect(caught).toMatchObject({ownerId:'user',ownerName:'user'});
+    });
+    it('retains names of past visitors and handles missing legacy names without displaying IDs',()=>{
+        expect(M.marketActorName([],'user','user')).toBe('我');
+        expect(M.marketActorName([],'deleted-character','来访的朋友')).toBe('来访的朋友');
+        expect(M.marketActorName([],undefined)).toBe('未记录姓名');
+    });
     it('initializes independent wallets only once',()=>{
         const s=M.ensureActorAccounts(M.createFishingMarketState(42),[user,a]);s.accounts.a=0;
         expect(M.ensureActorAccounts(s,[a,b]).accounts).toEqual({user:120,a:0,b:120});
