@@ -17,6 +17,7 @@ import {
     collectAppearance,
     collectCharSettings,
     collectFeatureFlags,
+    collectSARFeatureFlags,
     triState,
     type FeatureSources,
 } from './analyticsSnapshot';
@@ -508,18 +509,52 @@ describe('SAR / 私聊 / 周年赠礼快照', () => {
         localStorage.setItem('sully-chat-input-preferences-v1', JSON.stringify({ sendButtonGenerates: true, enterToSend: false, autoReply: true, private: POISON.key }));
         localStorage.setItem('vr_sar_club_state_v1', JSON.stringify({ npcPreference: 'hide', roomView: 'characters-hidden', introReaction: POISON.myName }));
         localStorage.setItem('vr_fishing_simple_mode', 'true');
+        localStorage.setItem('vr_sar_board_llm_enabled_v1', 'true');
         localStorage.setItem('vr_sar_session_theme_v1', 'light');
         localStorage.setItem('sullyos_first_anniversary_seen_v1', '1');
-        const flags = collectFeatureFlags(poisonedSources());
-        expect(flags).toMatchObject({ 发送键生成: '开', 回车发送: '关', 自动回复: '开', SAR角色: '关', SAR房间显示: '隐藏角色', SAR简易钓鱼: '开', SAR对话配色: '浅色', 周年赠礼已阅: '是' });
+        const flags = collectSARFeatureFlags();
+        expect(flags).toMatchObject({ 发送键生成: '开', 回车发送: '关', 自动回复: '开', SAR角色: '关', SAR房间显示: '隐藏角色', SAR简易钓鱼: '开', SAR布告板模型: '开', SAR对话配色: '浅色', 周年赠礼已阅: '是' });
         expectNoLeak(flags);
     });
     it('各新来源都塞入毒药也只输出缺省枚举', () => {
         localStorage.setItem('sully-chat-input-preferences-v1', JSON.stringify({ sendButtonGenerates: POISON.key, enterToSend: POISON.key, autoReply: POISON.key }));
         localStorage.setItem('vr_sar_club_state_v1', JSON.stringify({ npcPreference: POISON.key, roomView: POISON.key }));
-        for (const key of ['vr_fishing_simple_mode','vr_sar_session_theme_v1','sullyos_first_anniversary_seen_v1']) localStorage.setItem(key, POISON.key);
-        const flags = collectFeatureFlags(poisonedSources());
-        expect(flags).toMatchObject({ 发送键生成: '关', 回车发送: '开', 自动回复: '关', SAR角色: '未选择', SAR房间显示: '全部显示', SAR简易钓鱼: '关', SAR对话配色: '浅色', 周年赠礼已阅: '否' });
+        for (const key of ['vr_fishing_simple_mode','vr_sar_board_llm_enabled_v1','vr_sar_session_theme_v1','sullyos_first_anniversary_seen_v1']) localStorage.setItem(key, POISON.key);
+        const flags = collectSARFeatureFlags();
+        expect(flags).toMatchObject({ 发送键生成: '关', 回车发送: '开', 自动回复: '关', SAR角色: '未选择', SAR房间显示: '全部显示', SAR简易钓鱼: '关', SAR布告板模型: '关', SAR对话配色: '浅色', 周年赠礼已阅: '否' });
         expectNoLeak(flags);
+    });
+});
+
+/**
+ * event_data 的行数守卫。
+ *
+ * umami 把事件的每个属性单独存成 event_data 表的一行，所以「一条事件挂几个 key」
+ * 直接就是「一次上报写几行」。这三条快照事件是全仓库仅有的、属性数量上双的事件，
+ * 加起来占了那张表九成的体积——其余五百多个事件全是 0~1 个属性，合计不到一成。
+ *
+ * 所以这里钉的不是正确性，是成本。加 key 一直有种免费的错觉：写的时候只多一行代码，
+ * 账单上是每个用户每次冷启动多一行。撞上限了别直接改这里的数字，先在那条事件里找找
+ * 有没有已经不看了的 key——腾一格出来比加一格便宜。
+ *
+ * 上限是「当前值 + 2」：留一点顺手加的余量，又不至于让人一路加到六十都没人吭声。
+ */
+describe('快照事件的属性宽度', () => {
+    const plainChar = (id: string) => ({ id, name: '小明' } as unknown as CharacterProfile);
+
+    it('当前外观', () => {
+        expect(Object.keys(collectAppearance({} as OSTheme, undefined)).length).toBeLessThanOrEqual(38);
+    });
+
+    it('当前角色设置', () => {
+        expect(Object.keys(collectCharSettings([plainChar('a')], 'a')).length).toBeLessThanOrEqual(38);
+    });
+
+    it('SAR 发布功能保持小快照', () => {
+        expect(Object.keys(collectSARFeatureFlags()).length).toBeLessThanOrEqual(10);
+    });
+
+    it('当前功能启用', () => {
+        expect(Object.keys(collectFeatureFlags(poisonedSources())).length).toBeLessThanOrEqual(35);
     });
 });

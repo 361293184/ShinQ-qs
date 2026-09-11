@@ -7,6 +7,12 @@ export type CollaborationAvatarMode = 'theme' | 'both' | 'character' | 'user' | 
 
 export type CollaborationAvatarStyle = 'circle' | 'rounded' | 'portrait';
 
+/**
+ * `configured` follows the same effective transcript range as ChatApp,
+ * including its manual breakpoint / Memory Palace high-water mark.
+ */
+export type CollaborationChatContextChoice = 'configured' | 0 | 10 | 20;
+
 export type CollaborationMessageRole = 'user' | 'assistant' | 'system';
 
 export type CollaborationAttachmentKind = 'source' | 'artifact' | 'installable';
@@ -53,17 +59,15 @@ export interface CollaborationMessage {
   sessionId: string;
   role: CollaborationMessageRole;
   content: string;
+  /** 用户为这一轮显式选择的文件交付格式；不混进可见气泡正文。 */
+  requestedFormat?: CollaborationArtifactFormat;
   /** Native reasoning_content / inline <think>, kept separate from the deliverable. */
   thinkingChain?: string;
   createdAt: number;
   attachments?: CollaborationAttachment[];
 }
 
-/**
- * Frozen ChatApp context carried by an immersive collaboration window.
- * Keeping the original roles is important: flattening recent chat into one
- * system paragraph changes who said what and behaves noticeably worse.
- */
+/** Keeping the original ChatApp roles avoids changing who said what. */
 export interface CollaborationContextMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -79,15 +83,9 @@ export interface CollaborationSession {
   updatedAt: number;
   archivedAt?: number;
   lastMessagePreview?: string;
-  /**
-   * A session freezes its character/world context on the first user turn. The
-   * task-related Memory Palace block is intentionally rebuilt on every send.
-   */
+  /** Focused-mode baseline; live ChatApp rows and task memory are rebuilt per send. */
   contextSnapshot?: string;
-  /**
-   * 沉浸式协同首次发言时冻结的 ChatApp 角色上下文与最近聊天。
-   * 动态记忆不保存在这里；它逐轮召回，因此窗口之间不会互通。
-   */
+  /** 旧版本冻结的 ChatApp 上下文，仅为备份兼容保留；新请求会实时重建。 */
   chatContextSnapshot?: CollaborationContextMessage[];
   /** 当前窗口选择的制作类型；只向这个窗口注入对应制作规范。 */
   makerKind?: CollaborationMakerKind;
@@ -130,6 +128,8 @@ export interface CollaborationSettings {
   /** `theme` follows each skin's layout; every other value is an explicit user override. */
   avatarMode?: CollaborationAvatarMode;
   avatarStyle?: CollaborationAvatarStyle;
+  /** 每次生成时从当前角色私聊实时读取的范围；字段名为备份兼容保留。 */
+  recentChatContextCount?: CollaborationChatContextChoice;
   immersive: CollaborationApiProfile;
   focused: CollaborationApiProfile;
   updatedAt: number;
@@ -178,6 +178,7 @@ export const DEFAULT_COLLABORATION_SETTINGS: CollaborationSettings = {
   uiTheme: 'sully',
   avatarMode: 'theme',
   avatarStyle: 'circle',
+  recentChatContextCount: 'configured',
   immersive: { ...EMPTY_COLLABORATION_API_PROFILE },
   focused: { ...EMPTY_COLLABORATION_API_PROFILE },
   updatedAt: 0,

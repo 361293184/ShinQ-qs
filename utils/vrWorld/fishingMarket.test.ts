@@ -138,9 +138,9 @@ describe('local fishing economy',()=>{
         s=M.handleCollection(s,user,'egg','incubate',now);expect(()=>M.handleCollection(s,user,'egg','sell',now)).toThrow();expect(()=>M.hatchEgg(s,user,'egg',now)).toThrow();
         s=M.hatchEgg(s,user,'egg',now+6*3600000);expect(s.inventory[0].speciesId).not.toBe('dinosaur-egg');expect(()=>M.hatchEgg(s,user,'egg',now+6*3600000)).toThrow();
     });
-    it('wanderers cannot spam pulses or impersonate characters',()=>{
-        const s=M.runLocalMarketPulse(init(),[],now);expect(s.ledger.some(e=>e.participants.includes('a'))).toBe(false);
-        expect(M.runLocalMarketPulse(s,[],now+1000)).toBe(s);expect(Object.keys(s.accounts).filter(k=>k.startsWith('wanderer:'))).toHaveLength(1);
+    it('manual refresh brings distinct NPCs without impersonating characters',()=>{
+        const result=M.refreshMarketNPCs(init(),now,()=>.1);expect(result.state.ledger.some(e=>e.participants.includes('a'))).toBe(false);
+        expect(result.visitors).toHaveLength(2);expect(new Set(result.visitors.map(v=>v.id)).size).toBe(2);
     });
 });
 describe('tide resonance engine',()=>{

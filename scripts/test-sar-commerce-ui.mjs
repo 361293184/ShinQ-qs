@@ -4,6 +4,7 @@ import { mkdirSync,writeFileSync } from 'node:fs';
 const out='output/fishing-qa/sar-commerce';mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({headless:true});
 const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});
+await context.addInitScript(() => { for (const facility of ['gacha', 'modules']) localStorage.setItem(`sar-facility-guide-${facility}-v1`, 'done'); });
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await context.route('**/*',route=>{const url=new URL(route.request().url());return ['127.0.0.1','localhost'].includes(url.hostname)?route.continue():route.fulfill({status:200,body:'',headers:{'access-control-allow-origin':'*'}});});
 const base=`${process.env.SAR_QA_URL||'http://127.0.0.1:5177'}/test/fixtures/sar-commerce.html`;

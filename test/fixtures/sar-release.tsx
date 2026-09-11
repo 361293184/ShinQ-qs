@@ -5,6 +5,7 @@ import { OSProvider, useOS } from '../../context/OSContext';
 import { SARUpdatePopup } from '../../components/os/SARUpdatePopup';
 import { UpdateNotificationController } from '../../components/UpdateNotificationEvent';
 import { MusicProvider } from '../../context/MusicContext';
+const Chat = React.lazy(() => import('../../apps/Chat'));
 const homes = {
     mobilegame: React.lazy(() => import('../../components/os/MobileGameHome')),
     tamagotchi: React.lazy(() => import('../../components/os/TamagotchiHome')),
@@ -21,6 +22,7 @@ function Harness() {
         return <MusicProvider><React.Suspense fallback={<p>桌面载入中</p>}><Home/></React.Suspense><output hidden data-active-app={os.activeApp}/></MusicProvider>;
     }
     if (new URLSearchParams(location.search).has('backup')) return <p>系统备份测试就绪</p>;
+    if (new URLSearchParams(location.search).has('chat')) return <MusicProvider><React.Suspense fallback={<p>聊天载入中</p>}><Chat/></React.Suspense></MusicProvider>;
     if (closed) return <p data-result={closed}>{closed}</p>;
     if (new URLSearchParams(location.search).has('queue')) return <UpdateNotificationController onClose={() => setClosed('queue-closed')}/>;
     return <SARUpdatePopup onDone={() => setClosed('dismissed')} onVisit={() => setClosed('visit')} onGuide={() => setClosed('guide')}/>;

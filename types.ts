@@ -385,6 +385,19 @@ export interface ActiveMsg2GlobalConfig {
    * 一份凭据，也不要拿新写法去撞一台还不认识它的 Worker。握手时会探一次。
    */
   llmCredentialsSupported?: boolean;
+  /**
+   * 上一次探到的「这台 Worker 认不认 PUT /client-state 里 value: null 的删行语义」
+   * （GET /capabilities 的 features 含 'client-state-delete'，见 ActiveMsgClient.probeWorkerFeatures）。
+   *
+   * 达标时取回旁路存的大内容后把那一行真的删掉；不达标照旧写空串、留一个空壳。
+   * undefined / false 都按「不达标」处理：老 Worker 收到 null 会逐条拒掉。握手时会探一次。
+   */
+  clientStateDeleteSupported?: boolean;
+  /**
+   * 旁路存储的存量空壳已经扫过一遍的角色 id（见 activeMsgClient 的存量空壳清理）。
+   * 每个角色只扫一次：扫完记进来，之后的同步不再为它多读一次云端。
+   */
+  sidechannelShellsSweptCharIds?: string[];
   updatedAt?: number;
 }
 
@@ -2266,6 +2279,8 @@ export interface StoryTheaterPresetPrompt {
     enabled: boolean;
     role: 'system' | 'user' | 'assistant';
     content: string;
+    /** 自定义大区边界，仅用于编辑器组织，不发送给模型。 */
+    section?: { id: string; name: string; edge: 'start' | 'end' };
     /** marker 由发送器替换为角色/世界书/用户/场景/历史，不把占位条目当普通正文。 */
     marker?: 'characters' | 'world_before' | 'user' | 'world_after' | 'scenario' | 'examples' | 'history';
 }

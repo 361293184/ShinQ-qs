@@ -11,7 +11,7 @@ export function SARModuleMonitor() {
     const entries = [
         ...(userProfile.vrState?.sarModule ? [{ id: 'user', name: `${userProfile.name || '我'}（我）`, runtime: userProfile.vrState.sarModule }] : []),
         ...characters.flatMap(char => char.vrState?.sarModule ? [{ id: char.id, name: char.name, runtime: char.vrState.sarModule }] : []),
-    ];
+    ].filter(entry => entry.runtime.phase === 'active' && entry.runtime.remainingTurns > 0);
     const runs = entries.map(entry => entry.runtime.runId).sort().join('|');
     const previousRuns = useRef(new Set<string>());
     const [expanded, setExpanded] = useState(true);

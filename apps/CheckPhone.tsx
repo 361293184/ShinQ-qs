@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
@@ -11,13 +12,13 @@ import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
-    topicText, summarizeConversation,
+    topicText, summarizeConversation, applyRealConversationToPhoneState,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { trackEvent } from '../utils/analytics';
-import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
+import { buildPhoneEvidenceChatCard, normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { getCheckPhoneApi, resolveCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import {
@@ -277,6 +278,7 @@ const CheckPhone: React.FC = () => {
     const [selectedChatRecord, setSelectedChatRecord] = useState<PhoneEvidence | null>(null);
     const [selectedEvidenceRecord, setSelectedEvidenceRecord] = useState<PhoneEvidence | null>(null);
     const [evidenceBackAppId, setEvidenceBackAppId] = useState<string>('home');
+    const [evidenceMenu, setEvidenceMenu] = useState<{ record: PhoneEvidence; backAppId: string } | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const contactEndRef = useRef<HTMLDivElement>(null);
 
@@ -554,10 +556,14 @@ const CheckPhone: React.FC = () => {
     };
 
     const evidenceEntryProps = (record: PhoneEvidence, backAppId: string) => ({
+        ...longPress(() => setEvidenceMenu({ record, backAppId })),
         role: 'button' as const,
         tabIndex: 0,
-        'aria-label': `查看${record.title}详情`,
-        onClick: () => openEvidenceRecord(record, backAppId),
+        'aria-label': `查看${record.title}详情，长按可同步到私聊`,
+        onClick: () => {
+            if (lpFired.current) { lpFired.current = false; return; }
+            openEvidenceRecord(record, backAppId);
+        },
         onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -701,7 +707,7 @@ const CheckPhone: React.FC = () => {
 
         try {
             await injectMemoryPalace(targetChar);
-            const msgs = await DB.getMessagesByCharId(targetChar.id);
+            const msgs = await loadCharacterContextMessages(targetChar);
             const lastMsg = msgs[msgs.length - 1];
 
             // 「距离上次联系多久」交给 buildCoreContext 统一注入（受时间感知开关管控、口径与聊天/见面一致）
@@ -710,11 +716,7 @@ const CheckPhone: React.FC = () => {
                 { lastInteractionTs: lastMsg?.timestamp },
             );
 
-            // 聊天/通讯录类按 chatapp 的上下文设置（默认 500）取，其它 App 维持轻量 50 条
-            const recentWindow = (type === 'chat' || type === 'contacts')
-                ? (targetChar.contextLimit && targetChar.contextLimit > 0 ? targetChar.contextLimit : 500)
-                : 50;
-            const recentMsgs = msgs.slice(-recentWindow).map(m => {
+            const recentMsgs = msgs.map(m => {
                 const roleName = m.role === 'user' ? userProfile.name : targetChar.name;
                 const content = m.type === 'text' ? m.content : `[${m.type}]`;
                 return `${roleName}: ${content}`;
@@ -893,18 +895,21 @@ ${realCharRule}
                     if (pushToChat) {
                         // 包装成上下文可读的漂亮卡片（phone_card），不再是古早的 [系统:...] 纯文本
                         // 进角色上下文的措辞：第二人称讲「你自己手机里有啥」，不暗示用户在偷看
-                        const cardContent = type === 'chat'
-                            ? `[你手机的聊天软件] 你和「${recordTitle}」的对话：${recordDetail.replace(/\n/g, ' ')}`
-                            : `[你手机的${logPrefix}] ${recordTitle}${recordValue ? ` · ${recordValue}` : ''} — ${recordDetail}`;
-                        await DB.saveMessage({
+                        const card = buildPhoneEvidenceChatCard({
+                            id: 'pending',
+                            type,
+                            title: recordTitle,
+                            detail: recordDetail,
+                            value: recordValue || undefined,
+                            timestamp: Date.now(),
+                        }, logPrefix);
+                        savedMsgId = await DB.saveMessage({
                             charId: targetChar.id,
                             role: 'assistant',
                             type: 'phone_card',
-                            content: cardContent,
-                            metadata: { phoneCard: { app: logPrefix, kind: type, title: recordTitle, detail: recordDetail, value: recordValue || undefined } },
+                            content: card.content,
+                            metadata: card.metadata,
                         } as any);
-                        const currentMsgs = await DB.getMessagesByCharId(targetChar.id);
-                        savedMsgId = currentMsgs[currentMsgs.length - 1]?.id;
                     }
 
                     newRecordsToAdd.push({
@@ -970,12 +975,12 @@ ${realCharRule}
     // 组 context：跟 handleGenerate 一致（含记忆宫殿 + 时间感知 + 最近聊天），让偷看到的 AI 记录贴合真实近况
     const buildAiContext = async (char: CharacterProfile) => {
         await injectMemoryPalace(char);
-        const msgs = await DB.getMessagesByCharId(char.id);
+        const msgs = await loadCharacterContextMessages(char);
         const lastMsg = msgs[msgs.length - 1];
         const context = ContextBuilder.buildCoreContext(
             char, userProfile, true, undefined, undefined, { lastInteractionTs: lastMsg?.timestamp },
         );
-        const recentMsgs = msgs.slice(-50).map(m => {
+        const recentMsgs = msgs.map(m => {
             const roleName = m.role === 'user' ? userProfile.name : char.name;
             return `${roleName}: ${m.type === 'text' ? m.content : `[${m.type}]`}`;
         }).join('\n');
@@ -1666,32 +1671,14 @@ ${olderText}
         owner: CharacterProfile, partnerName: string, partnerCharId: string,
         detail: string, delta: number, partnerNote?: string, learnedNew?: string, seedIdentity?: string,
     ) => {
-        // 对方在我方通讯录里是否已存在——决定是否要「先建联系人」并给个起始备注名
-        const hadContact = (owner.phoneState?.contacts || []).some(
-            c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName),
-        );
-        // upsert 指向对方的真实联系人（不存在则在这里先建好，名字/头像/备注名都补上，再挂消息）
-        let contacts = upsertContact(owner.phoneState?.contacts || [], {
-            name: partnerName, kind: 'real', linkedCharId: partnerCharId, lastInteraction: Date.now(),
-            note: partnerNote,
-            // 仅新建时给个起始备注名（多数关系标签是对称的：网友↔网友、前任↔前任），已有则不动
-            identity: hadContact ? undefined : seedIdentity,
-        });
-        const cid = contacts.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName))?.id;
-        // 好感增减 + 自动加删友 + 累积「了解」
-        let broadcast = '';
-        contacts = contacts.map(c => {
-            if (c.id !== cid) return c;
-            const newAff = clampAffinity(c.affinity + delta);
-            let status = c.status;
-            if (newAff <= -60 && c.status === 'friend') { status = 'deleted'; broadcast = `（我把 ${c.name} 删了，懒得再联系。）`; }
-            else if (newAff >= 60 && c.status !== 'friend' && c.status !== 'blocked') { status = 'friend'; broadcast = `（我又把 ${c.name} 加回来了。）`; }
-            const learned = learnedNew ? appendLearned(c.learned, learnedNew) : c.learned;
-            return { ...c, affinity: newAff, status, learned, lastInteraction: Date.now() };
-        });
-        // chat 记录（按联系人 upsert）
-        const recs = owner.phoneState?.records || [];
-        const existing = recs.find(r => r.type === 'chat' && (r.contactId === cid || (!r.contactId && normName(r.title) === normName(partnerName))));
+        const timestamp = Date.now();
+        const result = {
+            partnerName, partnerCharId, detail, delta, partnerNote, learnedNew, seedIdentity,
+            timestamp, recordId: `rec-${timestamp}-${Math.random()}`,
+        };
+        const contact = owner.phoneState?.contacts?.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName));
+        const existing = owner.phoneState?.records?.find(r => r.type === 'chat'
+            && ((contact && r.contactId === contact.id) || (!r.contactId && normName(r.title) === normName(partnerName))));
         const ownerSendToChat = owner.phoneState?.sendToChat !== false;
         let msgId: number | undefined;
         if (ownerSendToChat) {
@@ -1703,15 +1690,14 @@ ${olderText}
                 metadata: { phoneCard: { app: '聊天软件', kind: 'chat', title: partnerName, detail } },
             } as any);
         }
-        const now = Date.now();
-        const nextRecs = existing
-            ? recs.map(r => r.id === existing.id ? { ...r, detail, timestamp: now, contactId: cid, systemMessageId: msgId ?? r.systemMessageId } : r)
-            : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: partnerName, detail, timestamp: now, contactId: cid, systemMessageId: msgId }];
         // 自动加删友播报：进机主与用户的私聊（同样受 sendToChat 控制）
+        const { broadcast } = applyRealConversationToPhoneState(owner.phoneState, result);
         if (broadcast && ownerSendToChat) {
             await DB.saveMessage({ charId: owner.id, role: 'assistant', type: 'text', content: broadcast } as any);
         }
-        updateCharacter(owner.id, (cur) => ({ phoneState: { ...cur.phoneState, contacts, records: nextRecs } }));
+        updateCharacter(owner.id, (cur) => ({
+            phoneState: applyRealConversationToPhoneState(cur.phoneState, { ...result, systemMessageId: msgId }).phoneState,
+        }));
     };
 
     // 聊满 100 条触发总结：把待归档的每 100 条原文，A/B 各自第一人称浓缩成一条话题盒记忆，推进水位线。
@@ -2033,6 +2019,48 @@ ${olderText}
         }
     };
 
+    const syncEvidenceRecordToChat = async (record: PhoneEvidence) => {
+        if (!targetChar) return;
+        try {
+            if (record.systemMessageId) {
+                const existing = await DB.getMessageById(record.systemMessageId);
+                if (existing) {
+                    addToast('这条记录已经同步到私聊', 'info');
+                    setEvidenceMenu(null);
+                    return;
+                }
+            }
+            const app = record.type === 'chat' ? '聊天软件' : appLabel(record.type);
+            const card = buildPhoneEvidenceChatCard(record, app);
+            const messageId = await DB.saveMessage({
+                charId: targetChar.id,
+                role: 'assistant',
+                type: 'phone_card',
+                content: card.content,
+                metadata: card.metadata,
+            } as any);
+            updateCharacter(targetChar.id, (current) => ({
+                phoneState: {
+                    ...current.phoneState,
+                    records: (current.phoneState?.records || []).map(item => item.id === record.id
+                        ? { ...item, systemMessageId: messageId }
+                        : item),
+                },
+            }));
+            if (selectedEvidenceRecord?.id === record.id) {
+                setSelectedEvidenceRecord({ ...selectedEvidenceRecord, systemMessageId: messageId });
+            }
+            if (selectedChatRecord?.id === record.id) {
+                setSelectedChatRecord({ ...selectedChatRecord, systemMessageId: messageId });
+            }
+            setEvidenceMenu(null);
+            addToast('已把这条查手机记录同步到私聊', 'success');
+            trackEvent('事后同步查手机记录到私聊', { kind: record.type });
+        } catch (error: any) {
+            addToast(error?.message || '同步失败，请重试', 'error');
+        }
+    };
+
     const fmtClock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
     const lastSeenText = (() => {
@@ -2115,7 +2143,11 @@ ${olderText}
                         const last = segs.length ? segs[segs.length - 1].text : '...';
                         const av = contactOfRecord(r) ? contactAvatar(contactOfRecord(r)!) : undefined;
                         return (
-                            <div key={r.id} onClick={() => { setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail'); }}
+                            <div key={r.id} {...longPress(() => setEvidenceMenu({ record: r, backAppId: 'chat' }))}
+                                onClick={() => {
+                                    if (lpFired.current) { lpFired.current = false; return; }
+                                    setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail');
+                                }}
                                 className="group relative flex items-center gap-3.5 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] active:scale-[0.99] transition cursor-pointer animate-fade-in">
                                 {av ? (
                                     <TokenImg value={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
@@ -2313,6 +2345,10 @@ ${olderText}
                         <div className="flex justify-between gap-4"><dt className="text-white/30">记录编号</dt><dd className="text-white/40 text-right font-mono">#{r.id.slice(-8).toUpperCase()}</dd></div>
                     </dl>
 
+                    <button onClick={() => void syncEvidenceRecordToChat(r)} disabled={!!r.systemMessageId}
+                        className="w-full mt-2 py-3 rounded-2xl text-[12px] font-semibold text-sky-100 bg-sky-400/10 border border-sky-300/20 active:scale-[0.99] transition flex items-center justify-center gap-2 disabled:text-white/30 disabled:bg-white/[0.03] disabled:border-white/[0.06]">
+                        <PaperPlaneTilt size={15} weight="bold" /> {r.systemMessageId ? '已同步到私聊' : '同步这条到私聊'}
+                    </button>
                     <button onClick={() => askConfirm({
                         title: '删除这条记录？', desc: '删除「' + r.title + '」后无法恢复。', confirmLabel: '删除', danger: true,
                         onConfirm: () => handleDeleteRecord(r),
@@ -3755,6 +3791,29 @@ ${olderText}
                                 className="w-full py-3.5 rounded-2xl text-white font-bold active:scale-[0.99] transition"
                                 style={{ background: '#5f82ef' }}>关闭</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 查手机记录 · 长按后可事后补同步到私聊 */}
+            {evidenceMenu && (
+                <div className="fixed inset-0 z-[120] flex items-end justify-center animate-fade-in" onClick={() => setEvidenceMenu(null)}>
+                    <div className="absolute inset-0 bg-black/50" />
+                    <div className="relative w-full max-w-sm m-3 mb-6 space-y-2" onClick={event => event.stopPropagation()}>
+                        <div className="rounded-2xl overflow-hidden bg-[#1c1d22] border border-white/10">
+                            <div className="px-4 py-2.5 text-[12px] text-white/50 border-b border-white/10 truncate">查手机记录：{evidenceMenu.record.title}</div>
+                            <button
+                                onClick={() => void syncEvidenceRecordToChat(evidenceMenu.record)}
+                                disabled={!!evidenceMenu.record.systemMessageId}
+                                className="w-full px-4 py-3.5 text-left text-[14px] text-sky-300 active:bg-white/5 transition flex items-center gap-3 disabled:text-white/30"
+                            ><PaperPlaneTilt size={17} /> {evidenceMenu.record.systemMessageId ? '已同步到私聊' : '同步到私聊'}</button>
+                            <button onClick={() => {
+                                const record = evidenceMenu.record;
+                                setEvidenceMenu(null);
+                                askConfirm({ title: '删除这条记录？', desc: `删除「${record.title}」后无法恢复。`, confirmLabel: '删除', danger: true, onConfirm: () => handleDeleteRecord(record) });
+                            }} className="w-full px-4 py-3.5 text-left text-[14px] text-rose-400 active:bg-white/5 transition flex items-center gap-3 border-t border-white/10"><Trash size={17} /> 删除记录</button>
+                        </div>
+                        <button onClick={() => setEvidenceMenu(null)} className="w-full rounded-2xl bg-[#1c1d22] border border-white/10 py-3.5 text-[14px] font-semibold text-white/80">取消</button>
                     </div>
                 </div>
             )}

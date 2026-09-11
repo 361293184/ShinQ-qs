@@ -1,6 +1,8 @@
+import { readMarketLLMEnabled } from './marketRefresh';
 import { acquireCharacterModule, consumeCharacterModule, characterModuleAllowance, characterModuleCount } from './sarCharacterCommerce';
 import { newSARPurchaseId } from './sarCommerce';
 import { applyKanataTitle, extractKanataTitle } from './kanataTitle';
+import { loadCharacterContextMessages } from '../chatContextRange';
 /**
  * 「彼方」会话运行器 —— 一次自主登入的完整闭环。
  *
@@ -54,7 +56,7 @@ import { SAR_MODULE_CATALOG, type SARModuleDefinition } from './sarModuleShop';
 import { installSARModuleOnUser } from './sarModuleRuntime';
 import {
     beginFishingTrip, pendingFishingTrip, settleFishingTrip, ensureActorAccounts, listMarketActors, mutateFishingMarket, resolveFishingWeather,
-    runLocalMarketPulse, speciesById, type FishingCatch, type MarketActor,
+    speciesById, type FishingCatch, type MarketActor,
 } from './fishingMarket';
 import {
     applyMarketPlan, buildFishingTurn, buildMarketTurn, flushMarketReceipts, parseFishingReaction,
@@ -261,6 +263,7 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
 }
 async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResult> {
     const { char, characters, apiConfig, userProfile, groups, realtimeConfig, memoryPalaceConfig, updateUserProfile, forcedRoom, forcedSARActivity, forcedLetterId, manual } = deps;
+    if (forcedSARActivity === 'market' && !readMarketLLMEnabled()) return { ok: false, reason: 'board-llm-disabled' };
     if (!char.vrState?.enabled) return { ok: false, reason: 'not-enabled' };
     if (!manual && !allowsAutomaticVR(char.vrState)) return { ok: false, reason: 'manual-only' };
     const updateCharacter = (id: string, patch: Partial<CharacterProfile>) =>
@@ -315,8 +318,8 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         // 公共材料
         const emojis = await DB.getEmojis();
         const categories = await DB.getEmojiCategories();
-        const contextLimit = char.contextLimit || 500;
-        const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+        const historyMsgs = await loadCharacterContextMessages(char);
+        const contextLimit = Math.max(1, historyMsgs.length);
 
         // 在某房间的在场玩家名（含自己；用户本人接入彼方且挂在该房间时也算在场）
         const occupantsOf = (rid: VRRoomId) => {
@@ -459,7 +462,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         } else if (room.id === 'sar') {
             // 水域和布告板与既有设施同属 SAR，每次仍只调用一轮模型。
             const activityRoll = Math.random();
-            sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
+            sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 && readMarketLLMEnabled() ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
             if(!forcedSARActivity&&activityRoll>=.5&&activityRoll<.7&&gardenVisitAvailable(readFishingMarketState(),char.id))sarMode='garden';
             if(sarMode==='garden'){
                 const market=readFishingMarketState();
@@ -469,7 +472,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                 market.dinosaurGarden?.events.slice(-6).forEach(e=>recallExtra.push(e.summary+(e.words||'')));
             } else if (sarMode === 'fishing' || sarMode === 'market') {
                 const actors = listMarketActors(userProfile, characters);
-                let market = await mutateFishingMarket(s => sarMode === 'market' ? runLocalMarketPulse(ensureActorAccounts(s, actors)) : ensureActorAccounts(s, actors));
+                let market = await mutateFishingMarket(s => ensureActorAccounts(s, actors));
                 await flushFishingDeliveries(characters).catch(() => {});
                 await flushMarketReceipts(characters);
                 // Receipts may include a gift or sale since this character's previous visit.

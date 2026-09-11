@@ -62,3 +62,5 @@
 @keyframes board-page-enter { from{opacity:0;transform:translateX(7px)}to{opacity:1;transform:translateX(0)} }
 @media(max-width:350px) { .board-content {padding-inline:18px}.board-header{padding-inline:12px}.board-note{padding:17px!important}.board-note-title{font-size:17px} }
 @media(prefers-reduced-motion:reduce) { .board-page {animation:none}.board-note,.board-icon {transition:none}.board-note:hover{transform:none} }
+
+.board-refresh-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.board-refresh-row .board-dateline{margin:0}.board-refresh-row button{display:flex;align-items:center;justify-content:center;gap:6px;min-width:66px;min-height:44px;border:1px solid var(--board-line);border-radius:6px;color:var(--board-accent);font-size:11px}.board-refresh-row button:disabled{opacity:.5}.board-refresh-notice{margin:0 0 16px;color:var(--board-muted);font-size:11px;line-height:1.8}

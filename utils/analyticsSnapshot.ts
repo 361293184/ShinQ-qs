@@ -207,7 +207,10 @@ export function collectCharSettings(
         日常聊天协同: anyOn(x => x.chatCollaborationEnabled),
         自定义时区: anyOn(x => x.customTimezoneEnabled),
         生活记录注入: anyOn(x => x.lifeRecordEnabled),
-        小红书: anyOn(x => x.xhsEnabled),
+        // 叫「角色小红书」而不是「小红书」：功能启用那条里已经有一个「小红书」，问的是
+        // 全局桥接配没配、开没开。同名不同义会在查询侧混成一个 key，两条事件的数字叠在
+        // 一起，谁也说不清看到的是哪个。角色级的加「角色」前缀，跟角色提示音一个路子。
+        角色小红书: anyOn(x => x.xhsEnabled),
         隐藏系统日志: anyOn(x => x.hideSystemLogs),
         见面轻阅读: anyOn(x => x.dateLightReading),
         观测协议: anyOn(x => x.dateObserve?.enabled),
@@ -377,6 +380,24 @@ function hasLocalJsonConfig(key: string): boolean {
     }
 }
 
+/** SAR 发布功能单独参与冷启动轮转，不加宽原有功能快照。 */
+export function collectSARFeatureFlags(): Record<string, string> {
+    const input = loadChatInputPreferences();
+    const sar = readSARClubState();
+    return {
+        // ── SAR / 输入习惯 / 周年赠礼：只上报固定状态 ──
+        发送键生成: onOff(input.sendButtonGenerates),
+        回车发送: onOff(input.enterToSend),
+        自动回复: onOff(input.autoReply),
+        SAR角色: sar.npcPreference === 'show' ? '开' : sar.npcPreference === 'hide' ? '关' : '未选择',
+        SAR房间显示: sarRoomView(sar) === 'names-hidden' ? '隐藏名字' : sarRoomView(sar) === 'text-hidden' ? '隐藏文字' : sarRoomView(sar) === 'characters-hidden' ? '隐藏角色' : '全部显示',
+        SAR简易钓鱼: isLocalFlagOn('vr_fishing_simple_mode', 'true') ? '开' : '关',
+        SAR布告板模型: isLocalFlagOn('vr_sar_board_llm_enabled_v1', 'true') ? '开' : '关',
+        SAR对话配色: isLocalFlagOn('vr_sar_session_theme_v1', 'dark') ? '深色' : '浅色',
+        周年赠礼已阅: isLocalFlagOn(ANNIVERSARY_SEEN_KEY, '1') ? '是' : '否',
+    };
+}
+
 /** OSContext 手上有、这里读不到的那部分状态。 */
 export interface FeatureSources {
     realtimeConfig: RealtimeConfig;
@@ -408,8 +429,6 @@ export interface FeatureSources {
  */
 export function collectFeatureFlags(src: FeatureSources): Record<string, string> {
     const rt = src.realtimeConfig;
-    const input = loadChatInputPreferences();
-    const sar = readSARClubState();
     const mcpServers = loadMcpServers();
     const instant = loadInstantConfig();
     const luckinToken = getLuckinToken().length > 0;
@@ -425,15 +444,6 @@ export function collectFeatureFlags(src: FeatureSources): Record<string, string>
     ].filter(value => value === true).length;
 
     return {
-        // ── SAR / 输入习惯 / 周年赠礼：只上报固定状态 ──
-        发送键生成: onOff(input.sendButtonGenerates),
-        回车发送: onOff(input.enterToSend),
-        自动回复: onOff(input.autoReply),
-        SAR角色: sar.npcPreference === 'show' ? '开' : sar.npcPreference === 'hide' ? '关' : '未选择',
-        SAR房间显示: sarRoomView(sar) === 'names-hidden' ? '隐藏名字' : sarRoomView(sar) === 'text-hidden' ? '隐藏文字' : sarRoomView(sar) === 'characters-hidden' ? '隐藏角色' : '全部显示',
-        SAR简易钓鱼: isLocalFlagOn('vr_fishing_simple_mode', 'true') ? '开' : '关',
-        SAR对话配色: isLocalFlagOn('vr_sar_session_theme_v1', 'dark') ? '深色' : '浅色',
-        周年赠礼已阅: isLocalFlagOn(ANNIVERSARY_SEEN_KEY, '1') ? '是' : '否',
         // ── 外部服务接入 ──
         // 天气和热点走免鉴权的公共源，没有「配了」这一态，只有开没开。
         天气: rt.weatherEnabled ? '开' : '关',

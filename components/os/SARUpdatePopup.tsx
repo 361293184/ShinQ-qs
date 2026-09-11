@@ -34,7 +34,7 @@ export function SARUpdatePopup({ onDone, onVisit, onGuide }: {
     const turn = (index: number) => { setPage(index); root.current?.querySelector('.sar-release-scroll')?.scrollTo(0, 0); };
     return <div className="sar-release-overlay">
         <section ref={root} className="sar-release" role="dialog" aria-modal="true" aria-labelledby="sar-release-title" tabIndex={-1}>
-            <header className="sar-release-header"><span>SULLYOS <i>✦</i> VOL. 3.9</span><span>彼方来信 / 2026.09</span>
+            <header className="sar-release-header"><span>SULLYOS <i>✦</i> VOL. 3.10</span><span>彼方来信 / 2026.09</span>
                 <button aria-label="关闭更新公告" onClick={() => dismiss.current()}><X size={19}/></button>
             </header>
             <div className="sar-release-scroll">

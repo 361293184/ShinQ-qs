@@ -24,6 +24,7 @@ export type SARLocalBackup = {
 // 仅允许 SAR 自己的偏好，不能让导入内容写入任意 localStorage 键。
 const SAR_PREFERENCES: Record<string, readonly string[]> = {
     vr_fishing_simple_mode: ['true', 'false'],
+    vr_sar_board_llm_enabled_v1: ['true', 'false'],
     vr_sar_session_theme_v1: ['dark', 'light'],
     'sar-garden-guide-v1': ['done'],
     ...Object.fromEntries(SAR_FACILITY_IDS.map(id => [sarFacilityGuideKey(id), ['done']])),

@@ -6,9 +6,10 @@ import { readSARClubState } from '../../utils/vrWorld/sarClub';
 import { SARNpcChibi } from './SARNpcArt';
 import './sar-facility-guide.css';
 
-export function SARFacilityGuide({ facility, auto = true }: { facility: SARFacilityId; auto?: boolean }) {
+export function SARFacilityGuide({ facility, auto = true, onOpenChange }: { facility: SARFacilityId; auto?: boolean; onOpenChange?: (open: boolean) => void }) {
     const guide = SAR_FACILITY_GUIDES[facility];
     const [open, setOpen] = useState(() => { try { return auto && localStorage.getItem(sarFacilityGuideKey(facility)) !== 'done'; } catch { return auto; } });
+    useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
     const trigger = useRef<HTMLButtonElement>(null), sheet = useRef<HTMLElement>(null);
     const npcVisible = readSARClubState().npcPreference !== 'hide';
     const close = useCallback(() => {

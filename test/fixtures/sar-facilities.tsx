@@ -20,15 +20,16 @@ function Harness() {
     useEffect(() => { (window as any).facilityQA = { os, setView }; });
     const close = () => setView('closed');
     if (view === 'cabinet') return <SARAssemblyCabinetOverlay characters={os.characters} characterGroups={os.characterGroups} apiConfig={os.apiConfig} groups={os.groups} userProfile={os.userProfile} onClose={close}/>;
-    if (view === 'gacha') return <SARGachaOverlay onClose={close}/>;
+    if (view === 'gacha') return <React.Profiler id="gacha" onRender={(_id, _phase, duration) => { ((window as any).gachaCommits ||= []).push(duration); }}><SARGachaOverlay onClose={close}/></React.Profiler>;
     if (view === 'modules') return <SARModuleShopOverlay npcEnabled onClose={close}/>;
-    if (view === 'warehouse') return <SARHubPanels panel="warehouse" characters={os.characters} userProfile={os.userProfile} npcEnabled onChangeNpc={() => {}} caianMet onRequestRewind={() => {}} onClose={close} backRef={backRef}/>;
-    if (view === 'water' || view === 'board') return <FishingMarketOverlay key={view} initialEntry={view} characters={os.characters} userProfile={os.userProfile} onClose={close} onCharacterTrip={async () => ({ ok: false, reason: 'qa' })}/>;
+    if (view === 'warehouse' || view === 'settings') return <SARHubPanels panel={view} characters={os.characters} userProfile={os.userProfile} npcEnabled onChangeNpc={() => {}} caianMet onRequestRewind={() => {}} onClose={close} backRef={backRef}/>;
+    if (view === 'water' || view === 'board') return <FishingMarketOverlay key={view} initialEntry={view} characters={os.characters} userProfile={os.userProfile} onClose={close} onCharacterTrip={async (char, mode) => { ((window as any).facilityTripCalls ||= []).push({ id: char.id, mode }); return (window as any).facilityTripHandler ? (window as any).facilityTripHandler() : { ok: false, reason: 'qa' }; }}/>;
     if (view === 'garden') return <React.Suspense fallback={<p>打开箱庭…</p>}><Garden characters={os.characters} userProfile={os.userProfile} demo onClose={close} onCharacterTrip={async () => ({ ok: false, reason: 'qa' })}/></React.Suspense>;
     if (view === 'caian' || view === 'aiven') return <SARFamiliarityDialog npc={view} onEditUserChibi={() => {}} onClose={close}/>;
     return <p>设施已关闭</p>;
 }
 async function boot() {
+    if (new URLSearchParams(location.search).get('guide') === 'off') localStorage.setItem('sar-facility-guide-gacha-v1', 'done');
     const characters = await DB.getAllCharacters();
     if (characters.some(char => !char.id.startsWith('qa-facility-'))) throw Error('Use a fresh isolated browser profile for this fixture.');
     if (!characters.length) {

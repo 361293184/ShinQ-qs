@@ -84,7 +84,7 @@ try {
     await shot('ended-390');
     // Navigate away while the global panel and counts remain.
     await page.evaluate(() => window.moduleQA.setShowDate(false));
-    assert.equal(await monitor.locator('li').count(), 3);
+    assert.equal(await monitor.locator('li').count(), 1);
     // Dragging the header never toggles it, including at viewport edges.
     const header = page.getByRole('button', { name: '收起模块悬浮窗', exact: true });
     const bounds = await header.boundingBox();
@@ -103,6 +103,20 @@ try {
     assert.equal(reloaded.user.afterglowTurns, 3);
     assert.equal(reloaded.characters.find(char => char.id.endsWith('-second')).module.remainingTurns, 10);
     assert.deepEqual(reloaded.messages, saved.messages);
+    await page.getByRole('button', { name: '展开模块悬浮窗', exact: true }).click();
+    await monitor.getByRole('button', { name: '提前结束艾文的模块', exact: true }).click();
+    await monitor.waitFor({ state: 'hidden' });
+    const ended = await snapshot();
+    assert(ended.characters.every(char => char.module.phase === 'afterglow' && char.module.afterglowTurns === 3));
+    await page.reload(); await ready(); assert.equal(await monitor.count(), 0);
+    await page.evaluate(async () => {
+        const { installSARModuleOnCharacter } = await import('/utils/vrWorld/sarModuleRuntime.ts');
+        const { SAR_MODULE_CATALOG } = await import('/utils/vrWorld/sarModuleShop.ts');
+        const os = window.moduleQA.os, char = os.characters.find(char => char.id.endsWith('-second'));
+        os.updateCharacter(char.id, previous => ({ vrState: { ...previous.vrState, sarModule: installSARModuleOnCharacter(SAR_MODULE_CATALOG[0]) } }));
+    });
+    await monitor.waitFor(); assert.equal(await monitor.locator('li').count(), 1);
+    await shot('reinstalled-monitor');
     assert.deepEqual(errors, []); assert.deepEqual(modelCalls, []);
     writeFileSync(`${out}/report.json`, JSON.stringify({ targets: 3, independentModes: true, originalResume: true, persistedEarlyEnd: true, inFlightGuard: true, errors, modelCalls }, null, 2));
     console.log('SAR presentation passed: both Date modes and targets, repeat-line mapping, legacy resume, draggable monitor, early end and persistence.');

@@ -369,11 +369,7 @@ export const hatchEgg = (state: FishingMarketState, actor: MarketActor, id: stri
 const PASSERSBY = ['戴草帽的路人', '匿名交易员7号', '水边观察员', '不愿透露姓名的鱼贩'];
 const JOKES = ['你们到底想干嘛！！', '这价格是鱼自己报的吗？', '问就是长期价值。', '我宣布今天不接飞刀。'];
 /** Only passersby use templates; user characters always get their own LLM turn. */
-export const runLocalMarketPulse = (input: FishingMarketState, _actors: MarketActor[] = [], now = Date.now()): FishingMarketState => {
-    if (now - (input.lastPulseAt || 0) < 30 * 60_000) return input;
-    const rand = marketRandom(marketHash(input.seed + ':' + Math.floor(now / 1_800_000) + ':pulse'));
-    const i = Math.floor(rand() * PASSERSBY.length);
-    const actor: MarketActor = { id: 'wanderer:' + i, name: PASSERSBY[i], kind: 'wanderer' };
+const visitMarketAsNPC = (input: FishingMarketState, actor: MarketActor, now: number, rand: () => number): FishingMarketState => {
     let state = ensureActorAccounts(ensureMarketDay(input, now), [actor]);
     const open = state.listings.filter(p => p.status === 'open' && p.sellerId !== actor.id && p.price <= state.accounts[actor.id]);
     const requests = state.requests.filter(p => p.status === 'open' && p.authorId !== actor.id);
@@ -386,8 +382,17 @@ export const runLocalMarketPulse = (input: FishingMarketState, _actors: MarketAc
         const caught = rollFishingCatch(actor, simulatedFishingWeather(state.seed, now), rand, now);
         state = createListing(addCatchToState(state, caught), actor, caught, Math.round(catchValue(state, caught) * (.55 + rand())), JOKES[Math.floor(rand() * JOKES.length)], now);
     }
-    return { ...state, lastPulseAt: now };
+    return state;
 };
+/** Each user-requested refresh draws a new batch; no timed visitor generation. */
+export function refreshMarketNPCs(input: FishingMarketState, now = Date.now(), random = Math.random) {
+    const available = PASSERSBY.map((name, i) => ({ id: 'wanderer:' + i, name, kind: 'wanderer' as const }));
+    const visitors: MarketActor[] = [];
+    const count = 2 + Math.floor(random() * 2);
+    for (let i = 0; i < count; i++) visitors.push(available.splice(Math.floor(random() * available.length), 1)[0]);
+    const state = visitors.reduce((current, actor) => visitMarketAsNPC(current, actor, now, random), input);
+    return { state: { ...state, lastPulseAt: now }, visitors };
+}
 
 /** Acquisition history is independent of current ownership and the shared species checklist. */
 export function recordFishingAcquisition(state: FishingMarketState, actor: Pick<MarketActor, 'id' | 'name'>, speciesId: string, acquisitionId: string, at: number, legacy = false): FishingMarketState {
