@@ -12,6 +12,13 @@ export const joinVRState = (previous?: VRWorldCharState): VRWorldCharState => ({
 export const allowsAutomaticVR = (state?: VRWorldCharState): boolean =>
     Boolean(state?.enabled && state.activityMode !== 'manual');
 
+/** Connecting to Kanata alone does not place a character in SAR. */
+export const isSARActivityOccupant = (char: Pick<CharacterProfile,'vrState'>): boolean => {
+    const state=char.vrState;
+    return !!state?.enabled&&state.currentRoom==='sar'&&
+        ['cabinet','module-shop','fishing','market','garden'].includes(state.sarActivity||'');
+};
+
 /** 一轮生成期间用户可能切换接入方式；保存活动结果不能恢复会话开始时的旧开关。 */
 export const withLatestVRParticipation = (current: CharacterProfile, patch: Partial<CharacterProfile>): Partial<CharacterProfile> => {
     if (!patch.vrState) return patch;

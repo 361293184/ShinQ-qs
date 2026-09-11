@@ -2,16 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SARClubRoom from './SARClubRoom';
 import {SARDialogueCast} from './SARNpcArt';
 import {SARDialogueChoices} from './SARDialogueChoices';
+import {SARDialogueMeta} from './SARDialogueMeta';
+import {SARDialogueBackdrop} from './SARDialogueBackdrop';
+import {keepDialogueGuest} from '../../utils/vrWorld/sarDialogueStaging';
 import type {CharacterProfile} from '../../types';
-import { CaretRight, X } from '@phosphor-icons/react';
+import { ArrowRight, CaretRight } from '@phosphor-icons/react';
 import {
     getSARDialogueNode,
+    SAR_CAIAN_INTRO_DIALOGUE,
     type SARDialogueChoice,
     type SARIntroReaction,
     type SARNpcPreference,
+    type SARRoomView,
 } from '../../utils/vrWorld/sarClub';
 
-const SAFE_TOP = 'var(--chrome-top)';
+import './sar-familiarity-dialog.css';
 
 export const SARUpdateModal: React.FC<{
     step: 'update' | 'preference';
@@ -62,6 +67,7 @@ export const SARClubStage: React.FC<{
     onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
     fullPage?: boolean;
     labelsHidden?: boolean;
+    roomView?: SARRoomView;
 }> = ({fullPage:_,...props}) => <SARClubRoom {...props}/>;
 
 export const SARCaianDialogue: React.FC<{
@@ -72,14 +78,23 @@ export const SARCaianDialogue: React.FC<{
     const [lineIndex, setLineIndex] = useState(0);
     const [mentionedCharacterCard, setMentionedCharacterCard] = useState(false);
     const [reaction, setReaction] = useState<SARIntroReaction | undefined>();
+    const [guestCarried,setGuestCarried]=useState(false);
     const node = useMemo(() => getSARDialogueNode(nodeId, { mentionedCharacterCard }), [nodeId, mentionedCharacterCard]);
     const line = node.lines[Math.min(lineIndex, Math.max(0, node.lines.length - 1))];
+    const keepGuest=keepDialogueGuest({...SAR_CAIAN_INTRO_DIALOGUE,[nodeId]:node},nodeId,lineIndex,'caian',guestCarried);
     const isLastLine = lineIndex >= node.lines.length - 1;
     const choices = isLastLine ? node.choices || [] : [];
-    const panel=useRef<HTMLDivElement>(null);
+    const panel=useRef<HTMLButtonElement>(null);
     useEffect(()=>{panel.current?.scrollTo(0,0);},[nodeId,lineIndex]);
+    useEffect(()=>{
+        const target=window as Window&{render_game_to_text?:()=>string};
+        const render=()=>JSON.stringify({mode:'sar-intro',node:nodeId,line:lineIndex,text:line?.text,speaker:line?.speaker,choices:choices.map(choice=>choice.label),keepGuest});
+        target.render_game_to_text=render;
+        return()=>{if(target.render_game_to_text===render)delete target.render_game_to_text;};
+    },[nodeId,lineIndex,line,choices,keepGuest]);
 
     const goTo = (next: string) => {
+        setGuestCarried(keepGuest);
         setNodeId(next);
         setLineIndex(0);
     };
@@ -100,23 +115,18 @@ export const SARCaianDialogue: React.FC<{
     if (!line) return null;
     const speakerName = line.speaker === 'caian' ? '凯恩' : '艾文';
     return (
-        <div className="sar-npc-dialogue fixed inset-0 z-[370] overflow-hidden bg-[#090a12]/78 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-label="凯恩初次见面对话">
-            <button type="button" onClick={onClose} aria-label="暂时离开对话" className="absolute right-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white/65 backdrop-blur-md active:bg-white/15" style={{ top: `calc(${SAFE_TOP} + .5rem)` }}><X size={17} /></button>
-
-            <div className="sar-dialogue-portraits">
-                <SARDialogueCast lead="caian" speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions}/>
-            </div>
-
-            <div className="sar-dialogue-panel" ref={panel}>
-                <div>
-                    <button type="button" onClick={advance} className="block min-h-[132px] w-full px-5 pb-4 pt-4 text-left active:bg-white/[0.025]"
-                        aria-label={choices.length ? undefined : node.completes && isLastLine ? '结束对话' : '继续对话'}>
-                        <div className="mb-2 flex items-center gap-2">
-                            <span className="text-[12px] font-bold tracking-[0.18em] text-indigo-100" style={{ fontFamily: `'Noto Serif SC',serif` }}>{speakerName}</span>
-                            <span className="h-px flex-1" style={{ background: 'linear-gradient(90deg,rgba(190,185,255,.26),transparent)' }} />
-                        </div>
-                        <p className="text-[15px] leading-7 text-white/92">{line.text}</p>
-                        {!choices.length && <div className="mt-2 flex items-center justify-end gap-1 text-[9px] tracking-[0.16em] text-white/28">{node.completes && isLastLine ? '结束对话' : '点击继续'} <CaretRight size={10} /></div>}
+        <div className="sar-npc-dialogue srf-dialog srf-caian" role="dialog" aria-modal="true" aria-label="凯恩初次见面对话" onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onClose();}}}>
+            <SARDialogueBackdrop/>
+            <div className="srf-body">
+                <div className="sar-dialogue-portraits srf-stage">
+                    <SARDialogueCast lead="caian" speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions} keepGuest={keepGuest}/>
+                </div>
+                <div className="sar-dialogue-panel srf-script">
+                    <SARDialogueMeta npc="caian" speaker={speakerName} onClose={onClose} closeLabel="暂时离开对话"/>
+                    <button ref={panel} type="button" onClick={advance} className="srf-bubble" disabled={choices.length>0}
+                        aria-label={node.completes && isLastLine ? '结束对话' : '继续对话'}>
+                        <p className="srf-line">{line.text}</p>
+                        <span className="srf-next">{choices.length?'请选择回应':node.completes && isLastLine?'结束对话':'点击继续'}<ArrowRight size={16}/></span>
                     </button>
                 </div>
             </div>

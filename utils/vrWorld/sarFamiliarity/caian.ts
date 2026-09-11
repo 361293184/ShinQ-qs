@@ -164,12 +164,12 @@ export const CAIAN_SCENES: FamiliarityScene[] = [
     },
     {
         id: "C1-06", npc: 'caian', rank: 1, kind: "topic",
-        title: "塑料恐龙", start: "start",
+        title: "橡皮泥恐龙", start: "start",
         nodes: {
             // Source paragraphs 42–42.
             "start": {
                 lines: [
-                    c("我现在理解艾文为什么喜欢塑料恐龙了。摆起来真的很容易上瘾。", "embarrassed"),
+                    c("我现在理解艾文为什么喜欢橡皮泥恐龙了。摆起来真的很容易上瘾。", "embarrassed"),
                 ],
                 choices: [
                     {"label":"你也摆一个？","next":"answer-1"},

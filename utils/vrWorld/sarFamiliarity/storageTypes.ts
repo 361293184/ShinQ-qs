@@ -4,11 +4,17 @@ export interface FamiliarityCursor {
     runId: string; sceneId: string; nodeId: string; line: number; revision: number; startedAt: number;
     flags: Record<string, string | boolean>; drafts: Record<string, Record<string, unknown>>;
     userName: string; sullyId?: string; cast?: Partial<import('../sarArt').SARCastExpressions>; speaker?: FamiliarityNpc;
+    /** Whether the guest was still on stage when arriving at this line. */
+    guestPresent?: boolean;
+    /** Reward-bearing nodes visited in this attempt; settled only when the scene ends. */
+    visitedNodes?: string[];
 }
 export interface FamiliarityProgress {
     stars: number;
     completed: Record<string, { at: number; flags: Record<string, string | boolean> }>;
     day?: string; offerId?: string | null; pending?: FamiliarityCursor;
+    /** Independently rolled scenes waiting for a later click, never a topic menu. */
+    queuedSceneIds?: string[];
 }
 export interface FamiliaritySouvenir {
     id: string; title: string; description: string; npc: FamiliarityNpc; sceneId: string; nodeId: string;
@@ -37,9 +43,11 @@ export const validateFamiliarity = (value: unknown): void => {
             || Object.values(p.completed).some((v: any) => !record(v) || !Number.isFinite(v.at) || !flags(v.flags))) return fail();
         if (p.day !== undefined && typeof p.day !== 'string') return fail();
         if (p.offerId !== undefined && p.offerId !== null && typeof p.offerId !== 'string') return fail();
+        if (p.queuedSceneIds !== undefined && (!Array.isArray(p.queuedSceneIds) || p.queuedSceneIds.some((id: unknown) => typeof id !== 'string'))) return fail();
         const c = p.pending;
         if (c && (!record(c) || !c.runId || !c.sceneId || !c.nodeId || !Number.isInteger(c.line) || c.line < 0 || !Number.isInteger(c.revision) || c.revision < 0
             || !Number.isFinite(c.startedAt) || !flags(c.flags) || !record(c.drafts) || typeof c.userName !== 'string')) return fail();
+        if (c?.visitedNodes !== undefined && (!Array.isArray(c.visitedNodes) || c.visitedNodes.some((id: unknown) => typeof id !== 'string'))) return fail();
     }
     for (const key of ['applied', 'unlocks', 'titles']) if (!Array.isArray(value[key]) || value[key].some((s: unknown) => typeof s !== 'string')) return fail();
     for (const key of ['souvenirs', 'coupons', 'discounts', 'outbox']) if (!Array.isArray(value[key])) return fail();

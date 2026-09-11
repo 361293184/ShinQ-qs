@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { BubbleStyle, ChatTheme } from '../types';
 
-// Stable public paths also survive saved themes, backups and future builds.
+// Event artwork only; stable paths keep already-applied gifts working.
 export const ANNIVERSARY_ARTIST = '哈基米欠我钱';
 export const ANNIVERSARY_WALLPAPERS = [
   { id: 'stripes', name: '奶油星星', url: './anniversary/cake-stripes.jpg' },
@@ -15,9 +15,9 @@ export const ANNIVERSARY_SEEN_KEY = 'sullyos_first_anniversary_seen_v1';
 // intact and align that aperture with the avatar; all chat renderers share this.
 export const ANNIVERSARY_FRAME_STYLE = {
   avatarDecoration: ANNIVERSARY_FRAME_URL,
-  avatarDecorationX: 54.3,
-  avatarDecorationY: 52.5,
-  avatarDecorationScale: 1.8,
+  avatarDecorationX: 53.9,
+  avatarDecorationY: 52.2,
+  avatarDecorationScale: 1.6,
   avatarDecorationRotate: 0,
 } satisfies Partial<BubbleStyle>;
 

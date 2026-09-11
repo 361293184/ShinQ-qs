@@ -1,3 +1,4 @@
+import { SARFacilityGuide } from './SARFacilityGuide';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CaretLeft, Check, Sparkle, X } from '@phosphor-icons/react';
 import {
@@ -283,7 +284,7 @@ export const SARGachaOverlay: React.FC<{
             <SARGachaStyle />
             <SARGachaProductStyle />
             <div className="sarg-noise" />
-            <header className="sarg-header">
+            <header className="sarg-header sar-facility-header">
                 <button type="button" onClick={view === 'collection' ? () => setView('machine') : onClose} aria-label={view === 'collection' ? '返回扭蛋机' : '离开扭蛋机'}>
                     {view === 'collection' ? <CaretLeft size={19} /> : <X size={18} />}
                 </button>
@@ -291,6 +292,7 @@ export const SARGachaOverlay: React.FC<{
                 <button type="button" className="sarg-header__archive" onClick={() => setView(view === 'collection' ? 'machine' : 'collection')} disabled={busy} aria-label="打开异世界模块陈列">
                     <span>{collectedUnique}</span><i>藏品</i>
                 </button>
+                <SARFacilityGuide facility="gacha"/>
             </header>
 
             {view === 'collection' ? (

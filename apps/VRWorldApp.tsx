@@ -1,3 +1,6 @@
+import { closeSARFacilityGuide } from '../utils/vrWorld/sarFacilityGuides';
+import { sarLaunch } from '../utils/sarUpdate';
+import { trackSARFeature } from '../utils/sarAnalytics';
 import { SARFamiliarityDialog } from './vrWorld/SARFamiliarityDialog';
 import { flushFishingDeliveries } from '../utils/vrWorld/fishingDelivery';
 import { flushMarketReceipts } from '../utils/vrWorld/fishingCharacter';
@@ -11,7 +14,6 @@ import {
 } from '@phosphor-icons/react';
 import TheaterPanel from './theater/TheaterPanel';
 import { SARCaianDialogue, SARClubStage, SARUpdateModal } from './vrWorld/SARClubEvent';
-import {SARAivenDialogue} from './vrWorld/SARAivenDialogue';
 import { SARGachaOverlay } from './vrWorld/SARGacha';
 import { SARAssemblyCabinetOverlay } from './vrWorld/SARAssemblyCabinet';
 import { SARModuleShopOverlay } from './vrWorld/SARModuleShop';
@@ -23,7 +25,7 @@ import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
 import { useResilientAssetUrl, attachAudioMirrorFallback } from '../utils/assetUrl';
 import { VRScheduler, VR_FAIL_LIMIT } from '../utils/vrWorld/scheduler';
-import { allowsAutomaticVR, joinVRState } from '../utils/vrWorld/participation';
+import { allowsAutomaticVR, joinVRState, isSARActivityOccupant } from '../utils/vrWorld/participation';
 import { collectVRDiagnostics } from '../utils/vrWorld/diagnostics';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN, SIGNAL_EPIGRAPH, signalActFor, signalActRanges, SIGNAL_POEMS_PER_BOOKLET, SIGNAL_EVENT_ENDED, SIGNAL_MEMORIAL_CLOSING } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
@@ -40,6 +42,8 @@ import {
     readSARClubState,
     rewindSARIntro,
     SAR_CLUB_UPDATE_VERSION,
+    sarRoomView, nextSARRoomView, SAR_ROOM_VIEW_ACTIONS,
+    type SARRoomView,
     type SARClubState,
     type SARIntroReaction,
     type SARNpcPreference,
@@ -136,7 +140,7 @@ const IDLE_QUIPS: Record<VRRoomId, string[]> = {
 };
 
 const VRWorldApp: React.FC = () => {
-    const { closeApp, characters, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig, memoryPalaceConfig } = useOS();
+    const { closeApp, characters, characterGroups, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig, memoryPalaceConfig } = useOS();
     useEffect(() => {
         const flush = () => { void flushFishingDeliveries(characters).then(() => flushMarketReceipts(characters)).catch(() => {}); };
         flush();
@@ -145,7 +149,8 @@ const VRWorldApp: React.FC = () => {
     }, [characters]);
 
     const userName = userProfile?.name || '我';
-    const [tab, setTab] = useState<Tab>('world');
+    const [tab, setTab] = useState<Tab>(() => sarLaunch.peek() ? 'sar' : 'world');
+    useEffect(() => { sarLaunch.consume(); }, []);
     const [novels, setNovels] = useState<VRWorldNovel[]>([]);
     const [feed, setFeed] = useState<FeedItem[]>([]);
     const [poBadge, setPoBadge] = useState<{ toSend: number; toCollect: number }>({ toSend: 0, toCollect: 0 });
@@ -183,7 +188,6 @@ const VRWorldApp: React.FC = () => {
         readSARClubState().npcPreference ? null : 'update');
     const [worldPage, setWorldPage] = useState<0 | 1>(0);
     const [showSarDialogue, setShowSarDialogue] = useState(false);
-    const [showAivenDialogue, setShowAivenDialogue] = useState(false);
     const [familiarity, setFamiliarity] = useState<{npc:'caian'|'aiven';sceneId?:string}|null>(null);
     const [showSarGacha, setShowSarGacha] = useState(false);
     const [showSarCabinet, setShowSarCabinet] = useState(false);
@@ -195,6 +199,13 @@ const VRWorldApp: React.FC = () => {
     const [showSarRewindConfirm, setShowSarRewindConfirm] = useState(false);
     const [incomingSarModule, setIncomingSarModule] = useState<{ charId: string; charName: string; moduleTitle: string } | null>(null);
     const sarHandledThisSession = useRef(false);
+    useEffect(() => { if (tab === 'sar') trackSARFeature('room'); }, [tab]);
+    useEffect(() => { if (showSarDialogue || familiarity) trackSARFeature(familiarity?.sceneId ? 'replay' : 'dialogue'); }, [showSarDialogue, familiarity]);
+    useEffect(() => { if (showSarGacha) trackSARFeature('gacha'); }, [showSarGacha]);
+    useEffect(() => { if (showSarCabinet) trackSARFeature('cabinet'); }, [showSarCabinet]);
+    useEffect(() => { if (showSarModuleShop) trackSARFeature('modules'); }, [showSarModuleShop]);
+    useEffect(() => { if (sarHubPanel) trackSARFeature(sarHubPanel); }, [sarHubPanel]);
+    useEffect(() => { if (showFishingMarket) trackSARFeature(showFishingMarket); }, [showFishingMarket]);
     // 启用流程：设定 chibi 后回调启用
     const [pendingEnable, setPendingEnable] = useState<string | null>(null);
     const [readingPreferenceCharId, setReadingPreferenceCharId] = useState<string | null>(null);
@@ -248,7 +259,6 @@ const VRWorldApp: React.FC = () => {
             addToast?.('凯恩与艾文已来到活动室', 'success');
         } else {
             setShowSarDialogue(false);
-            setShowAivenDialogue(false);
             addToast?.('活动室 NPC 已隐藏，功能不受影响', 'success');
         }
     }, [addToast]);
@@ -300,6 +310,7 @@ const VRWorldApp: React.FC = () => {
                 npcPreference: sarState.npcPreference,
                 caianMet: sarState.caianMet,
                 labelsHidden: !!sarState.labelsHidden,
+                roomView: sarRoomView(sarState),
                 worldPage,
             },
         });
@@ -371,7 +382,7 @@ const VRWorldApp: React.FC = () => {
         for (const c of characters) {
             if (c.vrState?.enabled) {
                 const room = c.vrState.currentRoom || 'library';
-                (map[room] ||= []).push(c);
+                if(room!=='sar'||isSARActivityOccupant(c))(map[room] ||= []).push(c);
             }
         }
         // 用户本人接入彼方且设了 chibi → 作为伪 occupant 站进自己挂着的房间
@@ -388,6 +399,8 @@ const VRWorldApp: React.FC = () => {
 
     // 返回键：有弹层先关弹层（阅读器/房间/上传/捏人），而不是直接退回桌面
     useEffect(() => registerBackHandler(() => {
+        if (closeSARFacilityGuide()) return true;
+        if (showSarRewindConfirm) { setShowSarRewindConfirm(false); return true; }
         if (familiarity && chibiEditUser) { setChibiEditUser(false); return true; }
         if (familiarity) { setFamiliarity(null); return true; }
         if (sarHubPanel) { if (!sarHubBack.current?.()) setSarHubPanel(null); return true; }
@@ -395,9 +408,7 @@ const VRWorldApp: React.FC = () => {
         if (showSarModuleShop) { setShowSarModuleShop(false); setSarModuleTargetCharId(null); return true; }
         if (showSarCabinet) { setShowSarCabinet(false); return true; }
         if (showSarGacha) { setShowSarGacha(false); return true; }
-        if (showSarRewindConfirm) { setShowSarRewindConfirm(false); return true; }
         if (showSarDialogue) { setShowSarDialogue(false); return true; }
-        if (showAivenDialogue) { setShowAivenDialogue(false); return true; }
         if (readingPreferenceCharId) { setReadingPreferenceCharId(null); return true; }
         if (chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
         if (chibiEditUser) { setChibiEditUser(false); return true; }
@@ -407,7 +418,7 @@ const VRWorldApp: React.FC = () => {
         if (enterRoom) { setEnterRoom(null); return true; }
         if (tab === 'sar') { setTab('world'); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, tab, familiarity, sarHubPanel, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, showAivenDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, tab, familiarity, sarHubPanel, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -554,7 +565,7 @@ const VRWorldApp: React.FC = () => {
                     <div className="text-center text-white/40 text-[13px] tracking-[0.2em] py-12" style={{ fontFamily: `'Noto Serif SC',serif` }}>载入彼方…</div>
                 ) : tab === 'sar' ? (
                     <SARWorldPage occupants={occupantsByRoom.sar || []} npcEnabled={sarState.npcPreference === 'show'} caianMet={sarState.caianMet}
-                        labelsHidden={!!sarState.labelsHidden} onToggleLabels={() => setSarState(patchSARClubState({ labelsHidden: !sarState.labelsHidden }))}
+                        roomView={sarRoomView(sarState)} onToggleLabels={() => {const view=nextSARRoomView(sarRoomView(sarState));setSarState(patchSARClubState({roomView:view,labelsHidden:view==='text-hidden'}));}}
                         onTalkToCaian={() => sarState.caianMet ? setFamiliarity({npc:'caian'}) : setShowSarDialogue(true)} onTalkToAiven={() => setFamiliarity({npc:'aiven'})}
                         onSelectCharacter={char => { setSarModuleTargetCharId(char.id); setShowSarModuleShop(true); }}
                         onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
@@ -577,17 +588,15 @@ const VRWorldApp: React.FC = () => {
                         <SettingsView characters={characters} updateCharacter={updateCharacter} addToast={addToast}
                             novels={novels} onReload={reloadAll}
                             onRequestEnable={requestEnable} onEditChibi={setChibiEditChar}
-                            onEditReadingPreference={(char) => setReadingPreferenceCharId(char.id)}
-                            sarNpcEnabled={sarState.npcPreference === 'show'} sarCaianMet={sarState.caianMet}
-                            onChangeSarNpc={changeSarNpcPreference} onRequestSarRewind={() => setShowSarRewindConfirm(true)} />
+                            onEditReadingPreference={(char) => setReadingPreferenceCharId(char.id)} />
                     </div>
                 ) : (
                     <VRApiSettings apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} characters={characters} />
                 )}
             </div>
 
-            {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
-            {familiarity && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)} onOpenGuide={()=>{const npc=familiarity.npc;setFamiliarity(null);if(npc==='aiven')setShowAivenDialogue(true);else setShowSarDialogue(true);}}/>}
+            {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} caianMet={sarState.caianMet} onRequestRewind={()=>setShowSarRewindConfirm(true)} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
+            {familiarity && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)}/>}
             {/* 进入房间场景 */}
             {enterRoom && (
                 <RoomScene roomId={enterRoom} occupants={occupantsByRoom[enterRoom] || []}
@@ -604,10 +613,9 @@ const VRWorldApp: React.FC = () => {
             {showSarDialogue && sarState.npcPreference === 'show' && (
                 <SARCaianDialogue onClose={() => setShowSarDialogue(false)} onComplete={completeSarIntro} />
             )}
-            {showAivenDialogue && sarState.npcPreference === 'show' && <SARAivenDialogue onClose={()=>setShowAivenDialogue(false)} onOpen={entry=>{setShowAivenDialogue(false);setShowFishingMarket(entry);}}/>}
             {showSarGacha && <SARGachaOverlay onClose={() => setShowSarGacha(false)} />}
             {showSarCabinet && userProfile && (
-                <SARAssemblyCabinetOverlay onClose={() => setShowSarCabinet(false)} characters={characters}
+                <SARAssemblyCabinetOverlay onClose={() => setShowSarCabinet(false)} characters={characters} characterGroups={characterGroups}
                     apiConfig={apiConfig} userProfile={userProfile} groups={groups} realtimeConfig={realtimeConfig} />
             )}
             {showSarModuleShop && (
@@ -649,7 +657,7 @@ const VRWorldApp: React.FC = () => {
                     </div>
                 );
             })()}
-            <ConfirmDialog open={showSarRewindConfirm} title="回档凯恩初次见面？"
+            <ConfirmDialog zIndex={500} open={showSarRewindConfirm} title="回档凯恩初次见面？"
                 message="会清除这段初见剧情的完成记录，让凯恩重新出现感叹号。更新公告和 NPC 显示偏好不会改变。"
                 confirmText="确认回档" onConfirm={rewindSarIntro} onCancel={() => setShowSarRewindConfirm(false)} />
             {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
@@ -916,12 +924,14 @@ const useLongPress = (onLong: () => void, ms = 500) => {
 
 const ConfirmDialog: React.FC<{
     open: boolean; title: string; message?: string;
-    confirmText?: string; cancelText?: string;
+    confirmText?: string; cancelText?: string; zIndex?: number;
     onConfirm: () => void; onCancel: () => void;
-}> = ({ open, title, message, confirmText = '删除', cancelText = '取消', onConfirm, onCancel }) => {
+}> = ({ open, title, message, confirmText = '删除', cancelText = '取消', zIndex = 300, onConfirm, onCancel }) => {
+    const root=useRef<HTMLDivElement>(null);
+    useEffect(()=>{if(!open)return;const prior=document.activeElement as HTMLElement|null;root.current?.focus();return()=>prior?.focus();},[open]);
     if (!open) return null;
     return (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center px-8 bg-black/55 backdrop-blur-sm" onClick={onCancel}>
+        <div ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} style={{zIndex}} className="fixed inset-0 flex items-center justify-center px-8 bg-black/55 backdrop-blur-sm" onClick={onCancel} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onCancel();}}}>
             <div className="w-full max-w-[300px] rounded-2xl p-4 text-center" onClick={e => e.stopPropagation()}
                 style={{ background: 'linear-gradient(180deg,#1b1830 0%,#100d20 100%)', border: '1px solid rgba(255,255,255,.12)', boxShadow: '0 16px 50px rgba(0,0,0,.6)' }}>
                 <div className="text-[14px] font-semibold text-white tracking-wide" style={{ fontFamily: `'Noto Serif SC',serif` }}>{title}</div>
@@ -1266,7 +1276,7 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
 // ============ 世界视图 ============
 const SARWorldPage: React.FC<{
     occupants: CharacterProfile[];
-    labelsHidden: boolean;
+    roomView: SARRoomView;
     onToggleLabels: () => void;
     npcEnabled: boolean;
     caianMet: boolean;
@@ -1280,7 +1290,7 @@ const SARWorldPage: React.FC<{
     onOpenSarWarehouse: () => void;
     onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
     onBackPage: () => void;
-}> = ({ occupants, labelsHidden, onToggleLabels, npcEnabled, caianMet, onTalkToCaian, onTalkToAiven, onSelectCharacter, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenSarSettings, onOpenSarWarehouse, onOpenFishingMarket, onBackPage }) => (
+}> = ({ occupants, roomView, onToggleLabels, npcEnabled, caianMet, onTalkToCaian, onTalkToAiven, onSelectCharacter, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenSarSettings, onOpenSarWarehouse, onOpenFishingMarket, onBackPage }) => (
     <section className="sar-world-page relative overflow-hidden" aria-label="SAR 活动空间"
         style={{ minHeight: 0, height: '100%' }}>
 
@@ -1291,13 +1301,13 @@ const SARWorldPage: React.FC<{
                 <h2 style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>SAR 活动室</h2></div>
             </div>
             <div className="sar-hub-tools">
-                <button type="button" onClick={onToggleLabels} aria-label={labelsHidden ? '显示房间标记' : '隐藏房间标记'} aria-pressed={labelsHidden}>{labelsHidden ? <Eye size={21}/> : <EyeSlash size={21}/>}<span>{labelsHidden ? '显示' : '隐藏'}</span></button>
+                <button type="button" onClick={onToggleLabels} aria-label={SAR_ROOM_VIEW_ACTIONS[roomView].description} title={SAR_ROOM_VIEW_ACTIONS[roomView].description} data-room-view={roomView}>{roomView==='characters-hidden' ? <Eye size={21}/> : <EyeSlash size={21}/>}<span>{SAR_ROOM_VIEW_ACTIONS[roomView].label}</span></button>
                 <button type="button" onClick={onOpenSarSettings} aria-label="活动室设置"><Gear size={21}/><span>设置</span></button>
                 <button type="button" onClick={onOpenSarWarehouse} aria-label="打开仓库"><Package size={21}/><span>仓库</span></button>
             </div>
         </div>
 
-        <SARClubStage labelsHidden={labelsHidden} occupants={occupants} npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onTalkToAiven={onTalkToAiven} onSelectCharacter={onSelectCharacter} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
+        <SARClubStage roomView={roomView} occupants={occupants} npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onTalkToAiven={onTalkToAiven} onSelectCharacter={onSelectCharacter} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
 
     </section>
 );
@@ -3887,11 +3897,7 @@ const SettingsView: React.FC<{
     onRequestEnable: (char: CharacterProfile) => void;
     onEditChibi: (char: CharacterProfile) => void;
     onEditReadingPreference: (char: CharacterProfile) => void;
-    sarNpcEnabled: boolean;
-    sarCaianMet: boolean;
-    onChangeSarNpc: (preference: SARNpcPreference) => void;
-    onRequestSarRewind: () => void;
-}> = ({ characters, updateCharacter, addToast, novels, onReload, onRequestEnable, onEditChibi, onEditReadingPreference, sarNpcEnabled, sarCaianMet, onChangeSarNpc, onRequestSarRewind }) => {
+}> = ({ characters, updateCharacter, addToast, novels, onReload, onRequestEnable, onEditChibi, onEditReadingPreference }) => {
     const [pickFor, setPickFor] = useState<CharacterProfile | null>(null);
     // 接入列表的分组筛选（characters 由 props 传入，这里单独取 characterGroups 即可）
     const { characterGroups } = useOS();
@@ -3935,29 +3941,6 @@ const SettingsView: React.FC<{
 
     return (
         <div className="space-y-3">
-            <div className="rounded-2xl p-3.5" style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.075)' }}>
-                <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                        <div className="text-[12.5px] font-semibold text-white/90">活动空间 NPC</div>
-                        <p className="mt-0.5 text-[10px] leading-relaxed text-indigo-200/48">显示凯恩、艾文与固定剧情。关闭不会影响活动空间功能。</p>
-                    </div>
-                    <button type="button" onClick={() => onChangeSarNpc(sarNpcEnabled ? 'hide' : 'show')} aria-label={sarNpcEnabled ? '隐藏活动空间 NPC' : '显示活动空间 NPC'} aria-pressed={sarNpcEnabled}
-                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${sarNpcEnabled ? 'bg-indigo-400' : 'bg-white/15'}`}>
-                        <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${sarNpcEnabled ? 'translate-x-5' : ''}`} />
-                    </button>
-                </div>
-                <div className="mt-3 flex items-center gap-3 border-t border-white/[0.07] pt-3">
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-white/78"><Clock size={13} />剧情回档</div>
-                        <p className="mt-0.5 text-[9.5px] leading-relaxed text-indigo-200/40">重置凯恩初次见面，用其他选择再走一次。</p>
-                    </div>
-                    <button type="button" onClick={onRequestSarRewind} disabled={!sarCaianMet}
-                        className="shrink-0 rounded-full px-3 py-1.5 text-[10px] font-semibold text-indigo-100 disabled:cursor-not-allowed disabled:opacity-30 active:bg-white/10"
-                        style={{ background: 'rgba(129,140,248,.12)', border: '1px solid rgba(165,180,252,.2)' }}>
-                        {sarCaianMet ? '回到初见前' : '剧情未完成'}
-                    </button>
-                </div>
-            </div>
             <p className="text-[11px] text-indigo-300/60 leading-relaxed">
                 接入后，角色会知道「彼方」，小人可以挂在房间里。默认仅手动活动：等你选房间、邀请钓鱼或玩箱庭时才行动，不设置间隔、不自动调用模型。
                 想让 ta 自己逛，再开启自动活动。每次实际活动会留下动态卡片；自动活动连着 {VR_FAIL_LIMIT} 次调不通模型会暂停。

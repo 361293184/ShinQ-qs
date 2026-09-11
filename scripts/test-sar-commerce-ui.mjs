@@ -6,7 +6,7 @@ const browser=await chromium.launch({headless:true});
 const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await context.route('**/*',route=>{const url=new URL(route.request().url());return ['127.0.0.1','localhost'].includes(url.hostname)?route.continue():route.fulfill({status:200,body:'',headers:{'access-control-allow-origin':'*'}});});
-const base='http://127.0.0.1:5177/test/fixtures/sar-commerce.html';
+const base=`${process.env.SAR_QA_URL||'http://127.0.0.1:5177'}/test/fixtures/sar-commerce.html`;
 const btn=name=>page.getByRole('button',{name,exact:true});
 const read=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('vr_fishing_market_v1')));
 const shot=async name=>{await page.screenshot({path:`${out}/${name}.png`,animations:'disabled'});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);};
@@ -37,6 +37,18 @@ try{
     assert.equal((await read()).sarCommerce.moduleShop.inventory[id],1);
     await page.getByRole('tab',{name:/模块袋/}).click();await page.locator('.sar-module-card').first().click();
     await page.locator('.sar-module-buy').click();await btn('继续').click();
+    const installGeometry=[];
+    for(const viewport of [{width:390,height:844},{width:320,height:568},{width:740,height:390}]){
+        await page.setViewportSize(viewport);await btn('确认装载').scrollIntoViewIfNeeded();
+        // Scroll the sheet itself to expose its full bottom safe area.
+        await page.locator('.sar-module-install__sheet').evaluate(el=>el.scrollTop=el.scrollHeight);
+        const box=await btn('确认装载').boundingBox();
+        assert(box.height>=44,'install target remains at least 44px tall');
+        assert(box.y>=0&&box.y+box.height<=viewport.height-79,'install stays clear of safe area and three-line build badge');
+        installGeometry.push({viewport,box});await shot('install-'+viewport.width);
+    }
+    writeFileSync(out+'/install-geometry.json',JSON.stringify(installGeometry,null,2));
+    await page.setViewportSize({width:390,height:844});
     const balanceBeforeInstall=(await read()).accounts.user;
     await btn('确认装载').click();await page.getByRole('heading',{name:'装载完成',exact:true}).waitFor();
     assert.equal((await read()).sarCommerce.moduleShop.inventory[id],undefined);assert.equal((await read()).accounts.user,balanceBeforeInstall);

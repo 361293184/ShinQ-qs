@@ -14,6 +14,7 @@ import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubb
 import { isImageValue, useBlobRefUrl } from '../../utils/blobRef';
 import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
 import TokenImg from '../os/TokenImg';
+import { SARSpeechSwitch } from '../sar/SARSpeechSwitch';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
@@ -3691,17 +3692,11 @@ const MessageItem = React.memo(({
             </div>
             )}
 
-            {/* SAR 只借一个小光点提示外显层，不改用户自定义气泡的背景、边框或排版。 */}
             {hasSarSurface && (displayContent || hasVoiceContent) && (
-                <button
-                    type="button"
-                    aria-label={showSarTruth ? '切回模块外显' : '恢复真言'}
-                    title={showSarTruth ? '点击切回模块外显' : `${m.metadata?.sarModuleSurface?.moduleTitle || '模块'}生效中 · 点击恢复真言`}
-                    onClick={(event) => { event.stopPropagation(); event.preventDefault(); setShowSarTruth(value => !value); }}
-                    className="absolute z-20 -right-1 -bottom-1 w-3.5 h-3.5 rounded-full border border-white/50 bg-teal-200/80 shadow-[0_0_8px_rgba(94,234,212,.72)] active:scale-90 transition-transform"
-                >
-                    <span className="sr-only">{showSarTruth ? '真言' : '外显'}</span>
-                </button>
+                <div className="sar-chat-speech-control" style={{ color: styleConfig.textColor }}>
+                    <SARSpeechSwitch truth={showSarTruth} moduleTitle={m.metadata?.sarModuleSurface?.moduleTitle}
+                        onToggle={() => setShowSarTruth(value => !value)} />
+                </div>
             )}
 
             {/* Layer 5: 双语「翻译/原文」切换 —— 气泡内右下角，细分隔线压层级，小灰字克制易找 */}

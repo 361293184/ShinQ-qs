@@ -2,7 +2,8 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const out='output/fishing-character-qa';await fs.mkdir(out,{recursive:true});
-const browser=await chromium.launch({headless:true,channel:'chrome'});
+const browser=await chromium.launch({headless:true,channel:process.env.FISHING_BROWSER_CHANNEL||'chrome'});
+const base=process.env.FISHING_QA_URL||'http://127.0.0.1:5182';
 const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
 const errors=[],consoleErrors=[];let calls=0;let response={disposition:'keep',reaction:'这条鱼透着光，很好看。',shareToUser:{text:'你看，我刚钓上来的。'}};let fail=false;
 page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
@@ -16,10 +17,10 @@ await page.route('**/*',route=>{
 });
 const state=()=>page.evaluate(()=>window.fishingFixture.readFishingMarketState());
 const waitDone=async()=>{await page.waitForFunction(()=>!document.querySelector('.fishing-shell')?.textContent.includes('活动进行中'));await page.waitForTimeout(350);};
-const choose=id=>page.getByLabel('选择去水域的角色').selectOption(id);
+const choose=async id=>{if(!await page.getByLabel('选择去水域的角色').isVisible())await page.getByText('角色钓鱼',{exact:true}).click();await page.getByLabel('选择去水域的角色').selectOption(id);};
 const trip=async()=>{await page.getByRole('button',{name:'让 ta 去钓鱼',exact:true}).click();await waitDone();};
 try{
-    await page.goto('http://127.0.0.1:5182/test/fixtures/fishing-characters.html',{waitUntil:'domcontentloaded',timeout:60000});
+    await page.goto(`${base}/test/fixtures/fishing-characters.html`,{waitUntil:'domcontentloaded',timeout:60000});
     await choose('fish-a');await trip();assert.equal(calls,1);
     let s=await state();assert.equal(s.fishingTrips.length,1);assert.equal(s.fishingTrips[0].shareSent,true);assert.equal(s.inventory[0].ownerId,'fish-a');
     let board=await page.evaluate(()=>window.fishingFixture.DB.getVRGuestbook());assert.equal(board.messages.length,1);assert.equal(board.messages[0].kind,'collection-unlock');
@@ -41,7 +42,7 @@ try{
     await page.getByText('累计获得 3 件 · 现有 3 件',{exact:true}).scrollIntoViewIfNeeded();await page.waitForTimeout(350);await page.screenshot({path:out+'/catalog-stats-320.png'});
     const final=await state();assert.equal(final.fishingTrips.length,5);assert.equal(final.collectionEntries.length,2);assert.equal(calls,6);
     // Real public-room renderer sees the same persisted announcements.
-    await page.goto('http://127.0.0.1:5182/test/fixtures/kanata.html',{waitUntil:'domcontentloaded',timeout:60000});
+    await page.goto(`${base}/test/fixtures/kanata.html`,{waitUntil:'domcontentloaded',timeout:60000});
     await page.getByText('留言簿',{exact:true}).click({timeout:60000});await page.getByText('留言墙',{exact:true}).waitFor();await page.getByText('图鉴解锁',{exact:true}).first().waitFor();await page.screenshot({path:out+'/public-announcements-320.png'});
     await fs.writeFile(out+'/report.json',JSON.stringify({calls,tripCount:final.fishingTrips.length,personalSpecies:final.collectionEntries.length,announcements:board.messages.length,errors},null,2));
     assert.deepEqual(errors,[]);console.log('Real UI/DB: keep/release + DM, per-character catalog, once-only unlocks, failed-call retry, delivery-only retry and 320px layout passed.');

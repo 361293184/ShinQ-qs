@@ -39,12 +39,11 @@ export function SARPortrait({who,expression='normal'}:{who:SARDialogueSpeaker;ex
     return <PortraitImage key={who} who={who} expression={expression}/>;
 }
 
-export function SARDialogueCast({speaker,lead=speaker,expression='normal',castExpressions}:{speaker:SARDialogueSpeaker;lead?:SARDialogueSpeaker;expression?:SARExpression;castExpressions?:Partial<SARCastExpressions>}){
+export function SARDialogueCast({speaker,lead=speaker,expression='normal',castExpressions,keepGuest=false}:{speaker:SARDialogueSpeaker;lead?:SARDialogueSpeaker;expression?:SARExpression;castExpressions?:Partial<SARCastExpressions>;keepGuest?:boolean}){
     const [expressions,setExpressions]=useState<Record<SARDialogueSpeaker,SARExpression>>({caian:'normal',aiven:'normal'});
     useEffect(()=>setExpressions(previous=>({...previous,...castExpressions,[speaker]:expression})),[speaker,expression,castExpressions]);
     const visible={...expressions,...castExpressions,[speaker]:expression};
-    // Personal lines keep their protagonist alone until the other NPC actually speaks.
-    const actors:SARDialogueSpeaker[]=speaker===lead?[lead]:['caian','aiven'];
+    const actors:SARDialogueSpeaker[]=speaker===lead&&!keepGuest?[lead]:['caian','aiven'];
     return <div className={`sar-dialogue-cast ${actors.length===1?'is-solo':'is-exchange'}`} data-speaking={speaker} data-lead={lead}>
         {actors.map(who=><div key={who} className={`sar-dialogue-cast__actor cast-${who} ${speaker===who?'is-speaking':''}`}>
             <SARPortrait who={who} expression={visible[who]}/>

@@ -33,6 +33,7 @@
 .anniversary-button-arrow{position:absolute;right:11px;top:50%;width:14px;height:14px;color:#e7cda0;transform:translateY(-50%);transition:transform .2s}
 .anniversary-secondary{background:#d6c9de;color:#78618a}
 .anniversary-secondary::before{background:linear-gradient(115deg,#fcf8ff,#f4edf8)}
+.anniversary-download small{position:relative;z-index:1;display:block;margin-top:3px;font-size:9px;font-weight:400;letter-spacing:.4px;color:#8c799a}
 .anniversary-actions .anniversary-back{align-self:center;background:transparent;color:#94819f;min-height:28px;font-weight:400;font-size:11px;letter-spacing:.3px}
 @media(hover:hover){.anniversary-action-row button:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px)}.anniversary-primary:hover:not(:disabled) .anniversary-button-arrow{transform:translate(2px,-50%)}}
 .anniversary-actions button:active:not(:disabled){transform:scale(.975)}.anniversary-panel button:focus-visible,.anniversary-panel select:focus-visible,.anniversary-panel input:focus-visible{outline:2px solid #8861b5;outline-offset:3px}

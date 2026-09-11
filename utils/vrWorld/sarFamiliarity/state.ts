@@ -1,3 +1,4 @@
+import { keepDialogueGuest } from '../sarDialogueStaging';
 import { addCatchToState, FISH_CATALOG, marketHash, marketRandom, mutateFishingMarket, readFishingMarketState, simulatedFishingWeather, type FishingMarketState, type FishingWeatherKind } from '../fishingMarket';
 import { ensureSARCommerce } from '../sarCommerce';
 import { SAR_MODULE_CATALOG } from '../sarModuleShop';
@@ -8,6 +9,7 @@ import { freshFamiliarity, type FamiliarityCursor, type FamiliarityState } from 
 import type { FamiliarityNpc, FamiliarityReward } from './types';
 
 export const FAMILIARITY_TOPIC_CHANCE = .8;
+export const FAMILIARITY_EASTER_CHANCE = .2;
 export const familiarityDay = (at = Date.now()) => { const d = new Date(at); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const familiarityProgress = (market: FishingMarketState, npc: FamiliarityNpc) => (market.sarFamiliarity || freshFamiliarity()).npcs[npc];
 export const readyFamiliarityEvent = (state: FamiliarityState, npc: FamiliarityNpc) => {
@@ -25,28 +27,43 @@ const prepare = (market: FishingMarketState, legacyTitles = false) => {
     if (next.inventory.some(c => c.speciesId === 'dinosaur-egg') && !next.sarFamiliarity.unlocks.includes('eggs')) next.sarFamiliarity.unlocks.push('eggs');
     return next;
 };
-/** A stored daily roll survives refresh and tabs; incomplete scenes remain available across midnight. */
+/** Rolls survive refresh; revisiting an interrupted scene starts a fresh attempt. */
 export const visitFamiliarity = async (npc: FamiliarityNpc, options: VisitOptions) => {
     const storage = options.storage || localStorage, now = options.now ?? Date.now();
     await ensureSARCommerce(storage, new Date(now));
     return mutateFishingMarket(current => {
         const next = prepare(current, options.legacyTitles), state = next.sarFamiliarity!, p = state.npcs[npc];
-        if (p.pending) { const scene=familiarityScene(p.pending.sceneId),node=scene?.nodes[p.pending.nodeId];if(!scene||scene.npc!==npc||!node||p.pending.line>=Math.max(1,node.lines.length))throw new Error('这段对话暂时无法继续，进度已保留');return next; }
-        const event = readyFamiliarityEvent(state, npc);
-        // Events unlock from completed topics, with no random roll or extra daily wait.
-        if (event) p.offerId = event.id;
-        else if (!p.day || familiarityDay(now) > p.day) {
-            p.day = familiarityDay(now); p.offerId = null;
-            const random = options.random || marketRandom(marketHash(`${next.seed}:${npc}:${p.day}:familiarity`));
-            if (random() < FAMILIARITY_TOPIC_CHANCE) {
-                const scenes = familiarityScenes(npc).filter(s => !p.completed[s.id] && (s.requires || []).every(id => p.completed[id]));
-                const encounter = scenes.find(s => s.kind === 'encounter' && options.sullyInSar);
-                const topics = scenes.filter(s => s.kind === 'topic' && s.rank === p.stars + 1);
-                const easters = scenes.filter(s => s.kind === 'easter' && s.rank <= p.stars && (s.id !== 'A3-E06' || options.sullyId));
-                const pool = encounter ? [encounter] : easters.length && (!topics.length || random() < .2) ? easters : topics;
-                p.offerId = pool.length ? pool[Math.min(pool.length-1, Math.floor(random()*pool.length))].id : null;
-            }
+        if (p.pending) {
+            const previous=p.pending,scene=familiarityScene(previous.sceneId),node=scene?.nodes[previous.nodeId];
+            if(!scene||scene.npc!==npc||!node||previous.line>=Math.max(1,node.lines.length))throw new Error('这段对话暂时无法继续，进度已保留');
+            p.pending={runId:previous.runId,sceneId:scene.id,nodeId:scene.start,line:0,revision:previous.revision+1,startedAt:now,flags:{},drafts:{},visitedNodes:[],userName:options.userName,sullyId:options.sullyId};
+            // A retried daily topic still occupies today's single topic slot.
+            if(scene.kind==='topic'&&(!p.day||familiarityDay(now)>p.day))p.day=familiarityDay(now);
+            return next;
         }
+        const event = readyFamiliarityEvent(state, npc);
+        // The next visit offers the milestone; finishing topic ten does not chain into it.
+        if (event) { p.offerId = event.id; return next; }
+        if(p.offerId&&!p.completed[p.offerId]){
+            if(!familiarityScene(p.offerId)?.condition||options.sullyInSar)return next;
+            p.queuedSceneIds=[...new Set([...(p.queuedSceneIds||[]),p.offerId])];
+        }
+        p.offerId=null;
+        p.queuedSceneIds=(p.queuedSceneIds||[]).filter(id=>!p.completed[id]);
+        if(!p.queuedSceneIds.some(id=>!familiarityScene(id)?.condition||options.sullyInSar)&&(!p.day || familiarityDay(now) > p.day)) {
+            p.day = familiarityDay(now); p.offerId = null;
+            const scenes = familiarityScenes(npc).filter(s => !p.completed[s.id] && !p.queuedSceneIds!.includes(s.id) && (s.requires || []).every(id => p.completed[id]));
+            const roll=(kind:string,pool:typeof scenes,chance:number)=>{
+                const random=options.random||marketRandom(marketHash(`${next.seed}:${npc}:${p.day}:familiarity:${kind}`));
+                if(pool.length&&random()<chance)p.queuedSceneIds!.push(pool[Math.min(pool.length-1,Math.floor(random()*pool.length))].id);
+            };
+            roll('topic',scenes.filter(s=>s.kind==='topic'&&s.rank===p.stars+1),FAMILIARITY_TOPIC_CHANCE);
+            roll('easter',scenes.filter(s=>s.kind==='easter'&&s.rank<=p.stars&&(s.id!=='A3-E06'||options.sullyId)),FAMILIARITY_EASTER_CHANCE);
+            roll('encounter',scenes.filter(s=>s.kind==='encounter'&&options.sullyInSar),FAMILIARITY_TOPIC_CHANCE);
+        }
+        // A conditional encounter can wait for Sully to return without blocking other scenes.
+        const available=p.queuedSceneIds.findIndex(id=>!familiarityScene(id)?.condition||options.sullyInSar);
+        if(available>=0)p.offerId=p.queuedSceneIds.splice(available,1)[0];
         return next;
     }, storage);
 };
@@ -54,10 +71,11 @@ export const startFamiliarity = (npc: FamiliarityNpc, sceneId: string, options: 
     const next = prepare(current, options.legacyTitles), state = next.sarFamiliarity!, p = state.npcs[npc];
     if (p.pending) return next;
     const scene = familiarityScene(sceneId);
-    if (!scene || scene.npc !== npc || p.completed[scene.id] || (p.offerId !== scene.id && readyFamiliarityEvent(state, npc)?.id !== scene.id)) throw new Error('这段回忆还没有发生');
+    if (!scene || scene.npc !== npc || p.completed[scene.id] || p.offerId !== scene.id) throw new Error('这段回忆还没有发生');
     if (scene.condition && !options.sullyInSar) throw new Error('等 Sully 回到活动室后，再来聊这件事吧');
     const now = options.now ?? Date.now();
-    p.pending = { runId: `${scene.id}:${now}`, sceneId, nodeId: scene.start, line: 0, revision: 0, startedAt: now, flags: {}, drafts: {}, userName: options.userName, sullyId: options.sullyId };
+    p.pending = { runId: `${scene.id}:${now}`, sceneId, nodeId: scene.start, line: 0, revision: 0, startedAt: now, flags: {}, drafts: {}, visitedNodes: [], userName: options.userName, sullyId: options.sullyId };
+    if(scene.kind==='topic'&&(!p.day||familiarityDay(now)>p.day))p.day=familiarityDay(now);
     p.offerId = null;
     return next;
 }, options.storage || localStorage);
@@ -100,6 +118,7 @@ export const advanceFamiliarity = async (npc: FamiliarityNpc, expected: Pick<Fam
         if (!cursor || cursor.runId!==expected.runId || cursor.revision!==expected.revision) return next;
         const scene=familiarityScene(cursor.sceneId),node=scene?.nodes[cursor.nodeId];
         if (!scene || !node) throw new Error('这段对话暂时无法继续，进度已保留');
+        cursor.guestPresent=keepDialogueGuest(scene.nodes,cursor.nodeId,cursor.line,npc,cursor.guestPresent??!!cursor.cast?.[npc==='caian'?'aiven':'caian']);
         const spoken=node.lines[cursor.line];
         if(spoken?.speaker==='caian'||spoken?.speaker==='aiven'){cursor.cast={...cursor.cast,...spoken.castExpressions,[spoken.speaker]:spoken.expression||'normal'};cursor.speaker=spoken.speaker;}
         if (options.draft) cursor.drafts[cursor.nodeId]=structuredClone(options.draft);
@@ -107,15 +126,21 @@ export const advanceFamiliarity = async (npc: FamiliarityNpc, expected: Pick<Fam
         const choice = options.choice === undefined ? undefined : node.choices?.[options.choice];
         if (node.choices?.length && !choice) throw new Error('请选择一条回应');
         if (node.effect?.interactive && !cursor.drafts[cursor.nodeId]?.confirmed) throw new Error('先确认眼前的纪念物，再继续吧');
-        const appliedKey=`${scene.id}:${cursor.nodeId}`;
-        if (!state.applied.includes(appliedKey)) {
-            for (const [i,reward] of (node.rewards||[]).entries()) next=grant(next,npc,cursor,reward,`sar_story:${appliedKey}:${i}`,now);
-            state.applied.push(appliedKey);
-        }
+        cursor.visitedNodes||=[];
+        if(!cursor.visitedNodes.includes(cursor.nodeId))cursor.visitedNodes.push(cursor.nodeId);
         if (choice?.flags) Object.assign(cursor.flags,choice.flags);
         const target=choice?.next||node.next;
         if (target) { if (!scene.nodes[target]) throw new Error('下一段对话尚未准备好');cursor.nodeId=target;cursor.line=0;cursor.revision++; }
         else {
+            // An interrupted attempt grants nothing. Existing receipts also protect old saves.
+            for(const nodeId of cursor.visitedNodes){
+                const appliedKey=`${scene.id}:${nodeId}`,visited=scene.nodes[nodeId];
+                if(!visited)throw new Error('这段对话的结算记录无法读取');
+                if(!state.applied.includes(appliedKey)){
+                    for(const [i,reward] of (visited.rewards||[]).entries())next=grant(next,npc,{...cursor,nodeId},reward,`sar_story:${appliedKey}:${i}`,now);
+                    state.applied.push(appliedKey);
+                }
+            }
             p.completed[scene.id]={at:now,flags:{...cursor.flags}};
             if (scene.kind==='event') p.stars=Math.max(p.stars,scene.rank);
             delete p.pending;

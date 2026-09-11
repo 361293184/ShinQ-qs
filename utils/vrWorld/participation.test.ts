@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { allowsAutomaticVR, joinVRState, withLatestVRParticipation } from './participation';
+import { allowsAutomaticVR, joinVRState, withLatestVRParticipation, isSARActivityOccupant } from './participation';
 import { VRScheduler } from './scheduler';
 
 afterEach(() => {
@@ -8,6 +8,18 @@ afterEach(() => {
     VRScheduler.reconcile([]);
     vi.useRealTimers();
     vi.unstubAllGlobals();
+});
+
+it('only places characters with a current SAR activity in the SAR room',()=>{
+    browser();
+    const state={enabled:true,intervalMinutes:120};
+    expect(isSARActivityOccupant({vrState:state})).toBe(false);
+    expect(isSARActivityOccupant({vrState:{...state,currentRoom:'sar'}})).toBe(false);
+    expect(isSARActivityOccupant({vrState:{...state,currentRoom:'library',sarActivity:'fishing'}})).toBe(false);
+    for(const sarActivity of ['cabinet','module-shop','fishing','market','garden'] as const){
+        expect(isSARActivityOccupant({vrState:{...state,currentRoom:'sar',sarActivity}})).toBe(true);
+        expect(isSARActivityOccupant({vrState:{...state,enabled:false,currentRoom:'sar',sarActivity}})).toBe(false);
+    }
 });
 
 const browser = () => {

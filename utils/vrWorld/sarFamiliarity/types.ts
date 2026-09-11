@@ -32,7 +32,7 @@ export interface FamiliarityNode {
     choices?: FamiliarityChoice[];
     next?: string;
     effect?: FamiliarityEffect;
-    /** Applied once when leaving this node in first-run mode; replay never grants. */
+    /** Collected along the chosen route and applied once on scene completion; replay never grants. */
     rewards?: FamiliarityReward[];
 }
 export interface FamiliarityScene {

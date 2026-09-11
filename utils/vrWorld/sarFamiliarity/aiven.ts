@@ -251,7 +251,7 @@ const events: FamiliarityScene[] = [
             'your-card': { lines: [a('或许你能用到。')], next: 'card' },
             'three-stars': { lines: [a('或许放在五星事件比较合适。'), a('开玩笑的，这是你的了。')], next: 'card' },
             card: { lines: [n('获得：艾文的备用存档卡 ×1'), a('还有一个。')], effect: { kind: 'memory-card', title: '艾文的备用存档卡', text: '凯恩为艾文制作的备用存档卡。' }, rewards: [{ kind: 'souvenir', id: 'aiven-backup-card', title: '艾文的备用存档卡', description: '凯恩为艾文制作的备用存档卡。艾文说：「或许你能用到。」' }], next: 'chimera' },
-            chimera: { lines: [n('再次收线'), n('钓上来：？？？塑料恐龙')], effect: { kind: 'chimera', title: '？？？', text: '霸王龙身体、三角龙角、剑龙骨板、腕龙脖子，配色异常。' }, choices: [
+            chimera: { lines: [n('再次收线'), n('钓上来：？？？橡皮泥恐龙')], effect: { kind: 'chimera', title: '？？？', text: '霸王龙身体、三角龙角、剑龙骨板、腕龙脖子，配色异常。' }, choices: [
                 { label: '这是什么恐龙？', next: 'species' }, { label: '好丑', next: 'ugly' }, { label: '好可爱', next: 'cute' }, { label: '这是生物学犯罪', next: 'crime' },
             ] },
             species: { lines: [a('不知道。')], next: 'give-chimera' },
@@ -259,7 +259,7 @@ const events: FamiliarityScene[] = [
             cute: { lines: [a('嗯。我也觉得。', 'happy')], next: 'give-chimera' },
             crime: { lines: [a('已经发生了。')], next: 'give-chimera' },
             'give-chimera': { lines: [a('给你。'), n('获得特殊恐龙：？？？')], rewards: [{ kind: 'dinosaur', speciesId: 'aiven-chimera' }, { kind: 'unlock', feature: 'cross-system' }], next: 'record' },
-            record: { lines: [n('名称：？？？\n分类：塑料恐龙\n发现地点：SAR 活动室水域\n发现者：Aiven / （User名）\n艾文备注：「不知道是什么。」「所以不用纠正。」'), n('解锁彩蛋类型：跨系统串线'), a('……'), a('好了。')], choices: [
+            record: { lines: [n('名称：？？？\n分类：橡皮泥恐龙\n发现地点：SAR 活动室水域\n发现者：Aiven / （User名）\n艾文备注：「不知道是什么。」「所以不用纠正。」'), n('解锁彩蛋类型：跨系统串线'), a('……'), a('好了。')], choices: [
                 { label: '今天到底怎么回事', next: 'today' }, { label: '下次还叫我', next: 'next-time' }, { label: '累死了', next: 'tired' },
             ] },
             today: { lines: [a('不知道。但是挺好。', 'happy')], next: 'end' },

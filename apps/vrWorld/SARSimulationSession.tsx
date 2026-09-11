@@ -1,3 +1,4 @@
+import { trackSARFeature } from '../../utils/sarAnalytics';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArrowLeft, ArrowDown, ArrowUp, BookOpenText, CircleNotch, DotsThree, DownloadSimple, Moon, SealCheck, ShareNetwork, Sun, X } from '@phosphor-icons/react';
 import type { APIConfig, CharacterProfile, Message, UserProfile } from '../../types';
@@ -37,6 +38,7 @@ export const SARSimulationSession: React.FC<{
     onThemeChange?: (theme: SARSessionTheme) => void;
     onBack: () => void;
 }> = ({ card, run, char, apiConfig, userProfile, onRunChange, onThemeChange, onBack }) => {
+    useEffect(() => { trackSARFeature('simulation'); }, []);
     const [messages, setMessages] = useState<Message[]>([]);
     const [draft, setDraft] = useState('');
     const [loading, setLoading] = useState(true);

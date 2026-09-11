@@ -58,7 +58,7 @@ import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import {
-    advanceSARModuleRuntime,
+    advanceSARModuleAfterReply,
     createSARModuleEventMeta,
     createSARModuleSurfaceMeta,
     getSARModuleRuntimePlan,
@@ -2122,15 +2122,13 @@ export const useChatAI = ({
             // 到这里说明正文已成功落库。失败 / 中断不会经过；重掷是替换旧回合，不重复扣寿命。
             if (!skipEmotionInjection) {
                 if (sarModulePlan.character) {
-                    const next = advanceSARModuleRuntime(sarModulePlan.character);
                     updateCharacter(char.id, previous => ({
-                        vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: next },
+                        vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.character) },
                     }));
                 }
                 if (sarModulePlan.user) {
-                    const next = advanceSARModuleRuntime(sarModulePlan.user);
                     updateUserProfile(previous => ({
-                        vrState: { ...(previous.vrState || { enabled: false }), sarModule: next },
+                        vrState: { ...(previous.vrState || { enabled: false }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.user) },
                     }));
                 }
             }

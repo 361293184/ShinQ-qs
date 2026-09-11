@@ -6,7 +6,6 @@ import { INSTALLED_APPS, Icons } from '../constants';
 import { processImage, processImageToBlob } from '../utils/file';
 import { deleteBlobRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
 import TokenImg from '../components/os/TokenImg';
-import AnniversaryWallpaperPicker from '../components/os/AnniversaryWallpaperPicker';
 import {
     companionAvatarSource,
     companionSkinSetPatchValue,
@@ -1329,7 +1328,6 @@ const Appearance: React.FC = () => {
                     </LongPressArea>
                     <input type="file" ref={wallpaperInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleWallpaperUpload(e.target.files[0])} />
                     <p className="text-center text-[10px] text-slate-400 mb-4">点击上传 / 长按恢复默认壁纸 (支持原画质)</p>
-                    <AnniversaryWallpaperPicker value={theme.wallpaper} onSelect={url => { void updateTheme({ wallpaper: url }).then(() => addToast("已应用周年手机壁纸", "success")).catch(() => addToast("壁纸保存失败，请重试", "error")); }} />
 
                     <div className="border-t border-slate-100 pt-4 space-y-2">
                         <p className="text-[11px] font-bold text-slate-500">从 URL 导入</p>

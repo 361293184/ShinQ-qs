@@ -36,6 +36,7 @@ import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { buildFetchFailureDetail, classifyFetchFailure, describeReachabilityProbe, parseTargetUrl, probeOriginReachability, shouldProbeReachability, summarizeFetchRequestBody } from '../utils/networkFailureDiagnosis';
 import { INSTALLED_APPS, HIDDEN_APP_NAMES } from '../constants';
 import { isAnalyticsRequestUrl, trackEvent, trackDataScaleOnce, trackCurrentAppearanceOnce, trackCurrentCharSettingsOnce, trackCurrentFeaturesOnce } from '../utils/analytics';
+import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import { collectAppearance, collectCharSettings, collectDataScale, collectFeatureFlagsAsync } from '../utils/analyticsSnapshot';
 import { normalizeApiConfig, normalizeApiPreset } from '../utils/apiConfigNormalize';
 import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
@@ -3981,6 +3982,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               remoteVectorConfig: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_remote_vector_config'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,
 
               // SAR 活动室：公告/初见、双卡池及人格推演记录必须跟用户历史一起迁移。
+              chatInputPreferences: (mode === 'text_only' || mode === 'full') ? loadChatInputPreferences() : undefined,
               sarLocalState: (mode === 'text_only' || mode === 'full') ? collectSARLocalBackup() : undefined,
 
               // Instant Push
@@ -4184,6 +4186,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               if (backupData.socialAppData?.userProfile) processObject(backupData.socialAppData.userProfile, 'socialAppData.userProfile');
               if (backupData.socialAppData?.userBg) processObject(backupData.socialAppData.userBg, 'socialAppData.userBg');
+              if (backupData.sarLocalState) processObject(backupData.sarLocalState, 'sarLocalState');
               if (backupData.roomCustomAssets) processObject(backupData.roomCustomAssets, 'roomCustomAssets');
               if (backupData.theme) processObject(backupData.theme, 'theme');
               if (backupData.customIcons) processObject(backupData.customIcons, 'customIcons');
@@ -4975,7 +4978,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           
           showImportProgress('settings', '正在恢复系统设置...', 92, { current: '系统设置', currentFile: '' });
+          if (data.sarLocalState) await restoreAssetsInPlace(data.sarLocalState, 'SAR 存档');
           restoreSARLocalBackup(data.sarLocalState, { replaceMissing: replacesPrimaryHistory });
+          if (data.chatInputPreferences !== undefined) saveChatInputPreferences(data.chatInputPreferences);
           if (data.theme) {
               await restoreAssetsInPlace(data.theme, '系统主题');
               await updateTheme(data.theme);

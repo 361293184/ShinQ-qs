@@ -46,7 +46,11 @@ const reachEvent = async (storage: TestStore, rank: number, startAt = origin) =>
         await startOffer(storage, at);
         await finish(storage, at);
         const ready = readyFamiliarityEvent(read(storage).sarFamiliarity!, 'aiven');
-        if (ready?.rank === rank) { await visit(storage, at); return at; }
+        if (ready?.rank === rank) {
+            expect(progress(storage).offerId).toBeNull();expect(progress(storage).pending).toBeUndefined();
+            await expect(startFamiliarity('aiven',ready.id,{storage,now:at,userName:'小雨'})).rejects.toThrow('还没有发生');
+            await visit(storage, at); return at;
+        }
         if (ready) { await visit(storage, at); await startOffer(storage, at); await finish(storage, at); }
     }
     throw new Error(`Rank ${rank} did not become available`);
@@ -78,6 +82,9 @@ describe('SAR personal line production paths and boundaries', () => {
         const storage = setup();
         const opts = { storage, now: origin, userName: '小雨', sullyId: 'sully-local', sullyInSar: true, random: () => 0 };
         await visitFamiliarity('aiven', opts);
+        expect(progress(storage).offerId).toBe('A1-01');
+        expect(progress(storage).queuedSceneIds).toContain('A-SULLY');
+        await startOffer(storage,origin);await finish(storage,origin);await visitFamiliarity('aiven',opts);
         expect(progress(storage).offerId).toBe('A-SULLY');
         const before = storage.getItem(FISHING_MARKET_STORAGE_KEY);
         await expect(startFamiliarity('aiven', 'A-SULLY', { ...opts, sullyInSar: false })).rejects.toThrow('Sully');
@@ -90,7 +97,7 @@ describe('SAR personal line production paths and boundaries', () => {
         await visitFamiliarity('aiven', { ...opts, now: origin + day });
         expect(progress(storage).offerId).not.toBe('A-SULLY');
     });
-    it('retains an unfinished star event after ten topics and only lights the star after the final line', async () => {
+    it('starts the star event on the next visit and restarts interruptions without lighting the star', async () => {
         const storage = setup();
         const at = await reachEvent(storage, 1);
         expect(Object.keys(progress(storage).completed)).toHaveLength(10);
@@ -99,7 +106,8 @@ describe('SAR personal line production paths and boundaries', () => {
         await step(storage, at);
         const paused = structuredClone(progress(storage).pending);
         await visit(storage, at + day * 3);
-        expect(progress(storage).pending).toEqual(paused);
+        expect(progress(storage).pending).toMatchObject({sceneId:paused!.sceneId,nodeId:familiarityScene(paused!.sceneId)!.start,line:0,flags:{},drafts:{}});
+        expect(progress(storage).pending?.revision).toBe(paused!.revision+1);
         expect(progress(storage).stars).toBe(0);
         await finish(storage, at + day * 3);
         expect(progress(storage).stars).toBe(1);
@@ -122,23 +130,44 @@ describe('SAR personal line production paths and boundaries', () => {
         await Promise.all([step(storage, origin), advanceFamiliarity('aiven', current, { storage, now: origin, choice: 0 })]);
         expect(progress(storage).pending?.revision).toBe(cursor.revision + 1);
     });
-    it('grants second-star title and environment before closing, without replaying the timed discount on resume', async () => {
-        const storage = setup();
-        const at = await reachEvent(storage, 2);
-        await startOffer(storage, at);
-        for (let i = 0; i < 100 && progress(storage).pending?.nodeId !== 'title'; i++) await step(storage, at);
+    it('settles gifts and timed discounts only after an uninterrupted completion', async () => {
+        const storage=setup(),at=await reachEvent(storage,2);
+        await startOffer(storage,at);
+        for(let i=0;i<100&&progress(storage).pending?.nodeId!=='title';i++)await step(storage,at);
         expect(progress(storage).pending?.nodeId).toBe('title');
-        expect(read(storage).sarFamiliarity!.discounts).toHaveLength(1);
-        const expiresAt = read(storage).sarFamiliarity!.discounts[0].expiresAt;
-        await step(storage, at); await step(storage, at);
-        expect(read(storage).sarFamiliarity!.unlocks).toEqual(expect.arrayContaining(['titles', 'environment']));
-        expect(read(storage).sarFamiliarity!.titles).toContain('听懂风的人');
+        expect(read(storage).sarFamiliarity!.discounts).toHaveLength(0);
+        await step(storage,at);await step(storage,at);
+        expect(read(storage).sarFamiliarity!.titles).not.toContain('听懂风的人');
         expect(progress(storage).stars).toBe(1);
-        await visit(storage, at + day);
-        expect(read(storage).sarFamiliarity!.discounts[0].expiresAt).toBe(expiresAt);
-        await finish(storage, at + day);
-        expect(progress(storage).stars).toBe(2);
-        expect(read(storage).sarFamiliarity!.discounts).toHaveLength(1);
+        await visit(storage,at+day);
+        expect(progress(storage).pending?.nodeId).toBe(familiarityScene('A2-SPECIAL')!.start);
+        expect(read(storage).sarFamiliarity!.discounts).toHaveLength(0);
+        await finish(storage,at+day);
+        const state=read(storage).sarFamiliarity!;
+        expect(state.npcs.aiven.stars).toBe(2);
+        expect(state.titles).toContain('听懂风的人');
+        expect(state.unlocks).toEqual(expect.arrayContaining(['titles','environment']));
+        expect(state.discounts).toHaveLength(1);
+        expect(state.discounts[0].expiresAt).toBe(at+day+30*60_000);
+    });
+    it('rolls Aiven easters independently of topics and keeps both across repeated visits',async()=>{
+        for(const [rolls,wantTopic,wantEaster] of [
+            [[0,0,0,0],true,true], [[.99,0,0],false,true], [[0,0,.99],true,false], [[.99,.99],false,false],
+        ] as Array<[number[],boolean,boolean]>){
+            const storage=setup(),at=await reachEvent(storage,1);
+            await startOffer(storage,at);await finish(storage,at);
+            await visit(storage,at+day,()=>rolls.shift()??.99);
+            const first=progress(storage).offerId,queue=progress(storage).queuedSceneIds||[];
+            const scenes=[first,...queue].filter(Boolean).map(id=>familiarityScene(id!)!);
+            expect(scenes.some(s=>s.kind==='topic')).toBe(wantTopic);
+            expect(scenes.some(s=>s.kind==='easter')).toBe(wantEaster);
+            if(first){await startOffer(storage,at+day);await finish(storage,at+day);}
+            await visit(storage,at+day,()=>0);
+            const second=progress(storage).offerId;
+            expect(!!second).toBe(wantTopic&&wantEaster);
+            if(second){expect(familiarityScene(second)?.kind).toBe('easter');await startOffer(storage,at+day);await finish(storage,at+day);}
+            await visit(storage,at+day,()=>0);expect(progress(storage).offerId).toBeNull();
+        }
     });
     it('keeps the third-star loot heap as scenery and grants only the specified unique gifts to the user', async () => {
         const storage = setup();

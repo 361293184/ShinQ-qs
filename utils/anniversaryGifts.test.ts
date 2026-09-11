@@ -24,7 +24,7 @@ describe('一周年赠礼', () => {
     expect(shouldShowAnniversaryGift(now)).toBe(false);
   });
 
-  it('收藏存储不可用时不崩溃', () => {
+  it('已读存储不可用时不崩溃', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('quota'); } });
     expect(shouldShowAnniversaryGift(new Date(2026, 8, 10))).toBe(true);
     expect(() => markAnniversaryGiftSeen()).not.toThrow();

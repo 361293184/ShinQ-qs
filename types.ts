@@ -1271,6 +1271,8 @@ export interface SARModuleRuntimeState {
     /** 模块结束后的反惯性提示；3 → 强提示，2/1 → 轻提醒。 */
     afterglowTurns: number;
     phase: 'active' | 'afterglow';
+    /** 提前结束同样进入解除提示期，不直接删除事件，也不重置恢复轮次。 */
+    endReason?: 'manual';
     installedAt: number;
 }
 
@@ -3948,11 +3950,13 @@ export interface FullBackupData {
         moduleShop?: unknown;
         fishingMarket?: unknown;
         fishingMarketRaw?: string;
+        preferences?: Record<string, string>;
     };
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
+    chatInputPreferences?: import('./utils/chatInputPreferences').ChatInputPreferences;
     desktopSkinLocal?: Record<string, string>; // 桌面皮肤偏好：电子宠物/手游风的界面配色 + 看板 banner（存 localStorage；看板图令牌导出时解析为 data URL）
     songs?: SongSheet[]; // Songwriting app data
     

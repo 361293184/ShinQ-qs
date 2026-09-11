@@ -8,6 +8,8 @@ import {arrangeSARRoomActors,SAR_ROOM_HOTSPOTS,SAR_ROOM_SIZE,type SARFacility,ty
 import {SARNpcChibi} from './SARNpcArt';
 import {normalizeKanataTitle} from '../../utils/vrWorld/kanataTitle';
 import './sar-club-room.css';
+import {sarRoomView,type SARRoomView} from '../../utils/vrWorld/sarClub';
+import {isSARActivityOccupant} from '../../utils/vrWorld/participation';
 const FacilityIcons={board:ClipboardText,modules:Cpu,cabinet:Stack,gacha:Gift,water:Fish,garden:PawPrint};
 
 interface Props {
@@ -15,9 +17,11 @@ interface Props {
     onOpenFishingMarket:(entry:'water'|'board'|'garden')=>void;
     occupants?:CharacterProfile[];npcEnabled?:boolean;caianMet?:boolean;
     labelsHidden?:boolean;
+    roomView?:SARRoomView;
     onTalkToCaian?:()=>void;onTalkToAiven?:()=>void;onSelectCharacter?:(char:CharacterProfile)=>void;
 }
-export default function SARClubRoom({onOpenGacha,onOpenCabinet,onOpenModuleShop,onOpenFishingMarket,occupants=[],npcEnabled=false,caianMet=false,labelsHidden=false,onTalkToCaian,onTalkToAiven,onSelectCharacter}:Props){
+export default function SARClubRoom({onOpenGacha,onOpenCabinet,onOpenModuleShop,onOpenFishingMarket,occupants:providedOccupants=[],npcEnabled=false,caianMet=false,labelsHidden=false,roomView,onTalkToCaian,onTalkToAiven,onSelectCharacter}:Props){
+    const occupants=useMemo(()=>providedOccupants.filter(char=>char.id==='user'||isSARActivityOccupant(char)),[providedOccupants]);
     const viewport=useRef<HTMLDivElement>(null),[size,setSize]=useState({width:0,height:0}),[roster,setRoster]=useState(false);
     useEffect(()=>{
         if(!viewport.current)return;
@@ -38,7 +42,8 @@ export default function SARClubRoom({onOpenGacha,onOpenCabinet,onOpenModuleShop,
     const open=(id:SARFacility)=>{
         if(id==='gacha')onOpenGacha();else if(id==='cabinet')onOpenCabinet();else if(id==='modules')onOpenModuleShop();else onOpenFishingMarket(id);
     };
-    return <div className={`sar-club-room${labelsHidden?' sar-room-ui-hidden':''}`}>
+    const view=sarRoomView({roomView,labelsHidden});
+    return <div className={`sar-club-room sar-room-view-${view}${view==='text-hidden'?' sar-room-ui-hidden':''}`} data-room-view={view}>
         <div className="sar-room-viewport" ref={viewport}>
             <div className="sar-room-canvas" style={{width:size.width,height:size.height}} data-art-width={SAR_ROOM_SIZE.width} data-art-height={SAR_ROOM_SIZE.height}>
                 <img className="sar-room-background" src={roomArt} alt="SAR 活动室" draggable={false}/>

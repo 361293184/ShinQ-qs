@@ -43,11 +43,13 @@ pnpm dev
 
 - 首次进入会显示“更新－彼方活动室”，再让用户选择“我很欢迎 / 我不想要 NPC”。
 - NPC 开关只控制凯恩、艾文及固定对白，不影响设施。
+- 右上角隐藏按钮循环四档：只隐藏名字/称号、全房间文字、全部角色小人（恢复设施标记）、全部恢复；独立于 NPC 偏好，旧隐藏状态兼容映射全文字档。
+- 自家角色须当前房间为 SAR 且有具体 `sarActivity` 才进入 SAR 站位与在场名单；仅接入彼方或只残留 SAR 房间字段不算。下一次活动去其它房间后不再显示；用户自己仍按主动进入的房间显示。
 - 凯恩初见是写死的 Galgame 分支，不调用 LLM；结束后移除感叹号。
-- “监控回档”只重置凯恩初见，不重置更新公告与 NPC 偏好。
+- “初见回档”只重置凯恩初见，不重置更新公告与 NPC 偏好。
 - 历史备份恢复后，SAR 首次触发状态跟随导入数据，不沿用导入前设备状态。
 - 凯恩初见结束后及艾文入口进入各自个人线。每位 NPC 每个本地自然日固定一次随机结果：80% 有未完成话题、20% 日常问候；当前星级十个普通话题完成后，直接开放星级事件。只有事件完整结束才升星，五颗星目前实现到三星。
-- 本人讲话时单人居中；只有另一位 NPC 实际发言才临时同框，回到本人讲话恢复单人。提及名字不会让对方出场；叙述沿用最近说话者，续看和回放遵循同一规则。
+- 默认单人居中；另一位 NPC 实际发言后保持当前段落同框，跨节点查看后续六句是否仍有对方台词，避免短暂进出。提及名字不触发首次出场；留场状态随游标保存，续看和回放遵循同一规则。日常台词点击气泡逐句阅读，居中选项浮层不挤压立绘。
 - 13 张用户原画表情已作为本地 WebP 随包提供，失败才回落原 CDN。证件、会议、合照、礼炮、券雨、物品堆、神秘按钮和专属混合恐龙由程序演出，不调用模型。
 - 「仓库 → 图鉴 → 名册」保留两人完整简介、星级和已完成回忆；名册属于用户，不随仓库主人切换。回放不推进进度、不重复领物品或优惠，不发送第二次私聊彩蛋。
 
@@ -92,9 +94,11 @@ Message.content              metadata.sarModuleSurface.surface
 上下文、总结、记忆宫殿：同时知道真意与当时外显，外显只作历史引文
 ```
 
-- Chat 使用小光点切换外显/真言，不覆盖用户自定义气泡样式。
-- Date 点击发光文字切换真言，兼容不同阅读模式。
+- Chat 使用明确的「污染台词 / 原台词」文字切换，不覆盖用户自定义气泡样式。
+- Date 的阅读和立绘模式各自提供「污染台词 / 原台词」切换，按整批进度匹配重复短句，并兼容旧的原文续接快照。
 - 纯括号动作/旁白气泡不附加污染文本，也不消耗下一句外显序号。
+- 两侧拆泡前共用历史标签/表情预处理：`[你 发送了表情包: …]`、分类展示、单括号、全角冒号与大小写变体统一识别。表情只从真意发出，外显的表情不占台词序号，原位后续台词与末句都保留。
+- 外显不执行控制命令；HTML 与历史格式分享卡片使用和真意相同的纯提取器排除，内联控制标签仅剥除。HTML 关闭后留下的占位泡也不占外显台词序号。新增回归通过真实后处理落库和 MessageItem 真言切换验证，不改写已有错位历史记录。
 - 内置翻译把一整组 `<原文>/<译文>` 当成一个气泡；原文和译文保持同一份污染含义。
 - `日文（中文翻译）`、`English (中文翻译)` 等角色自定义同泡格式会整体保留，不把括号翻译误判为动作。
 - `<语音>` 与 `<字幕>` 是一个原子气泡；TTS 朗读外显版，数据库仍保存真意。切换真言只改变文字查看，已经生成的音频保留当时实际说出口的版本。
@@ -107,7 +111,7 @@ Message.content              metadata.sarModuleSurface.surface
 | --- | --- |
 | `apps/VRWorldApp.tsx` | 彼方总路由、SAR 独立入口、设施弹层、任意房间抓取角色、设置与回档入口 |
 | `apps/vrWorld/SARClubEvent.tsx` | 更新弹窗、NPC 舞台、凯恩固定初见对白 |
-| `apps/vrWorld/SARFamiliarityDialog.tsx` / `SARFamiliarityEffects.tsx` | 个人线续读、分支、情绪立绘、交互演出与独立回放 |
+| `apps/vrWorld/SARFamiliarityDialog.tsx` / `SARFamiliarityEffects.tsx` | 个人线重开、分支、情绪立绘、交互演出与独立回放 |
 | `apps/vrWorld/SARFamiliarityRoster.tsx` / `SARCollectionView.tsx` | 图鉴收藏与名册两页、五颗星、已完成回忆入口 |
 | `utils/vrWorld/sarFamiliarity/` | 两人原稿、每日与星级状态、奖励事务、优惠与数据校验 |
 | `apps/vrWorld/SARGacha.tsx` | 双卡池与扭蛋动效 |
@@ -125,7 +129,7 @@ Message.content              metadata.sarModuleSurface.surface
 | `hooks/useChatAI.ts` | Chat 请求解析、User/Char 外显 metadata 写入与寿命推进 |
 | `utils/chatRequestPayload.ts` | 高注意力提醒、翻译模式与 SAR 容器协调 |
 | `utils/applyAssistantPostProcessing.ts` | canonical 落库、双语/语音/普通气泡的 surface 对齐 |
-| `components/chat/MessageItem.tsx` | Chat 光点、真言切换、语音与双语显示 |
+| `components/chat/MessageItem.tsx` | Chat 污染台词 / 原台词切换、语音与双语显示 |
 | `utils/datePrompts.ts` / `components/date/DateSession.tsx` | Date 的模块协议、发光外显与真言切换 |
 | `utils/messageFormat.ts` | 给上下文、总结和记忆宫殿的 canonical 护栏 |
 
@@ -151,11 +155,11 @@ Message.content              metadata.sarModuleSurface.surface
 pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharacterCabinet.test.ts utils/sarModuleShop.test.ts utils/sarModuleRuntime.test.ts utils/vrWorld/vrWorld.test.ts utils/applyAssistantPostProcessing.test.ts utils/chatRequestPayload.test.ts utils/chatParser.chunkText.test.ts utils/minimaxTts.voice.test.ts --no-cache
 ```
 
-个人线还需跑 `utils/sarFamiliarity.test.ts`、`utils/sarFamiliarityEdges.test.ts`、`utils/sarFamiliarityDiscounts.test.ts`、`utils/sarCollection.test.ts`、`utils/sarEconomy.test.ts`、`utils/fishBackup.roundtrip.test.ts`，以及 `scripts/test-sar-familiarity-*.mjs`、`scripts/test-sar-roster-ui.mjs`。真实 Root 测试覆盖新对话、断点、单人/临时同框、名册返回、回放不写档和赠品去重；全部使用隔离存档，模型分支使用假 API。
+个人线还需跑 `utils/sarFamiliarity.test.ts`、`utils/sarFamiliarityEdges.test.ts`、`utils/sarFamiliarityDiscounts.test.ts`、`utils/sarCollection.test.ts`、`utils/sarEconomy.test.ts`、`utils/fishBackup.roundtrip.test.ts`，以及 `scripts/test-sar-familiarity-*.mjs`、`scripts/test-sar-roster-ui.mjs`。真实 Root 测试覆盖新对话、中断重开、单人/连续同框、名册返回、回放不写档和赠品去重；全部使用隔离存档，模型分支使用假 API。
 
 手动测试优先顺序：
 
-1. 普通 Chat：角色回复混合“括号动作 + 两句台词”，确认动作没有光点，后两句没有错位。
+1. 普通 Chat：角色回复混合“括号动作 + 两句台词”，确认动作没有台词切换按钮，后两句没有错位。
 2. 弱注意力模型：确认角色首轮明确察觉模块，后续仍记得是谁装的，不把它当普通文风设定。
 3. 内置翻译：一句一个翻译气泡，逐个切换原文/译文与真言。
 4. 自定义翻译：测试 `日文（中文）` 同泡格式。
@@ -183,7 +187,7 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 
 ### SAR 活动室与经济规则
 
-- SAR 独立全屏，收起彼方顶栏并保留自己的浅色导航；右上角设置和仓库分别打开独立面板。NPC 设置复用 `sarClub` 原开关，仓库以 `ownerId` 区分真实库存，已装载效果另列。
+- SAR 独立全屏，收起彼方顶栏并保留自己的浅色导航；右上角设置和仓库分别打开独立面板。NPC 开关与初见回档集中在活动室设置，彼方「接入」只管理自家角色。设置复用 `sarClub` 原状态，仓库以 `ownerId` 区分真实库存，已装载效果另列。
 - 新钱包 120；旧余额不回收。行情基础价格缩小到 8–90，日波动 ±10%，品质倍率 1 / 1.15 / 1.3。每人每日系统回收 180，新收入钱包上限 999,999，溢出拒绝整笔交易而不丢物品。
 - `sarCharacterCommerce.ts` 让自主购买与回敬使用角色钱包及 `sarCharacterModules` 库存；每天购买预算 60，保留 30。有库存不重复买，缺钱只逛。模块交付不再凭空产生。
 - 单元边界测试 `utils/sarEconomy.test.ts`；真实页面和模拟模型活动回归 `scripts/test-sar-hub-ui.mjs`；完整数值依据见 `docs/sar-economy.md`。
@@ -197,4 +201,11 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 - `kanataTitle.ts` 统一 12 字符文本规范、JSON/XML 可选 metadata 提取与并发检查。`chatPrompts.ts` 注入当前聊天状态；`prompts.ts` / `runSession.ts` 接受角色本次活动的自改请求。先保存有效活动，后尝试称号更新；被关闭接入或 revision 已改变时不覆盖。普通活动状态回写也必须保留最新称号。
 - `scripts/test-sar-collection-ui.mjs` 覆盖仓库编辑、图鉴四类进度、消耗留档、主人隔离、嵌套返回与六种模型返回路径。全部模型请求在隔离浏览器里本地模拟。
 
-设置旁的「隐藏」按钮会同时收起人物名、称号、设施标记、NPC 提示符和在场人数，保留房间与角色形象；再点「显示」恢复。隐藏的设施入口不会留下不可见的点击区域。此偏好随 SAR 本地设置和备份保留。
+设置旁的「隐藏」按钮依次切换：只隐藏角色名字与称号、隐藏全部房间文字、隐藏全部角色小人并恢复设施标记、全部恢复。隐藏的设施入口不会留下不可见的点击区域。此偏好随 SAR 本地设置和备份保留。
+
+
+### 2026-09-11 设置备份与发布整合
+
+设置的 full / text_only 备份保留完整 SAR 本地存档（club、迁移后的卡池/商店、推演、水产市场及其中花园/名册/剧情/收藏），并补充简易钓鱼、推演配色、花园引导三个本机偏好。full 对嵌套自定义图片执行资源提取、blob 旁路和还原；text_only 按原约定剥除自定义图片。media_only 不覆盖玩法状态。恢复旧主历史时清理缺失的 SAR 偏好，局部导入保留现有值。
+
+活动室、角色交谈/回顾、钓鱼/市场/花园、卡池/组装柜/推演/模块商店、仓库/收藏册/名册/设置入口通过 sarAnalytics 白名单接入 Umami。偏好在 analyticsSnapshot 按会话收集，不记角色或剧情内容。

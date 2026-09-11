@@ -797,3 +797,98 @@ TODO — Qixi rewrite
 - 最终验证：6 个相关单测文件共 54 项通过，23 张实际 Root UI 截图全部通过且无 page errors；截图等待表情素材完成加载，生产构建通过（33.82 s）。远端检查与本地 HEAD 无分歧。
 - 九份彼方相关说明已按 2026-09-11 实现同步，21 个文档链接有效；根 README 提供开发与游玩入口。旧双人/CDN/鱼池/称号描述已校正，旧测试记录明确标历史。
 - 更新旧美术 QA 的单人规则、本地 WebP 等待和正式 SAR 导航；Edge 隔离验证通过，13 张表情、单人/插话/恢复、320/390/600/横屏、六设施、NPC 开关及功能引导到箱庭均通过，页面错误为零。
+
+### 2026-09-11 SAR 对话呈现修正
+- 日常选项复用初遇的居中浮层；底部气泡固定高度，点击分句推进，问候不再拼接为整段。分页只影响呈现，保留原稿游标与奖励事务。
+- 双人对话出场后保持当前对话段落；跨分支查看后续六句，避免短暂退场。初遇被拆台时保留凯恩原表情，轮到他接话才进入 embarrassed。
+- 正在进行逐句/选项布局、双人留场、回放和互动演出回归。
+- 验证完成：28 项针对性单测通过；新呈现脚本 11 张截图（320/390/1100 px、问候分页、固定立绘高度、双人留场、分支连续、拆台包袱前后）；真实 Root 冒烟与原有 23 张特殊演出 UI 回归通过，page errors 为 0，回放全存档不变。
+- 官方 develop-web-game 客户端截图/state 检查通过，读取的是当前第二句与居中两项选择，无错误文件。人工查看手机/桌面选项、会员证、同框与 curious → embarrassed 的前后截图。
+- 完整 tsc 诊断与本次工作前的基线相同，本次源文件和 fixture 无新增诊断。开发服务器仍为 127.0.0.1:5173，用户刷新即可查看；测试只使用隔离浏览器存档。
+- 无待处理实现项。句内分页仅为呈现状态，重新进入时从保存的原稿台词首句开始，分支和奖励继续沿用原有事务。
+
+### 2026-09-11 SAR 房间 chibi 与文字层级
+- 设施标记层级从 90 降至 10，所有 NPC/访客 chibi 保持原先按脚底排序的 20–50，文字重叠时由小人显示在前。
+- 官方游戏客户端截图/state 无错误；320/390/1100 px 预览确认所有角色层级高于设施标记，六设施的未遮挡区域均可点击。模拟文字与角色重叠，命中及点击正确落在角色上；页面无错误。
+- 截图：output/sar-room-layers；纯 CSS 调整，无需新增单测或改版本号。无待处理项。
+
+### 2026-09-11 SAR 四档隐藏与钓鱼整理
+- 视觉方向：青绿水面占主画面，保留简短天气/模式/抛竿和结果；说明进问号，角色邀请折叠。交互保留水纹、钓获浮现与模式切换，避免堆叠长说明。
+- SAR 隐藏循环：名字称号 → 全文字 → 全角色小人（设施标记恢复）→ 恢复；旧 labelsHidden 档兼容映射第二档。
+- 简单钓鱼直接随机并保存同一份钓获，手动保留追踪；防重复提交、存储失败重试、移动端禁用图片/画布长按菜单和拖拽。
+- 继续核对 SAR 来访条件与三项浏览器回归。
+- SAR 出场收紧为 enabled + currentRoom=sar + 有效 sarActivity；同一判定用于房间分组和房间内名单，用户本人仍按主动所在房间显示。未接入、仅接入、残留 SAR 房间但无活动、已转去别的房间均不显示；五种实际 SAR 活动可以入场。
+- 验证完成：48 项针对性单测通过（四档/迁移、活动参与、手动控制、简单直接入库、保存失败同物重试、防连点重复及市场回归）。11 张 320/390/1100 px 浏览器截图覆盖两模式、四档、刷新保留和实际角色入场。
+- 角色钓鱼原有真实 UI/DB + 假模型回归通过：保留/放生、私聊、个人图鉴、首次播报、失败调用续办同一竿、仅重试投递与 320px。没有使用用户存档或调用真实模型。
+- 官方游戏客户端水面截图/state 已检查，无错误；完整 tsc 诊断与先前基线逐字相同，本次文件无新增诊断。截图目录 output/fishing-refresh，开发服务仍为 127.0.0.1:5173。
+- 本轮无待处理实现项。
+
+2026-09-11 — SAR conversation rules and shared presentation
+- Removed the invented activity-room/fishing guide menus. Live headers show the NPC name; authored titles appear only in collection replay. Greetings and completed scenes exit directly; no farewell choice or immediate milestone button.
+- Each NPC rolls at most one uncompleted current-tier topic per local day (80%). Aiven easters roll independently (20%), and conditional Sully encounters have a separate roll; simultaneous results wait for later clicks. Topic ten unlocks its milestone on the next visit.
+- All interrupted scenes restart from the beginning with fresh choices, expressions and drafts. Reward-bearing nodes are staged for the current attempt; only complete scenes award progress and gifts atomically. Legacy receipts retain existing gifts and prevent duplicate grants.
+- Initial meeting now shares the full-height cream stage and fixed bubble with daily dialogue. Choices follow the surrounding palette and keep their background on hover/focus; no purple selection state. Preserved central choices, cast continuity and the delayed embarrassed reaction.
+- Verified 41 tests covering authored paths, independent rolls, daily limits, restart/stale advances, milestone timing, rewards, discounts and backup compatibility. Browser presentation suite passed 15 screenshots (320/390/1100 px); real-provider smoke and 23-scene interaction/keepsake suite passed with no page errors. TypeScript diagnostics exactly match the existing 10699-character baseline, with no new errors.
+- User's main browser data was not seeded; all browser QA used isolated contexts. No commit, push or version bump.
+
+2026-09-11 — SAR consistent portrait scale and unobstructed stage
+- Removed the conversation header. Shared SARDialogueMeta places the current speaker, affinity stars, replay-only title and back button beside the dialogue. Kept the metadata outside the advance button so return and next remain separate accessible controls.
+- Fixed the solo width constraint that made wide Caian art shrink after a two-person exchange. Solo/exchange now share identical stage-height sizing and native aspect ratios. Greetings use the same cast component, removing their separate 430px cap. Lowered both actors by 24px without resizing, naturally clipping the lower body at the dialogue edge.
+- Reproduced two guest-flash cases with failing tests, then fixed both: opening transactions briefly exposed the previous guest before a restart; narration reused a departed guest as the visual speaker. Opening now gates intermediate storage snapshots; narration only retains a guest still staged for the exchange.
+- 32 focused tests passed, including both new flicker regressions. Browser presentation suite passed 19 screenshots covering 320/390/1100 px, solo/exchange/solo image heights, both NPC greetings, metadata, replay, initial branches and the delayed embarrassed punchline. Standard skill browser client passed and final screenshots were visually inspected.
+
+2026-09-11 — SAR two-person spacing adjustment
+- Reduced both NPC portraits by 15% with the same scale in solo, greetings and exchanges. Removed the extra downward offset; the lower image edge stays anchored at the dialogue boundary so cropped-body artwork does not float.
+- Kept the existing horizontal positions and staging logic; only shared portrait CSS changed.
+- Verified 19 presentation screenshots and the standard game client; both layouts keep identical portrait scale, no page errors. Inspected the final phone exchange and desktop two-person screenshots.
+
+2026-09-11 — SAR fixed backdrop, local settings, install clearance and roster
+- Added SARDialogueBackdrop and shared the live room framing in sar-club-room.css. Initial meetings, normal dialogue and replay retain the full room image position/scale independently of the portrait stage.
+- Moved SAR NPC preference and initial-meeting rewind out of the general participation page into Activity Room settings. Rewind confirmation now renders above settings, receives/restores focus, and has priority for back/Escape. Existing preference and intro state are reused.
+- Raised module installation actions with 64px plus bottom safe area; buttons are at least 44px tall and icons/text are centered. Caian's roster portrait now uses normal.
+- Browser QA passed: exact live/dialogue image geometry within 0.02px at 320/390/740/1100px, initial meeting, NPC preference persistence, rewind cancel/confirm, roster local normal.webp, and participation separation. Commerce suite passed including install button clearance at 390x844, 320x568 and 740x390. Dialogue suite passed all 19 screenshots; official game client screenshot and state inspected. No page errors.
+- Full tsc output exactly matches the existing 10699-character baseline, no new diagnostics. No commit/push/version change; isolated browser contexts only.
+- User raised output robustness while continuing to describe desired behavior. Interpreted as model-output format tolerance and graceful recovery; no new parser behavior has been changed in this pass. Await the rest of their examples/scope.
+
+2026-09-11 — SAR module sticker alignment and adjacent output audit
+- Reproduced the exact reported 11-bubble envelope: canonical normalized the historical sticker tag, surface did not, so the sticker text consumed bubble 10's surface slot and the last rewritten sentence was never attached. Both sides now use normalizeAiContent before parsing.
+- Extended the audit with failing tests for copied HTML and five-field historical share cards, plus inline control tokens. Surface now excludes these with shared pure extractors; disabled-HTML placeholders do not consume speech slots. No surface directives or stickers execute or create duplicate messages.
+- Unified full-width colon/lowercase SEND_EMOJI and named-sender history tags in assistantActionFormat, removing the duplicate reverse-tag normalizer. Verified omitted, missing, repeated and mixed-format stickers, quotations, omitted actions, bilingual/voice atomic blocks and final speech.
+- 83 tests passed across post-processing, SAR runtime, request prompts and action normalization. Isolated browser fixture uses the real MessageItem and DB: 11 messages, sticker at 9, all 9 surface/truth switches correct, final sentences intact at 390/320px and after reload, no page errors or model calls. Existing saved user messages were not modified.
+- Full tsc diagnostics for this change match the existing 10699-character baseline with no added errors. No commit, push or version change.
+
+
+## 2026-09-11 — SAR release, backup, analytics and desktop integration
+- Request: audit SAR / anniversary / global chat input backup, add Umami, replace Amsg2/collaboration startup announcements with a richer SAR-led release, and expose Kanata on three desktops.
+- Added three-page illustrated SAR announcement, v3.9 (SAR), in-app changelog, seen-state backup compatibility and one-shot launch into SAR. Removed Amsg2/collaboration from startup queue; historical docs remain.
+- Fixed missing global chat input preferences and SAR local preferences in Settings export/import. Full exports now extract/restore nested legacy SAR photos as assets; existing v3 blob sidecar carries embedded references. Backup no longer refreshes/rerolls saved module shop offers while reading an older date.
+- Added explicit SAR feature analytics whitelist plus anniversary open/apply/save results; eight enum-only session snapshot dimensions. Extended poison tests and analytics documentation. Local development remains excluded by the existing analytics gate.
+- Desktop replacements: MobileGameHome Archives → Kanata (illustrated planet), TamagotchiHome Pixel → Kanata, CompanionHome Music → Kanata.
+- Actual isolated OSProvider exportSystem/importSystem roundtrip passed all three modes. Full mode compares gameplay/unfinished drafts/reward receipts/garden/inventory/runtime/message metadata/anniversary themes and decoded photo bytes. Text mode retains progress/preferences while removing custom photos; media-only does not reset gameplay/preferences.
+- Unit regression: 43 files / 523 cases, initially 521 pass with two stale 1000-coin expectations in fishingSession. Updated expectations to current SAR_STARTING_BALANCE without changing product balances; rerun of fishingSession + chat input/auto-reply passes 36/36. Analytics/privacy checks pass 100/100.
+- Browser: 320/390/1100 announcement pages, old queue suppression, actual FAQ/SAR CTA dispatch; SAR room/dialogue background/settings/rewind/install/roster checks pass. Existing skill game client passes initial dialogue. Screenshots/reports under output/sar-release*, output/sar-desktop-entry and output/sar-room-polish.
+- pnpm build succeeded. TypeScript report output/sar-release-tsc.log exactly matches prior 10699-character baseline: no new diagnostics; unrelated existing errors remain.
+- No user browser data was modified; all seed/import tests use isolated browser contexts.
+
+2026-09-11 — Module display and lifecycle follow-up
+- Replaced the glowing dot/hidden paragraph taps with labeled SAR speech switches. Date reading/GAL state is independent; repeat lines and original-text resume snapshots resolve by batch position.
+- Added global draggable/collapsible module monitor listing every character and the user. Early end starts three recovery reminders and persists endReason; same-run/same-phase reply guards prevent stale requests restoring effects or consuming the first end notice. Enum-only Umami end event.
+- Verified 49 postprocessing, 20 runtime, 12 payload, 5 backup, 6 presentation, 28 Date regression, 3 analytics tests; isolated real-store Chat and Date browser scripts passed at 320/390 px, no model calls or page errors. Production build passed. Typecheck retains pre-existing errors; no new module diagnostics.
+- Next user steering: simple fishing should have shadows/casting/empty outcomes, paginate and group cabinet and warehouse, vary daily greeting expressions, and introduce every facility with NPC-led first-visit help.
+
+2026-09-11 — Facility guides, paged collections and simple fishing
+- Redesigned the cabinet as a compact per-character library. Character group/search plus eight avatars per page; six records/notes per page, selected character survives view changes. Character-owned notes are read only for the selected owner, replacing the all-character DB fan-out.
+- Warehouse now shows twelve item types per page, resets scrolling and selection when paging/filtering, and labels the user owner simply 我.
+- Simple fishing now has a swimming shadow, forgiving cast target, animated bobber/wait/reel phases and an empty outcome. Only successful completed catches enter inventory; failed saves can retry without duplicating catches. Manual play remains available.
+- Added question-mark help to all seven facilities, with expanded first-visit NPC introductions: Aiven for fishing/dinosaurs, Caian for the other facilities. Seen flags join SAR backup/restore. Daily greeting expressions vary by sentence while authored scene expressions remain intact.
+- Validation: 11 files / 101 related tests passed. Real components + OSProvider + isolated DB browser fixture passed with sixty custom characters: eight visible avatars, six records, twelve warehouse entries, lazy notes, restored selection, both daily greeting expression sequences, seven guides and caught/empty inventory checks. No model calls or page errors. Inspected phone/320px/forge/guide/fishing screenshots. Official game client completed three snapshots with no errors; final caught state and screenshot inspected.
+- Production build passed; git diff --check passed (line-ending warnings only). Final typecheck diagnostics match the existing 10699-character baseline; no new errors. All user profile data stayed untouched. No commit or push.
+- Final robustness follow-up: selected-owner note read failures now render a distinct error with retry instead of an empty-cabinet state; stale requests cannot replace the current result. The isolated browser suite passed injected read failure -> visible alert -> retry -> recovery, and its final screenshot was inspected.
+- Final production rebuild passed after the note-read retry fix (56.12s); final TypeScript diagnostics exactly match the 10699-character baseline.
+
+2026-09-11 — Dinosaur wording cleanup
+- Unified the four remaining legacy dinosaur labels to 橡皮泥恐龙 across Caian topic/title dialogue and Aiven catch/record narration. Repository-wide source/copy scan found no remaining old dinosaur wording; diff whitespace check passed. Copy-only change, no gameplay or version changes.
+
+2026-09-11 — Warehouse pagination visibility
+- Moved warehouse paging above the item grid and kept it sticky while scrolling. Shows filtered record count, twelve entries per page and page index; a non-empty single page keeps disabled navigation visible. Owner and category changes still reset the page.
+- Verified an isolated real-store fixture with sixty-six entries: twelve rendered per page, six-page navigation including the final six entries, sticky mobile controls, owner/filter resets, empty state and 320px layout. Standard game client also passed; mobile/desktop/sticky screenshots and state inspected, no page errors. Shared pager defaults remain unchanged for other facilities.

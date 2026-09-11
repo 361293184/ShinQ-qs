@@ -1,3 +1,4 @@
+import { SARFacilityGuide } from './SARFacilityGuide';
 import { remainingSARBuyback, SAR_DAILY_BUYBACK } from '../../utils/vrWorld/sarEconomy';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, X, Fish, BookOpen, DotsThree, PencilSimple, CaretRight } from '@phosphor-icons/react';
@@ -30,10 +31,6 @@ const specimenLabel = (c:MarketCatchSnapshot) => `${c.nickname?c.nickname+' · '
 const countdown = (deadline:number,now:number) => {
     const s=Math.max(0,Math.ceil((deadline-now)/1000)); return Math.floor(s/3600)+'h '+String(Math.floor(s/60)%60).padStart(2,'0')+'m';
 };
-const WeatherBadge: React.FC<{weather:FishingWeather|null}> = ({weather}) => <div className="flex items-center justify-between gap-3 pb-3">
-    <div><div className="text-[14px] font-medium">{weather?.label || '感知天气中…'} <span className="ml-1 text-[10px] text-[#abc7bd]">{weather ? weather.source==='real'?'同步真实天气':'彼方模拟天气':''}</span></div><p className="fish-note mt-0.5">{weather?.detail || '正在辨认水面'}</p></div>
-    <span aria-hidden className="text-[25px] text-[#c8dfd5]">{weather?.kind==='clear'?'☀':weather?.kind==='snow'?'❄':weather?.kind==='storm'?'ϟ':'☁'}</span>
-</div>;
 
 interface Props {
     initialEntry?:'water'|'board';
@@ -59,7 +56,6 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const [trip,setTrip]=useState<string|null>(null);
     const tripResultRef=useRef<HTMLDivElement>(null);
     const [tripChar,setTripChar]=useState('');
-    const [lastCatch,setLastCatch]=useState<FishingCatch|null>(null);
     const [selectedCatch,setSelectedCatch]=useState<FishingCatch|null>(null);
     const [compose,setCompose]=useState<Compose|null>(null);
     const [selectedPost,setSelectedPost]=useState<BoardPost|null>(null);
@@ -96,7 +92,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         if(busy)return;setBusy(true);setError('');
         try{await commit(change);after?.();}catch(e){report(e);}finally{setBusy(false);}
     };
-    const onCaught=async(c:FishingCatch)=>{await commit(s=>addCatchToState(s,c));setLastCatch(c);};
+    const onCaught=async(c:FishingCatch)=>{await commit(s=>addCatchToState(s,c));};
     const beginPost=(mode:Compose,catchId='')=>{
         const c=state.inventory.find(c=>c.id===catchId);
         setDraft({catchId,speciesId:'dinosaur-egg',label:'',price:c?String(catchValue(state,c)):mode==='tip'?'10':'0',body:'',alias:''});setCompose(mode);setError('');
@@ -145,7 +141,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const viewPicker=<select aria-label="查看谁的钱包和收藏" className="fish-input" value={viewer} onChange={e=>{setViewer(e.target.value);setInventoryPage(0);setArchivePage(0);}}>{actors.map(a=><option key={a.id} value={a.id}>{a.name} · {state.accounts[a.id]||0} 鳞币</option>)}</select>;
     const characterTripControls=(mode:'fishing'|'market')=><section className={mode==='fishing'?'fish-divider mt-5 pt-4':'board-visit'}>
         <div className="mb-2 text-[13px]">{mode==='fishing'?'角色自己的闲暇':'一起逛逛'}</div>
-        <p className="fish-note mb-3">{mode==='fishing'?'让 ta 钓一竿，决定保留或放生，也可能私聊告诉你。首次图鉴解锁会自动在彼方留言簿播报。每次活动调用一次模型，并保留经历与原话。':'让 ta 自己决定看看、交易，或留一句话。每次邀请使用一次模型调用。'}</p>
+        <p className="fish-note mb-3">{mode==='fishing'?'由 ta 决定保留或放生，使用一次模型调用。':'让 ta 自己决定看看、交易，或留一句话。每次邀请使用一次模型调用。'}</p>
         <select className="fish-input" aria-label={mode==='fishing'?'选择去水域的角色':'选择逛布告板的角色'} value={tripChar} onChange={e=>setTripChar(e.target.value)}><option value="">选择已接入彼方的角色</option>{characters.filter(c=>c.vrState?.enabled).map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select>
         <button disabled={!tripChar||!!trip} className="fish-action mt-2 w-full" onClick={()=>void runTrip(mode)}>{trip?'活动进行中…':mode==='fishing'?(pendingTrip?'继续处理这一竿':'让 ta 去钓鱼'):'让 ta 逛布告板'}</button>
         {mode==='fishing'&&latestTrip&&<div ref={tripResultRef} className="mt-3 rounded-xl bg-white/5 p-3" aria-live="polite">
@@ -164,28 +160,28 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         <div className="board-note-foot"><span>{amountLabel(p)} {postAmount(p)} 鳞币</span><CaretRight size={15} aria-hidden/></div>
     </button>;
     const boardTitle=tab==='more'?'更多':tab==='prices'?'当日行情':tab==='archive'?'往期便笺':tab==='visit'?'邀请角色':'布告板';
-    return <div className={`fishing-shell ${!atWater||compose?'fishing-board-shell':''} fixed inset-0 z-[380] flex flex-col overflow-hidden`} role="dialog" aria-modal="true" aria-label={atWater?'彼方水域':'彼方布告板'}>
+    return <div className={`fishing-shell ${tab==='water'?'fishing-water-shell':''} ${!atWater||compose?'fishing-board-shell':''} fixed inset-0 z-[380] flex flex-col overflow-hidden`} role="dialog" aria-modal="true" aria-label={atWater?'彼方水域':'彼方布告板'}>
         <div className="fish-page-underlay flex min-h-0 flex-1 flex-col" hidden={!!compose||!!activePost}>
         {atWater?<header className="flex shrink-0 items-center gap-3 px-4 pb-3" style={{paddingTop:'calc(var(--chrome-top) + .5rem)'}}>
             <button className="fish-action !border-0 !p-2" onClick={onClose} aria-label={atWater?'离开水域':'离开布告板'}><ArrowLeft size={20}/></button>
             <div className="flex-1"><div className="text-[19px] tracking-[.16em]" style={{fontFamily:"'Noto Serif SC',serif"}}>{atWater?'彼方水域':'彼方布告板'}</div><div className="text-[8px] tracking-[.25em] text-[#8eaaa9]">{atWater?'WATERSIDE':'MARKET'} / SAR</div></div>
             <span className="text-[15px] tabular-nums text-[#d4c4a4]">{state.accounts.user||0}<small className="ml-1 text-[10px]">鳞币</small></span>
+            <SARFacilityGuide facility="water"/>
         </header>:<header className="board-header">
             <button className="board-icon" onClick={()=>tab==='board'?onClose():goTo(tab==='more'?'board':'more')} aria-label={tab==='board'?'离开布告板':tab==='more'?'返回布告板':'返回更多'}><ArrowLeft size={21}/></button>
             <h1>{boardTitle}</h1>
             {tab==='board'&&<button className="board-icon" aria-label="布告板更多" onClick={()=>goTo('more')}><DotsThree size={25} weight="bold"/></button>}
+            <SARFacilityGuide facility="board"/>
         </header>}
         {atWater&&<nav className="fish-divider grid shrink-0 grid-cols-2 border-b border-[#c8e0ea21] px-3">
             {([['water','钓鱼',Fish],['catalog','图鉴',BookOpen]] as const).map(([id,label,Icon])=><button key={id} aria-current={tab===id?'page':undefined} className={`flex items-center justify-center gap-1.5 border-b-2 py-3 ${tab===id?'border-[#a7cebd] text-[#dfeee4]':'border-transparent text-[#8a9eab]'}`} onClick={()=>goTo(id)}><Icon size={15}/>{label}</button>)}
         </nav>}
-        <main ref={mainRef} className={`min-h-0 flex-1 overflow-y-auto vr-reader-scroll ${atWater?'px-4 pt-4':'board-content'}`} style={{paddingBottom:'calc(var(--safe-bottom) + 1.5rem)'}}>
-            <div className="mx-auto w-full max-w-[560px]">
+        <main ref={mainRef} className={`min-h-0 flex-1 overflow-y-auto vr-reader-scroll ${tab==='water'?'fishing-water-main':atWater?'px-4 pt-4':'board-content'}`} style={tab==='water'?undefined:{paddingBottom:'calc(var(--safe-bottom) + 1.5rem)'}}>
+            <div className={tab==='water'?'fishing-water-content':'mx-auto w-full max-w-[560px]'}>
                 {error&&<p role="alert" className="mb-3 rounded-lg bg-amber-200/10 px-3 py-2 text-[12px] leading-6 text-amber-100">{error}</p>}
                 {tab==='water'&&<>
-                    <WeatherBadge weather={weather}/>
-                    {weather?<FishingGame weather={weather} onCast={()=>rollFishingCatch(user,weather)} onCaught={onCaught}/>:<div className="grid h-64 place-items-center fish-note">水面正在醒来……</div>}
-                    {lastCatch&&<div className="fish-reveal mt-4 flex items-center gap-4 rounded-xl bg-[#203844] p-3"><FishArt speciesId={lastCatch.speciesId} size={112} animated/><div><div className="text-[15px] font-medium">{speciesById(lastCatch.speciesId)?.name}</div><div className="fish-note">{lastCatch.sizeCm} cm · {'✦'.repeat(lastCatch.quality)}</div><button className="mt-1 text-[11px] text-[#badbcc]" onClick={()=>{setTab('catalog');setViewer('user');}}>查看收藏 →</button></div></div>}
-                    {characterTripControls('fishing')}
+                    {weather?<FishingGame weather={weather} onCast={()=>rollFishingCatch(user,weather)} onCaught={onCaught} onOpenCollection={()=>{goTo('catalog');setViewer('user');}}/>:<div className="grid flex-1 place-items-center fish-note">水面正在醒来……</div>}
+                    <details className="fishing-companions"><summary>角色钓鱼<CaretRight size={14}/></summary>{characterTripControls('fishing')}</details>
                 </>}
                 {tab==='catalog'&&<>
                     {onOpenGarden&&<button className="fish-action primary w-full mb-4" onClick={onOpenGarden}>带橡皮泥恐龙去箱庭 →</button>}

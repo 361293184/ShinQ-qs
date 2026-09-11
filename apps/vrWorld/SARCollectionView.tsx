@@ -1,3 +1,4 @@
+import { trackSARFeature } from '../../utils/sarAnalytics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, CaretDown, CaretLeft, CaretRight, Check, Cpu, Fish, MagnifyingGlass, PawPrint, Stack, Users } from '@phosphor-icons/react';
 import type { FishingMarketState, MarketActor } from '../../utils/vrWorld/fishingMarket';
@@ -18,6 +19,7 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     onOpenFamiliarity?: (npc: FamiliarityNpc, sceneId?: string) => void;
 }) {
     const [section, setSection] = useState<'collection' | 'roster'>('collection');
+    useEffect(() => { trackSARFeature(section); }, [section]);
     const [category, setCategory] = useState<SARCollectionCategory | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [query, setQuery] = useState('');

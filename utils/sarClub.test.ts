@@ -6,6 +6,7 @@ import {
     patchSARClubState,
     readSARClubState,
     rewindSARIntro,
+    sarRoomView, nextSARRoomView,
     type SARClubState,
 } from './vrWorld/sarClub';
 
@@ -18,6 +19,20 @@ const memoryStorage = () => {
 };
 
 describe('SAR 活动室状态', () => {
+    it('cycles the four room views, migrates old hidden labels and preserves the NPC preference',()=>{
+        const storage=memoryStorage();
+        let state=patchSARClubState({npcPreference:'show',labelsHidden:true},storage);
+        expect(sarRoomView(readSARClubState(storage))).toBe('text-hidden');
+        const seen=[];
+        state=patchSARClubState({roomView:'all',labelsHidden:false},storage);
+        for(let i=0;i<4;i++){
+            const view=nextSARRoomView(sarRoomView(state));
+            state=patchSARClubState({roomView:view,labelsHidden:view==='text-hidden'},storage);
+            seen.push(sarRoomView(readSARClubState(storage)));
+            expect(state.npcPreference).toBe('show');
+        }
+        expect(seen).toEqual(['names-hidden','text-hidden','characters-hidden','all']);
+    });
     it('没有存档时保持未选择，选择 NPC 后仍与见面状态分离', () => {
         const storage = memoryStorage();
         expect(readSARClubState(storage)).toEqual(DEFAULT_SAR_CLUB_STATE);
@@ -47,14 +62,14 @@ describe('SAR 活动室状态', () => {
         expect(mentioned.lines).toHaveLength(notMentioned.lines.length);
     });
 
-    it('艾文拆台当句就让旁边的凯恩尴尬，并延续到他的回应',()=>{
+    it('艾文拆台时凯恩保留原表情，接下一句才触发尴尬反应',()=>{
         const punchlines=['这里似乎没有仿生人。','然后他就成立了 SAR。','结果是这样。','之一？','你又开始了。','实际上他把这里改造成了 SAR。','还贴了横幅。','这里可以抽卡、钓鱼、买道具给你的朋友们用。'];
         let checked=0;
         for(const id of Object.keys(SAR_CAIAN_INTRO_DIALOGUE)){
             const {lines}=getSARDialogueNode(id,{mentionedCharacterCard:false});
             for(const [index,line] of lines.entries())if(punchlines.includes(line.text)){
                 expect(line.speaker).toBe('aiven');
-                expect(line.castExpressions?.caian).toBe('embarrassed');
+                expect(line.castExpressions?.caian).toBe(lines[index-1].castExpressions?.caian);
                 expect(lines[index+1].castExpressions?.caian).toBe('embarrassed');
                 checked++;
             }

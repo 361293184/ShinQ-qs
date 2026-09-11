@@ -69,7 +69,7 @@ export function SARFamiliarityRoster({ onBack, onOpenScene }: { onBack: () => vo
             <nav className="sar-roster-person-tabs" aria-label="选择名册角色">{(['caian', 'aiven'] as const).map(who => <button type="button" key={who} aria-pressed={npc === who} onClick={() => setNpc(who)}><small>{PROFILES[who].number}</small>{PROFILES[who].name}<span>{PROFILES[who].roman}</span></button>)}</nav>
             <div className={`sar-roster-hero is-${npc}`}>
                 <div className="sar-roster-identity"><small>彼方常驻成员</small><h3>{profile.name}</h3><span className="sar-roster-roman">{profile.roman}</span><p>18 岁 · 大学一年级</p><p>{profile.role}<br/>{profile.occupation}</p></div>
-                <div className="sar-roster-portrait"><SARPortrait who={npc} expression={npc === 'caian' ? 'happy' : 'normal'}/></div>
+                <div className="sar-roster-portrait"><SARPortrait who={npc} expression="normal"/></div>
                 <div className="sar-roster-familiarity"><span>熟悉度</span><div className="sar-roster-stars" role="img" aria-label={`熟悉度 ${progress.stars} / 5 星`}>{[1, 2, 3, 4, 5].map(star => <Star key={star} size={19} weight={progress.stars >= star ? 'fill' : 'regular'} className={progress.stars >= star ? 'is-lit' : ''}/>)}</div><small>{completedCount} 段回忆</small></div>
             </div>
             <nav className="sar-roster-detail-tabs" aria-label="名册内容"><button type="button" aria-pressed={tab === 'profile'} onClick={() => setTab('profile')}>人物档案</button><button type="button" aria-pressed={tab === 'memories'} onClick={() => setTab('memories')}>回忆 <span>{completedCount}</span></button></nav>

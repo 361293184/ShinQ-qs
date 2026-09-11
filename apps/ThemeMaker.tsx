@@ -1,4 +1,4 @@
-import { avatarDecorationImageStyle, isAnniversaryFrame, ANNIVERSARY_ARTIST, ANNIVERSARY_FRAME_STYLE, ANNIVERSARY_FRAME_URL } from '../utils/anniversaryGifts';
+import { avatarDecorationImageStyle } from '../utils/anniversaryGifts';
 
 
 
@@ -1836,16 +1836,6 @@ const ThemeMaker: React.FC = () => {
                     {/* --- AVATAR TOOLS --- */}
                     {activeTab !== 'css' && toolSection === 'avatar' && (
                         <div className="space-y-6 animate-fade-in">
-                            <button type="button" onClick={() => {
-                                updateTheme(prev => ({
-                                    ...prev,
-                                    [activeTab]: { ...prev[activeTab], ...ANNIVERSARY_FRAME_STYLE },
-                                    ...(userFollowAi && activeTab === 'ai' ? { user: { ...prev.user, ...ANNIVERSARY_FRAME_STYLE } } : {}),
-                                }));
-                            }} aria-pressed={isAnniversaryFrame(activeStyle.avatarDecoration)} className="w-full flex items-center gap-4 rounded-xl bg-violet-50 p-3 text-left text-violet-800 hover:bg-violet-100 transition-colors">
-                                <img src={ANNIVERSARY_FRAME_URL} alt="" className="h-20 w-16 object-contain" />
-                                <span className="text-xs font-bold">一周年 · 尊贵猫猫<small className="mt-1 block text-[11px] font-normal text-violet-600">作者：{ANNIVERSARY_ARTIST}</small><small className="mt-1 block text-[10px] font-normal text-violet-500">永久赠礼 · 已校准位置，点击戴上</small></span>
-                            </button>
                             <div onClick={() => avatarDecoInputRef.current?.click()} className="cursor-pointer group relative h-20 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 hover:border-primary/50 hover:text-primary transition-all">
                                  {activeStyle.avatarDecoration ? <TokenImg value={activeStyle.avatarDecoration} className="h-10 w-10 object-contain" /> : <span className="text-xs font-bold">+ 上传头像框/挂件</span>}
                                  <input type="file" ref={avatarDecoInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0], 'avatarDeco')} />

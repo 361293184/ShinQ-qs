@@ -5,6 +5,8 @@ import {
     SAR_MODULE_AFTERGLOW_TURNS,
     alignSARChatSurfaceChunks,
     advanceSARModuleRuntime,
+    advanceSARModuleAfterReply,
+    endSARModuleRuntime,
     buildSARModulePrompt,
     createSARModuleEventMeta,
     createSARModuleSurfaceMeta,
@@ -230,5 +232,52 @@ describe('SAR module runtime', () => {
         const note = formatSARModuleEventsForContext(createSARModuleEventMeta(plan), '凯', 'U');
         expect(note).toContain('U在彼方给凯装载了');
         expect(note).toContain('模块只改写当时可见/可听的外显');
+    });
+});
+
+
+describe('模块提前结束与请求返回的顺序', () => {
+    it.each(['character', 'user'] as const)('%s 提前结束从下一轮开始恢复，提示与事件都保留', target => {
+        const running = target === 'user' ? installSARModuleOnUser(module, baseChar, 1) : installSARModuleOnCharacter(module, 1);
+        const ended = endSARModuleRuntime(running)!;
+        expect(ended).toMatchObject({ runId: running.runId, phase: 'afterglow', remainingTurns: 0, afterglowTurns: 3, endReason: 'manual' });
+        expect(running.phase).toBe('active');
+        const char = target === 'character' ? { ...baseChar, vrState: { ...baseChar.vrState!, sarModule: ended } } : baseChar;
+        const user = target === 'user' ? { ...baseUser, vrState: { ...baseUser.vrState!, sarModule: ended } } : baseUser;
+        for (const mode of ['chat', 'date'] as const) {
+            const prompt = buildSARModulePrompt(char, user, mode);
+            expect(prompt).toContain('被用户提前结束，无需等待原定轮次耗尽');
+            expect(prompt).toContain('本轮必须恢复平常表达');
+            expect(prompt).not.toContain('CHAR_SURFACE：再把');
+        }
+        const event = createSARModuleEventMeta(getSARModuleRuntimePlan(char, user));
+        expect(event[0]).toMatchObject({ moment: 'ended', endReason: 'manual', target });
+        expect(formatSARModuleEventsForContext(event, '凯', 'U')).toContain('被用户提前解除');
+        const recovered = advanceSARModuleAfterReply(ended, ended)!;
+        expect(recovered.afterglowTurns).toBe(2);
+        expect(endSARModuleRuntime(recovered)).toBe(recovered);
+        const last = advanceSARModuleAfterReply(recovered, recovered)!;
+        expect(advanceSARModuleAfterReply(last, last)).toBeUndefined();
+    });
+    it('提前结束后，正在生成的旧回复不能吞掉第一轮解除提示或恢复旧模块', () => {
+        const requested = installSARModuleOnCharacter(module, 1);
+        const current = endSARModuleRuntime(requested)!;
+        expect(advanceSARModuleAfterReply(current, requested)).toBe(current);
+        expect(current.afterglowTurns).toBe(3);
+        expect(advanceSARModuleAfterReply(undefined, requested)).toBeUndefined();
+    });
+    it('旧请求不能递减新装载模块，也不能把它换回旧模块', () => {
+        const old = installSARModuleOnCharacter(module, 1);
+        const next = installSARModuleOnCharacter(SAR_MODULE_CATALOG[1], 2);
+        expect(advanceSARModuleAfterReply(next, old)).toBe(next);
+        expect(advanceSARModuleAfterReply(next, undefined)).toBe(next);
+    });
+    it('只有同一模块同一阶段的成功回复正常计次', () => {
+        const requested = installSARModuleOnCharacter(module, 1);
+        expect(advanceSARModuleAfterReply(requested, requested)?.remainingTurns).toBe(9);
+        const final = { ...requested, remainingTurns: 1 };
+        const ended = advanceSARModuleAfterReply(final, requested)!;
+        expect(ended).toMatchObject({ phase: 'afterglow', afterglowTurns: 3 });
+        expect(advanceSARModuleAfterReply(ended, requested)).toBe(ended);
     });
 });

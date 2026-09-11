@@ -44,6 +44,7 @@ export interface SARModuleEventMeta {
     sourceCharacterName?: string;
     phase: 'active' | 'afterglow';
     moment: 'installed' | 'active' | 'ended' | 'settling';
+    endReason?: 'manual';
     configurationKeyword?: string;
 }
 
@@ -112,6 +113,21 @@ export const advanceSARModuleRuntime = (
     return undefined;
 };
 
+/** 用户结束后下一次请求就收到解除提示，恢复期重复点击不续期。 */
+export const endSARModuleRuntime = (state: SARModuleRuntimeState | undefined): SARModuleRuntimeState | undefined => {
+    if (!state || state.phase !== 'active') return state;
+    return { ...state, phase: 'afterglow', remainingTurns: 0, afterglowTurns: SAR_MODULE_AFTERGLOW_TURNS, endReason: 'manual' };
+};
+
+/** 请求携带的是旧快照；回复落库时只能推进同一装载、同一阶段的最新状态。 */
+export const advanceSARModuleAfterReply = (
+    current: SARModuleRuntimeState | undefined,
+    requested: SARModuleRuntimeState | undefined,
+): SARModuleRuntimeState | undefined => {
+    if (!current || !requested || current.runId !== requested.runId || current.phase !== requested.phase) return current;
+    return advanceSARModuleRuntime(current);
+};
+
 export const getSARModuleRuntimePlan = (
     char: CharacterProfile,
     user: UserProfile,
@@ -152,6 +168,7 @@ const moduleEventFromState = (state: SARModuleRuntimeState): SARModuleEventMeta 
         sourceCharacterName: state.sourceCharacterName,
         phase: state.phase,
         moment: eventMoment(state),
+        ...(state.endReason === 'manual' ? { endReason: 'manual' as const } : {}),
         ...(configuration ? { configurationKeyword: configuration.keyword } : {}),
     };
 };
@@ -203,7 +220,7 @@ export const formatSARModuleEventsForContext = (
         const action = event.moment === 'installed'
             ? `${source}在彼方给${owner}装载了「${title}」${effect}${configuredText}`
             : event.moment === 'ended'
-                ? `「${title}」${effect}刚从${owner}身上解除${configuredText}`
+                ? `「${title}」${effect}刚从${owner}身上${event.endReason === 'manual' ? '被用户提前解除' : '解除'}${configuredText}`
                 : event.moment === 'settling'
                     ? `「${title}」${effect}已经从${owner}身上解除，正处于表达恢复期${configuredText}`
                     : `「${title}」${effect}仍在${owner}身上生效${configuredText}`;
@@ -257,7 +274,7 @@ const afterglowLine = (
         : userName;
     const eventRecall = `${charName}清楚记得这次装载来自${source}，也知道刚才哪些异常表达是模块造成的外显，而不是真实意图。`;
     return strong
-        ? `- 「${state.moduleTitle}」刚从${owner}身上结束。${eventRecall}${owner}明确意识到外显扭曲已经停止，本轮必须恢复平常表达，可自然地惊讶、尴尬、追问或吐槽，但不得继续模仿模块语气。`
+        ? `- 「${state.moduleTitle}」刚从${owner}身上${state.endReason === 'manual' ? '被用户提前结束，无需等待原定轮次耗尽' : '结束'}。${eventRecall}${owner}明确意识到外显扭曲已经停止，本轮必须恢复平常表达，可自然地惊讶、尴尬、追问或吐槽，但不得继续模仿模块语气。`
         : `- 「${state.moduleTitle}」已经结束。${eventRecall}${owner}保持平常表达；先前的异常只是临时外显，不是人格、信念或关系变化（稳定余量 ${state.afterglowTurns}/3）。`;
 };
 
@@ -329,19 +346,27 @@ export const isSARChatActionOnlyChunk = (text: string): boolean => {
     return bilingualParts.length > 0 && bilingualParts.every(isPlainSARChatActionOnlyChunk);
 };
 
+const isSARChatHtmlPlaceholder = (text: string): boolean => /^\[HTML\s*卡片\]$/i.test(text.trim());
+
 export const consumeSARChatSurfaceChunk = (
     canonicalChunk: string,
     surfaceChunks: string[],
     startIndex: number,
 ): { surface?: string; nextIndex: number } => {
     let index = Math.max(0, startIndex);
+    // HTML disabled at delivery time becomes a canonical placeholder. It has no
+    // rewritten speech and must not consume the following bubble's surface.
+    if (isSARChatHtmlPlaceholder(canonicalChunk)) {
+        if (surfaceChunks[index] && isSARChatHtmlPlaceholder(surfaceChunks[index])) index += 1;
+        return { nextIndex: index };
+    }
     if (isSARChatActionOnlyChunk(canonicalChunk)) {
         // 模型遵守“动作原位复制”时消费掉对应动作；省略动作时则保留指针给下一条台词。
         if (surfaceChunks[index] && isSARChatActionOnlyChunk(surfaceChunks[index])) index += 1;
         return { nextIndex: index };
     }
     // 外显里若意外多带了动作行，动作仍展示 canonical，跳过它后再取同位台词。
-    while (surfaceChunks[index] && isSARChatActionOnlyChunk(surfaceChunks[index])) index += 1;
+    while (surfaceChunks[index] && (isSARChatActionOnlyChunk(surfaceChunks[index]) || isSARChatHtmlPlaceholder(surfaceChunks[index]))) index += 1;
     const surface = surfaceChunks[index];
     return { surface, nextIndex: surface === undefined ? index : index + 1 };
 };

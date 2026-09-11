@@ -25,7 +25,7 @@ import { materializeVisionDescriptions } from '../utils/visionApi';
 import { shareOrDownloadFile } from '../utils/shareExport';
 import { buildInPersonContinueInstruction } from '../utils/meetingContinue';
 import {
-    advanceSARModuleRuntime,
+    advanceSARModuleAfterReply,
     createSARModuleEventMeta,
     createSARModuleSurfaceMeta,
     getSARModuleRuntimePlan,
@@ -480,15 +480,13 @@ const DateApp: React.FC = () => {
         // 3. Save AI Response
         await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: parsed.canonical, metadata: { source: 'date', ...(assistantSurface ? { sarModuleSurface: assistantSurface } : {}) } });
         if (sarModulePlan.character) {
-            const next = advanceSARModuleRuntime(sarModulePlan.character);
             updateCharacter(char.id, previous => ({
-                vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: next },
+                vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.character) },
             }));
         }
         if (sarModulePlan.user) {
-            const next = advanceSARModuleRuntime(sarModulePlan.user);
             updateUserProfile(previous => ({
-                vrState: { ...(previous.vrState || { enabled: false }), sarModule: next },
+                vrState: { ...(previous.vrState || { enabled: false }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.user) },
             }));
         }
         markDateTurnDirty(char);

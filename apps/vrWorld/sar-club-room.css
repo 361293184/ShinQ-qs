@@ -2,7 +2,13 @@
 .sar-room-viewport{position:absolute;inset:54px 3px calc(var(--sar-footer-space) + 5px);overflow:hidden}
 .sar-room-canvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);isolation:isolate}
 .sar-room-background{position:absolute;inset:0;display:block;width:100%;height:100%;user-select:none;pointer-events:none}
-.sar-room-hotspots{position:absolute;inset:0;pointer-events:none;z-index:90}
+/* One framing for the live room and the dialogue backdrop: never refit to the shorter stage. */
+.vr-sar-light .sar-room-viewport,.srf-room-viewport{top:calc(var(--chrome-top,0px) + 88px);bottom:calc(18px + var(--safe-bottom,0px))}
+.srf-room-backdrop{position:absolute;inset:0;background:#fff;pointer-events:none}
+.srf-room-viewport{position:absolute;left:3px;right:3px;overflow:hidden}
+.srf-room-viewport>img{display:block;width:100%;height:100%;object-fit:contain;object-position:center;user-select:none;pointer-events:none}
+/* Facility labels sit above the room art and below all chibis (depth 20–50). */
+.sar-room-hotspots{position:absolute;inset:0;pointer-events:none;z-index:10}
 .sar-room-hotspot{position:absolute;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;min-width:44px;min-height:44px;transform:translate(-50%,-50%);padding:3px;border:0;background:none;color:#54412b;cursor:pointer;pointer-events:auto;touch-action:manipulation}
 .sar-room-hotspot i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block;width:11px;height:11px;border-radius:50%;border:2px solid #fff9ea;background:#b78243;box-shadow:0 0 0 3px #b98c5559,0 1px 5px #4b372b55}
 .sar-room-hotspot span{position:absolute;top:calc(50% + 8px);white-space:nowrap;background:#fffbefeb;border:1px solid #d2b99599;border-radius:9px;padding:2px 6px;font-size:10px;line-height:1.35;box-shadow:0 2px 5px #59473518}
@@ -39,3 +45,5 @@
 
 .sar-room-ui-hidden .sar-room-person__name,.sar-room-ui-hidden .sar-room-person__title,.sar-room-ui-hidden .sar-room-person__quest,.sar-room-ui-hidden .sar-room-hotspots,.sar-room-ui-hidden .sar-room-roster{display:none}
 .sar-room-ui-hidden .sar-room-person__fallback{font-size:0}
+.sar-room-view-names-hidden .sar-room-person__name,.sar-room-view-names-hidden .sar-room-person__title{display:none}
+.sar-room-view-characters-hidden .sar-room-person,.sar-room-view-characters-hidden .sar-room-roster{display:none}

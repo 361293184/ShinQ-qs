@@ -4,6 +4,16 @@ export const SAR_CLUB_UPDATE_VERSION = 1;
 export const SAR_CLUB_STORAGE_KEY = 'vr_sar_club_state_v1';
 
 export type SARNpcPreference = 'show' | 'hide';
+export const SAR_ROOM_VIEWS = ['all','names-hidden','text-hidden','characters-hidden'] as const;
+export type SARRoomView = typeof SAR_ROOM_VIEWS[number];
+export const sarRoomView = (state: Pick<SARClubState,'roomView'|'labelsHidden'>): SARRoomView => state.roomView || (state.labelsHidden?'text-hidden':'all');
+export const nextSARRoomView = (view:SARRoomView):SARRoomView => SAR_ROOM_VIEWS[(SAR_ROOM_VIEWS.indexOf(view)+1)%SAR_ROOM_VIEWS.length];
+export const SAR_ROOM_VIEW_ACTIONS:Record<SARRoomView,{label:string;description:string}>={
+    all:{label:'隐藏名字',description:'隐藏角色名字和称号'},
+    'names-hidden':{label:'隐藏文字',description:'隐藏所有房间文字'},
+    'text-hidden':{label:'隐藏小人',description:'隐藏所有角色小人，显示设施标记'},
+    'characters-hidden':{label:'全部显示',description:'恢复全部显示'},
+};
 export type SARIntroReaction = 'direct' | 'character-card' | 'silent';
 
 export interface SARClubState {
@@ -12,6 +22,7 @@ export interface SARClubState {
     npcPreference: SARNpcPreference | null;
     caianMet: boolean;
     labelsHidden?: boolean;
+    roomView?: SARRoomView;
     introReaction?: SARIntroReaction;
 }
 
@@ -40,6 +51,7 @@ export function readSARClubState(storage: StorageLike | undefined = browserStora
             npcPreference: raw.npcPreference === 'show' || raw.npcPreference === 'hide' ? raw.npcPreference : null,
             caianMet: raw.caianMet === true,
             ...(raw.labelsHidden === true ? { labelsHidden: true } : {}),
+            ...(SAR_ROOM_VIEWS.includes(raw.roomView) ? {roomView:raw.roomView} : {}),
             introReaction: raw.introReaction === 'direct' || raw.introReaction === 'character-card' || raw.introReaction === 'silent'
                 ? raw.introReaction
                 : undefined,
@@ -195,7 +207,7 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
             c('——就默认它可以被随意修改、删除、强迫加载或者——', 'serious'),
             a('凯恩。', 'normal', 'curious'),
             c('干嘛？', 'curious'),
-            a('这里似乎没有仿生人。', 'normal', 'embarrassed'),
+            a('这里似乎没有仿生人。', 'normal'),
             c('……', 'embarrassed'),
             c('啊。', 'embarrassed'),
             c('抱歉！是我不好，一不小心就开始了。', 'shy', {reaction:'happy'}),
@@ -212,9 +224,9 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
             c('有些只有网络人格，有些会连接能够在现实活动的身体。聊天、生活、工作……看起来和普通人相处也没有太大区别。', 'serious'),
             c('问题就在这里。', 'serious'),
             c('如果一个人格会记得昨天发生的事，会拒绝你，也会因为自己的经历而改变，那它到底还能不能只被当成一件“产品”？', 'serious', {reaction:'interested'}),
-            a('然后他就成立了 SAR。', 'normal', 'embarrassed'),
+            a('然后他就成立了 SAR。', 'normal'),
             c('喂！中间省略太多了吧！', 'embarrassed'),
-            a('结果是这样。', 'normal', 'embarrassed'),
+            a('结果是这样。', 'normal'),
             c('……结果确实是这样。', 'embarrassed'),
             c('总之，我之前也有一个仿生人。', 'aboutaster', {reaction:'sad'}),
             c('不过那是很久以前的事了！', 'shy'),
@@ -234,7 +246,7 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
             c('……', 'aboutaster'),
             c('哈哈，抱歉！第一次见面怎么突然讲这个。', 'shy'),
             c('总之，她算是 SAR 会存在的原因之一吧。', 'aboutaster'),
-            a('之一？', 'sad', 'embarrassed'),
+            a('之一？', 'sad'),
             c('……最主要的那个。', 'embarrassed'),
         ],
         choices: [{ label: '那我可以在这里做什么？', next: 'about-features' }],
@@ -257,7 +269,7 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
             c('只有最开始被写下来的描述、后来被反复确认的印象，以及每一次回应之后，越来越难以拆开的关系。', 'serious'),
             c('所以我有时候会想——', 'curious'),
             c('这一切到底是模拟的，还是只是没有办法用我们习惯的方式证明它是真的？', 'serious'),
-            a('你又开始了。', 'normal', 'embarrassed'),
+            a('你又开始了。', 'normal'),
             c('我只是觉得很有研究价值！', 'embarrassed'),
         ],
         choices: [{ label: '那我可以在这里做什么？', next: 'about-features' }],
@@ -266,9 +278,9 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
         lines: [
             c('管理员嘛……主要就是维护活动室、介绍设施、处理一些奇怪的问题！', 'happy'),
             c('理论上是这样。', 'embarrassed'),
-            a('实际上他把这里改造成了 SAR。', 'normal', 'embarrassed'),
+            a('实际上他把这里改造成了 SAR。', 'normal'),
             c('闲置空间就是应该充分利用！', 'embarrassed'),
-            a('还贴了横幅。', 'normal', 'embarrassed'),
+            a('还贴了横幅。', 'normal'),
             c('那是必要的社团标识！', 'embarrassed'),
             c('总之！有什么看不懂的东西，可以来问我们。', 'happy', {reaction:'happy'}),
             c('虽然我们也还在研究彼方就是了。', 'shy'),
@@ -284,7 +296,7 @@ export const SAR_CAIAN_INTRO_DIALOGUE: Record<string, SARDialogueNode> = {
             c('这就是我们最近一直在准备的东西！', 'happy'),
             c('既然彼方已经能让来自不同地方的人在这里活动，那只拿来聊天未免也太浪费了吧！', 'happy'),
             c('所以我们重新整理了活动室，加装了人格推演设备、模块商店，还有专门用于跨世界物质回收的——', 'serious', {reaction:'interested'}),
-            a('这里可以抽卡、钓鱼、买道具给你的朋友们用。', 'normal', 'embarrassed'),
+            a('这里可以抽卡、钓鱼、买道具给你的朋友们用。', 'normal'),
             c('不要这么概括！', 'embarrassed'),
             c('……', 'embarrassed'),
             c('咳。', 'shy'),

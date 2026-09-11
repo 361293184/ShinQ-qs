@@ -1,8 +1,11 @@
+import { SARFacilityGuide } from './SARFacilityGuide';
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, CaretLeft, Check, CircleNotch, Eye, Fingerprint, Play, X } from '@phosphor-icons/react';
-import type { APIConfig, CharacterProfile, GroupProfile, RealtimeConfig, SARCharacterCabinetNoteMeta, UserProfile } from '../../types';
+import type { APIConfig, CharacterProfile, CharacterGroup, GroupProfile, RealtimeConfig, SARCharacterCabinetNoteMeta, UserProfile } from '../../types';
 import TokenImg from '../../components/os/TokenImg';
 import { DB } from '../../utils/db';
+import { SARCharacterPicker, SARPageNav } from './SARCharacterPicker';
+import './sar-cabinet-library.css';
 import { readSARSessionTheme, SARSimulationSession, type SARSessionTheme } from './SARSimulationSession';
 import {
     getSARModules,
@@ -113,72 +116,60 @@ const IdentityCardView: React.FC<{
 const shortDate = (timestamp: number) => new Date(timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 
 const CabinetRecordsView: React.FC<{
-    shelf: CabinetShelf;
-    onShelfChange: (shelf: CabinetShelf) => void;
-    characters: CharacterProfile[];
-    selectedCharId: string;
-    onSelectChar: (charId: string) => void;
-    cards: SARIdentityCard[];
-    runs: SARSimulationRun[];
-    notes: CharacterCabinetNoteRecord[];
-    notesLoading: boolean;
-    onOpenCard: (card: SARIdentityCard) => void;
-    onOpenNote: (note: CharacterCabinetNoteRecord) => void;
-}> = ({ shelf, onShelfChange, characters, selectedCharId, onSelectChar, cards, runs, notes, notesLoading, onOpenCard, onOpenNote }) => {
+    shelf: CabinetShelf; onShelfChange: (shelf: CabinetShelf) => void;
+    characters: CharacterProfile[]; characterGroups: CharacterGroup[];
+    selectedCharId: string; onSelectChar: (id: string) => void;
+    cards: SARIdentityCard[]; runs: SARSimulationRun[]; notes: CharacterCabinetNoteRecord[]; notesLoading: boolean;
+    notesError: string; onRetryNotes: () => void;
+    onOpenCard: (card: SARIdentityCard) => void; onOpenNote: (note: CharacterCabinetNoteRecord) => void;
+}> = ({ shelf, onShelfChange, characters, characterGroups, selectedCharId, onSelectChar, cards, runs, notes, notesLoading, notesError, onRetryNotes, onOpenCard, onOpenNote }) => {
     const selectedChar = characters.find(char => char.id === selectedCharId) || characters[0] || null;
-    const selectedCards = cards.filter(card => card.charId === selectedChar?.id);
+    const selectedCards = useMemo(() => cards.filter(card => card.charId === selectedChar?.id), [cards, selectedChar?.id]);
     const selectedNotes = notes.filter(note => note.actorId === selectedChar?.id);
-    const activeCount = selectedCards.filter(card => runs.some(run => run.cardId === card.id && run.status === 'active')).length;
-    const returnedCount = selectedCards.filter(card => runs.some(run => run.cardId === card.id && run.archiveReason === 'completed')).length;
-
-    return (
-        <main className="sarc-records sarc-archive">
-            <div className="sarc-archive__intro">
-                <small>PRIVATE ISEKAI CABINET</small>
-                <h2>{shelf === 'mine' ? '我的异界史册' : '看看角色的柜子'}</h2>
-                <p>{shelf === 'mine' ? '按角色收好每张异格、每次启程，以及已经带回来的故事。' : '他们偶尔也会自己抽卡，给别人装上两枚芯片，再把事故和吐槽偷偷记下来。'}</p>
-            </div>
-
-            <div className="sarc-archive__switch" role="tablist" aria-label="选择柜子归属">
-                <button type="button" role="tab" aria-selected={shelf === 'mine'} className={shelf === 'mine' ? 'is-active' : ''} onClick={() => onShelfChange('mine')}><BookOpen size={14} weight="fill" /><span>我的柜子<small>异格与返航史册</small></span></button>
-                <button type="button" role="tab" aria-selected={shelf === 'characters'} className={shelf === 'characters' ? 'is-active' : ''} onClick={() => onShelfChange('characters')}><Eye size={14} weight="fill" /><span>看看角色的柜子<small>TA 的随笔与吐槽</small></span></button>
-            </div>
-
-            <div className="sarc-archive__rail" aria-label="按角色查看柜子">
-                {characters.map(char => {
-                    const count = shelf === 'mine' ? cards.filter(card => card.charId === char.id).length : notes.filter(note => note.actorId === char.id).length;
-                    return <button type="button" key={char.id} className={char.id === selectedChar?.id ? 'is-active' : ''} onClick={() => onSelectChar(char.id)}><CharacterPortrait char={char} /><span>{char.name}</span><b>{count}</b></button>;
-                })}
-            </div>
-
-            {selectedChar && <section className="sarc-archive__owner">
-                <div><CharacterPortrait char={selectedChar} large /><i /></div>
-                <span><small>{shelf === 'mine' ? 'MY COLLECTION · BY CHARACTER' : 'CHARACTER PRIVATE NOTES'}</small><h3>{shelf === 'mine' ? `与 ${selectedChar.name} 有关的异格` : `${selectedChar.name} 的柜子`}</h3><p>{shelf === 'mine' ? `${selectedCards.length} 张异格 · ${activeCount} 条坐标进行中 · ${returnedCount} 次完整返航` : `${selectedNotes.length} 篇自由活动随笔；这里只是 TA 自己玩过的记录。`}</p></span>
-            </section>}
-
-            {shelf === 'mine' ? (
-                selectedCards.length ? <div className="sarc-keepsakes">{selectedCards.map((card, index) => {
-                    const cardRuns = runs.filter(run => run.cardId === card.id);
-                    const run = cardRuns.find(item => item.status === 'active') || cardRuns[0];
-                    const worldline = resolveSARWorldlineProfile(card);
-                    const status = !run ? '待启程' : run.status === 'active' ? `${run.interactionsUsed}/50 · 异界中` : run.archiveReason === 'completed' ? '50/50 · 已返航' : `${run.interactionsUsed}/50 · 残卷`;
-                    return <button type="button" className={`sarc-keepsake is-${index % 4}`} key={card.id} onClick={() => onOpenCard(card)}>
-                        <div className="sarc-keepsake__portrait"><CharacterPortrait char={{ name: card.charName, avatar: card.charAvatar || '' }} /><span>NO.{card.id.slice(-4).toUpperCase()}</span></div>
-                        <small>{worldline.worldName}</small><h3>{card.profile.title}</h3><blockquote>“{card.profile.steelSeal}”</blockquote>
-                        <footer><span>{status}</span><b>{cardRuns.length ? `${cardRuns.length} 卷` : '新卡'}</b></footer>
-                    </button>;
-                })}</div> : <div className="sarc-archive__empty"><BookOpen size={30} weight="thin" /><h3>这一格还很空</h3><p>给 {selectedChar?.name || '这个角色'} 铸造第一张异格，它会像一本新书一样留在这里。</p></div>
-            ) : notesLoading ? <div className="sarc-archive__empty"><CircleNotch className="animate-spin" size={24} /><p>正在翻找角色留下的随笔……</p></div> : selectedNotes.length ? <div className="sarc-character-notes">{selectedNotes.map(note => (
-                <button type="button" key={`${note.messageId}-${note.id}`} onClick={() => onOpenNote(note)}>
-                    <header><span>{shortDate(note.createdAt)} · 给 {note.targetName}</span><b>TA 的随笔</b></header>
-                    <h3>{note.title}</h3>
-                    <div><i>{note.variantTitle}</i><em>×</em><i>{note.storyTitle}</i></div>
-                    <blockquote>“{note.highlight}”</blockquote>
-                    <footer>从 {selectedChar?.name} 的柜子抽出这篇记录 <span>→</span></footer>
-                </button>
-            ))}</div> : <div className="sarc-archive__empty"><Eye size={30} weight="thin" /><h3>TA 还没往这里塞东西</h3><p>{selectedChar?.name || '这个角色'} 在自由活动时随机逛进 SAR，才会抽卡、给别人装芯片并留下随笔。</p></div>}
-        </main>
-    );
+    const runsByCard = useMemo(() => {
+        const index = new Map<string, SARSimulationRun[]>();
+        for (const run of runs) index.set(run.cardId, [...(index.get(run.cardId) || []), run]);
+        return index;
+    }, [runs]);
+    const counts = useMemo(() => {
+        if (shelf !== 'mine') return undefined;
+        const index = new Map<string, number>();
+        for (const card of cards) index.set(card.charId, (index.get(card.charId) || 0) + 1);
+        return index;
+    }, [cards, shelf]);
+    const [recordPage, setRecordPage] = useState(0);
+    useEffect(() => setRecordPage(0), [shelf, selectedCharId]);
+    const count = shelf === 'mine' ? selectedCards.length : selectedNotes.length;
+    const pages = Math.max(1, Math.ceil(count / 6)), page = Math.min(recordPage, pages - 1);
+    return <main className="sarc-records sarc-archive">
+        <p className="sarc-library-lead">收好另一个世界的你们。</p>
+        <div className="sarc-archive__switch" role="tablist" aria-label="选择柜子归属">
+            <button type="button" role="tab" aria-selected={shelf === 'mine'} onClick={() => onShelfChange('mine')}><BookOpen size={16}/><span>我的史册</span></button>
+            <button type="button" role="tab" aria-selected={shelf === 'characters'} onClick={() => onShelfChange('characters')}><Eye size={16}/><span>角色的随笔</span></button>
+        </div>
+        <SARCharacterPicker characters={characters} groups={characterGroups} selectedId={selectedCharId} onSelect={onSelectChar} counts={counts}/>
+        {selectedChar && <header className="sarc-library-owner">
+            <CharacterPortrait char={selectedChar}/><div><h2>{selectedChar.name}</h2><p>{shelf === 'mine' ? selectedCards.length + ' 张异格 · 每一张都能继续启程' : 'TA 自由活动时留下的异界随笔'}</p></div>
+            <BookOpen size={23} weight="light"/>
+        </header>}
+        {shelf === 'mine' ? (selectedCards.length ? <div className="sarc-library-books">{selectedCards.slice(page * 6, (page + 1) * 6).map(card => {
+            const cardRuns = runsByCard.get(card.id) || [];
+            const run = cardRuns.find(item => item.status === 'active') || cardRuns[0];
+            const status = !run ? '待启程' : run.status === 'active' ? run.interactionsUsed + '/50 · 异界中' : run.archiveReason === 'completed' ? '已返航' : '已封存';
+            const worldline = resolveSARWorldlineProfile(card);
+            return <button type="button" className="sarc-library-book" key={card.id} onClick={() => onOpenCard(card)}>
+                <span className="sarc-library-spine" aria-hidden="true"><BookOpen size={20}/></span>
+                <span className="sarc-library-book-text"><small>{worldline.worldName}</small><strong>{card.profile.title}</strong><em>{card.profile.logline || card.profile.steelSeal}</em><i>{status}{cardRuns.length > 0 && ' · ' + cardRuns.length + ' 卷'}</i></span>
+                <span aria-hidden="true">↗</span>
+            </button>;
+        })}</div> : <div className="sarc-library-empty"><BookOpen size={32} weight="light"/><h3>故事还没翻开</h3><p>点右上角「铸造」，为{selectedChar?.name || '角色'}选好两枚芯片，写下第一个开场。</p></div>)
+        : notesLoading ? <div className="sarc-library-empty" role="status"><CircleNotch className="animate-spin" size={24}/><p>正在打开这位角色的随笔…</p></div>
+        : notesError ? <div className="sarc-library-empty" role="alert"><h3>随笔暂时没能打开</h3><p>{notesError}</p><button type="button" className="sarc-library-retry" onClick={onRetryNotes}>重新读取随笔</button></div>
+        : selectedNotes.length ? <div className="sarc-character-notes">{selectedNotes.slice(page * 6, (page + 1) * 6).map(note => <button type="button" key={note.id} onClick={() => onOpenNote(note)}>
+            <header><span>{shortDate(note.createdAt)} · 给 {note.targetName}</span></header><h3>{note.title}</h3><p>{note.variantTitle} × {note.storyTitle}</p><blockquote>“{note.highlight}”</blockquote>
+        </button>)}</div> : <div className="sarc-library-empty"><Eye size={32} weight="light"/><h3>还没留下随笔</h3><p>{selectedChar?.name || '角色'}在自由活动中玩过芯片后，记录会收在这里。</p></div>}
+        <SARPageNav page={page} pages={pages} onChange={setRecordPage} label="史册"/>
+    </main>;
 };
 
 const CharacterNoteView: React.FC<{ note: CharacterCabinetNoteRecord; actor?: CharacterProfile }> = ({ note, actor }) => (
@@ -200,11 +191,12 @@ const CharacterNoteView: React.FC<{ note: CharacterCabinetNoteRecord; actor?: Ch
 export const SARAssemblyCabinetOverlay: React.FC<{
     onClose: () => void;
     characters: CharacterProfile[];
+    characterGroups?: CharacterGroup[];
     apiConfig: APIConfig;
     userProfile: UserProfile;
     groups: GroupProfile[];
     realtimeConfig?: RealtimeConfig;
-}> = ({ onClose, characters, apiConfig, userProfile, groups, realtimeConfig }) => {
+}> = ({ onClose, characters, characterGroups = [], apiConfig, userProfile, groups, realtimeConfig }) => {
     const [view, setView] = useState<CabinetView>('cards');
     const [shelf, setShelf] = useState<CabinetShelf>('mine');
     const [selectedCharId, setSelectedCharId] = useState(characters[0]?.id || '');
@@ -218,6 +210,8 @@ export const SARAssemblyCabinetOverlay: React.FC<{
     const [activeNote, setActiveNote] = useState<CharacterCabinetNoteRecord | null>(null);
     const [characterNotes, setCharacterNotes] = useState<CharacterCabinetNoteRecord[]>([]);
     const [notesLoading, setNotesLoading] = useState(true);
+    const [notesError, setNotesError] = useState('');
+    const [notesRetry, setNotesRetry] = useState(0);
     const [sessionTheme, setSessionTheme] = useState<SARSessionTheme>(readSARSessionTheme);
     const gachaState = useMemo(() => readSARGachaState(), []);
     const selectedChar = characters.find(char => char.id === selectedCharId) || null;
@@ -231,37 +225,31 @@ export const SARAssemblyCabinetOverlay: React.FC<{
     const openAssembly = () => { setView('assemble'); setActiveCard(null); setActiveNote(null); setError(''); };
 
     useEffect(() => {
-        let alive = true;
+        if (shelf !== 'characters' || view !== 'cards' || !selectedCharId) return;
+        let alive = true, revision = 0;
         const loadNotes = async () => {
-            setNotesLoading(true);
+            const request = ++revision;
+            setNotesLoading(true); setCharacterNotes([]); setNotesError('');
             try {
-                const noteGroups = await Promise.all(characters.map(async char => {
-                    const messages = await DB.getVRCardsByCharId(char.id);
-                    return messages.flatMap(message => {
-                        const note = message.metadata?.sarCabinetNote as SARCharacterCabinetNoteMeta | undefined;
-                        return note?.id && note.actorId ? [{ ...note, messageId: message.id }] : [];
-                    });
-                }));
-                if (alive) setCharacterNotes(noteGroups.flat().sort((a, b) => b.createdAt - a.createdAt));
+                // Only the opened cabinet is queried. Dozens of characters no longer fan out into dozens of DB reads.
+                const messages = await DB.getVRCardsByCharId(selectedCharId);
+                const notes = messages.flatMap(message => {
+                    const note = message.metadata?.sarCabinetNote as SARCharacterCabinetNoteMeta | undefined;
+                    return note?.id && note.actorId === selectedCharId ? [{ ...note, messageId: message.id }] : [];
+                });
+                if (alive && request === revision) setCharacterNotes(notes.sort((a, b) => b.createdAt - a.createdAt));
             } catch {
-                if (alive) setCharacterNotes([]);
-            } finally {
-                if (alive) setNotesLoading(false);
-            }
+                if (alive && request === revision) setNotesError('读取出了点问题，可以再试一次。已有记录不会因此被删除。');
+            } finally { if (alive && request === revision) setNotesLoading(false); }
         };
-        void loadNotes();
         const refresh = () => { void loadNotes(); };
-        window.addEventListener('vr-session-done', refresh);
+        refresh(); window.addEventListener('vr-session-done', refresh);
         return () => { alive = false; window.removeEventListener('vr-session-done', refresh); };
-    }, [characters]);
+    }, [selectedCharId, shelf, view, notesRetry]);
 
     useEffect(() => {
-        const idsWithRecords = shelf === 'mine'
-            ? Array.from(new Set(simulationState.cards.map(card => card.charId)))
-            : Array.from(new Set(characterNotes.map(note => note.actorId)));
-        if (idsWithRecords.length && !idsWithRecords.includes(selectedCharId)) setSelectedCharId(idsWithRecords[0]);
-        else if (!characters.some(char => char.id === selectedCharId) && characters[0]) setSelectedCharId(characters[0].id);
-    }, [shelf, simulationState.cards, characterNotes, characters, selectedCharId]);
+        if (!characters.some(char => char.id === selectedCharId)) setSelectedCharId(characters[0]?.id || '');
+    }, [characters, selectedCharId]);
 
     useEffect(() => {
         if (view === 'session') return;
@@ -330,13 +318,14 @@ export const SARAssemblyCabinetOverlay: React.FC<{
     const paperSurface = view !== 'assemble' && !(view === 'session' && sessionTheme === 'dark');
 
     return (
-        <div className={`sarc-root ${paperSurface ? 'is-paper-surface' : 'is-machine-surface'} ${view==='card'||view==='session'?'is-reading-surface':''}`} role="dialog" aria-modal="true" aria-label="SAR 异格陈列柜">
+        <div className={`sarc-root ${view === 'cards' ? 'is-archive-home' : ''} ${paperSurface ? 'is-paper-surface' : 'is-machine-surface'} ${view==='card'||view==='session'?'is-reading-surface':''}`} role="dialog" aria-modal="true" aria-label="SAR 异格陈列柜">
             <SARCabinetStyle />
             <div className="sarc-grid-bg" />
-            {view !== 'session' && <header className="sarc-header">
+            {view !== 'session' && <header className="sarc-header sar-facility-header">
                 <button type="button" onClick={handleBack} aria-label={view === 'cards' ? '离开异格陈列柜' : '返回异界史册'}>{view === 'cards' ? <X size={18} /> : <CaretLeft size={19} />}</button>
                 <div><small>SAR ACTIVITY SPACE · CABINET</small><h1>{headerTitle}</h1></div>
                 <button type="button" className="sarc-header__records" onClick={() => view === 'cards' ? openAssembly() : setView('cards')} disabled={loading}><span>{view === 'cards' ? '＋' : simulationState.cards.length}</span><i>{view === 'cards' ? '铸造' : '史册'}</i></button>
+                <SARFacilityGuide facility="cabinet"/>
             </header>}
 
             {view === 'session' && activeCard && activeRun ? <SARSimulationSession
@@ -349,14 +338,15 @@ export const SARAssemblyCabinetOverlay: React.FC<{
                 onThemeChange={setSessionTheme}
                 onBack={handleBack}
             /> : view === 'card' && activeCard ? <IdentityCardView card={activeCard} run={activeRun} onStartRun={startRun} onEnterRun={() => setView('session')} onAssemble={openAssembly} /> : view === 'note' && activeNote ? <CharacterNoteView note={activeNote} actor={characters.find(char => char.id === activeNote.actorId)} /> : view === 'cards' ? <CabinetRecordsView
-                shelf={shelf} onShelfChange={setShelf} characters={characters} selectedCharId={selectedCharId} onSelectChar={setSelectedCharId}
+                shelf={shelf} onShelfChange={setShelf} characters={characters} characterGroups={characterGroups} selectedCharId={selectedCharId} onSelectChar={setSelectedCharId}
                 cards={simulationState.cards} runs={simulationState.runs} notes={characterNotes} notesLoading={notesLoading}
+                notesError={notesError} onRetryNotes={() => setNotesRetry(value => value + 1)}
                 onOpenCard={openCard} onOpenNote={openNote}
             /> : (
                 <main className="sarc-main">
                     <section className="sarc-character-section">
                         <div className="sarc-section-label"><span>01</span><div><small>SELECT SUBJECT</small><h2>选择角色母体</h2></div></div>
-                        {characters.length ? <div className="sarc-character-rail">{characters.map(char => <button type="button" key={char.id} className={char.id === selectedCharId ? 'is-active' : ''} onClick={() => setSelectedCharId(char.id)}><CharacterPortrait char={char} /><span>{char.name}</span></button>)}</div> : <p className="sarc-no-character">当前没有可供铸造的角色。</p>}
+                        <SARCharacterPicker characters={characters} groups={characterGroups} selectedId={selectedCharId} onSelect={setSelectedCharId}/>
                     </section>
 
                     <section className="sarc-assembly">

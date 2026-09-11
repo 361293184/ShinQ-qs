@@ -1,3 +1,4 @@
+import { SAR_STARTING_BALANCE } from './sarEconomy';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { runVRSession } from './runSession';
 import { DB } from '../db';
@@ -97,7 +98,7 @@ it('completed tip reaches both characters and the next call can react to what ac
     let s=readFishingMarketState();s=createRequest(s,{id:'b',name:'旁边那位',kind:'character'},undefined,'给我钱',30,'给我钱！！',Date.now(),'tip');saveFishingMarketState(s);
     answer(`<NOTE>还真敢要钱。</NOTE><ACTION>fulfill</ACTION><TARGET>${s.requests[0].id}</TARGET><WORDS>拿好</WORDS><SHARE>none</SHARE>`);
     expect((await runVRSession({...deps,forcedSARActivity:'market'})).ok).toBe(true);
-    expect(readFishingMarketState().accounts).toMatchObject({a:970,b:1030});
+    expect(readFishingMarketState().accounts).toMatchObject({a:SAR_STARTING_BALANCE-30,b:SAR_STARTING_BALANCE+30});
     expect(mocks.messages.some(m=>m.charId==='b'&&m.content.includes('真的给')&&m.content.includes('给我钱！！'))).toBe(true);
     answer('<NOTE>居然真有人给了！</NOTE><ACTION>browse</ACTION><SHARE>guestbook</SHARE><SHARE_WORDS>我要了30块，居然真收到了！</SHARE_WORDS>');
     expect((await runVRSession({...deps,char:b,forcedSARActivity:'market'})).ok).toBe(true);
@@ -108,7 +109,7 @@ it('completed tip reaches both characters and the next call can react to what ac
 it('invalid action does not pay or broadcast an invented success',async()=>{
     answer('<NOTE>我要买</NOTE><ACTION>buy</ACTION><TARGET>nonexistent</TARGET><SHARE>guestbook</SHARE><SHARE_WORDS>我已买走整个世界！</SHARE_WORDS>');
     expect((await runVRSession({...deps,forcedSARActivity:'market'})).ok).toBe(true);expect(mocks.board.messages).toHaveLength(0);
-    expect(readFishingMarketState().accounts.a).toBe(1000);expect(mocks.messages.at(-1).content).toContain('未成交');
+    expect(readFishingMarketState().accounts.a).toBe(SAR_STARTING_BALANCE);expect(mocks.messages.at(-1).content).toContain('未成交');
 });
 it('empty output preserves the rolled catch without fabricating a character decision',async()=>{
     answer('');expect((await runVRSession({...deps,forcedSARActivity:'fishing'})).ok).toBe(false);expect(readFishingMarketState().inventory).toHaveLength(1);expect(readFishingMarketState().fishingTrips![0].result).toBeUndefined();

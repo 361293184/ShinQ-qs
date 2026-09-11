@@ -716,8 +716,9 @@ export const DB = {
     });
   },
 
-  // Same as getRecentMessagesByCharId but also returns the total count (for UI display)
-  getRecentMessagesWithCount: async (charId: string, limit: number): Promise<{ messages: Message[], totalCount: number }> => {
+  // UI 读取不受记忆水位影响。先按展示范围筛选，再凑满 N 条，避免见面/通话占满窗口。
+  // totalCount 仍是廉价的索引计数上限；游标已取尽时，调用方用实际展示条数替代它。
+  getRecentMessagesWithCount: async (charId: string, limit: number, accept?: (message: Message) => boolean): Promise<{ messages: Message[], totalCount: number }> => {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_MESSAGES, 'readonly');
@@ -733,7 +734,7 @@ export const DB = {
               const cursor = cursorReq.result;
               if (cursor && collected.length < limit) {
                   const m = cursor.value as Message;
-                  if (!m.groupId) collected.push(m);
+                  if (!m.groupId && (!accept || accept(m))) collected.push(m);
                   cursor.continue();
               } else {
                   resolve({ messages: collected.reverse(), totalCount });
@@ -778,7 +779,8 @@ export const DB = {
         const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Date.now();
         const { timestamp: _ignored, ...payload } = msg;
         const request = store.add({ ...payload, timestamp });
-        request.onsuccess = () => {
+        // request 成功后事务仍可能回滚。主动消息通知和定时任务销账都必须等提交。
+        transaction.oncomplete = () => {
             const newId = request.result as number;
             // 水位线自愈：新消息的自增 id 必然大于既有一切消息 id，也就必然大于水位线
             // （水位线本身是某条旧消息的 id）。出现 newId ≤ 水位线，只有一种可能——
@@ -796,6 +798,8 @@ export const DB = {
             resolve(newId);
         };
         request.onerror = () => reject(request.error);
+        transaction.onerror = () => reject(transaction.error || new Error('消息未能保存'));
+        transaction.onabort = () => reject(transaction.error || new Error('消息未能保存'));
     });
   },
 
@@ -1726,8 +1730,13 @@ export const DB = {
 
   saveScheduledMessage: async (msg: ScheduledMessage): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).put(msg);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).put(msg);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能保存'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能保存'));
+      });
   },
 
   getDueScheduledMessages: async (charId: string): Promise<ScheduledMessage[]> => {
@@ -1749,8 +1758,13 @@ export const DB = {
 
   deleteScheduledMessage: async (id: string): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).delete(id);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).delete(id);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能删除'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能删除'));
+      });
   },
 
   saveUserProfile: async (profile: UserProfile): Promise<void> => {

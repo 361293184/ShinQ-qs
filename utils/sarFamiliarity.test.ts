@@ -35,14 +35,16 @@ describe('SAR authored personal lines',()=>{
         await visitFamiliarity('caian',{storage:s,userName:'小雨',now:now-86400000,random:()=>0});expect(read(s).sarFamiliarity!.npcs.caian.offerId).toBeNull();
         await visitFamiliarity('caian',{storage:s,userName:'小雨',now:now+86400000,random:()=>0});expect(read(s).sarFamiliarity!.npcs.caian.offerId).toBe('C1-01');
     });
-    it('retains pending choices/drafts across midnight and never skips on duplicate next',async()=>{
+    it('restarts interrupted topics, drops draft choices, and ignores stale or duplicate advances',async()=>{
         const s=await setup();await offer(s,'C1-01');const cursor=read(s).sarFamiliarity!.npcs.caian.pending!;
         await saveFamiliarityDraft('caian',cursor,{confirmed:true,photo:{caption:'保留'}},s);
         await visitFamiliarity('caian',{storage:s,userName:'小雨',now:now+86400000,random:()=>0});
-        expect(read(s).sarFamiliarity!.npcs.caian.pending?.drafts.start).toEqual({confirmed:true,photo:{caption:'保留'}});
-        await Promise.all([0,1].map(()=>advanceFamiliarity('caian',cursor,{storage:s,now,choice:0})));
+        const restarted=read(s).sarFamiliarity!.npcs.caian.pending!;
+        expect(restarted.drafts).toEqual({});expect(restarted.nodeId).toBe('start');expect(restarted.line).toBe(0);
+        await advanceFamiliarity('caian',cursor,{storage:s,now,choice:0});expect(read(s).sarFamiliarity!.npcs.caian.pending).toEqual(restarted);
+        await Promise.all([0,1].map(()=>advanceFamiliarity('caian',restarted,{storage:s,now,choice:0})));
         expect(read(s).sarFamiliarity!.npcs.caian.pending?.nodeId).toBe('answer-1');
-        expect(read(s).sarFamiliarity!.npcs.caian.pending?.revision).toBe(1);
+        expect(read(s).sarFamiliarity!.npcs.caian.pending?.revision).toBe(restarted.revision+1);
         await complete(s,'C1-01');await visitFamiliarity('caian',{storage:s,userName:'小雨',now:now+86400000,random:()=>0});
         expect(read(s).sarFamiliarity!.npcs.caian.offerId).not.toBe('C1-01');
     });
@@ -59,7 +61,9 @@ describe('SAR authored personal lines',()=>{
     it('coupon rain grants once under races, without adding a second confirmation',async()=>{
         const s=await setup(),scene=familiarityScene('A2-E03')!;await offer(s,scene.id,'rain');const cursor=read(s).sarFamiliarity!.npcs.aiven.pending!;
         await Promise.all([0,1,2].map(()=>advanceFamiliarity('aiven',cursor,{storage:s,now,draft:{confirmed:true}})));
-        expect(read(s).sarFamiliarity!.coupons).toHaveLength(3);
+        expect(read(s).sarFamiliarity!.coupons).toHaveLength(0);
+        await complete(s,scene.id);expect(read(s).sarFamiliarity!.coupons).toHaveLength(3);
+        await advanceFamiliarity('aiven',cursor,{storage:s,now});expect(read(s).sarFamiliarity!.coupons).toHaveLength(3);
     });
     it('membership needs a deliberate confirmation before saving the keepsake',async()=>{
         const s=await setup();await offer(s,'C1-SPECIAL','member-card');const cursor=read(s).sarFamiliarity!.npcs.caian.pending!;

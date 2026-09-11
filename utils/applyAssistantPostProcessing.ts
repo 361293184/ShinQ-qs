@@ -87,7 +87,6 @@ const normalizeAiContent = (raw: string): string => {
     cleaned = cleaned.replace(/^[\w一-龥]+:\s*/, '');
     // Strip source tags [聊天]/[通话]/[约会] leaked from history context — replace with newline to preserve intended splits
     cleaned = cleaned.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n');
-    cleaned = cleaned.replace(/\[(?:你|User|用户|System)\s*发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
     return cleaned;
 };
 
@@ -99,8 +98,15 @@ const normalizeAiContent = (raw: string): string => {
  * 这份拆法刻意和 renderAndPersist 保持一致，surface 才不会在特殊模式里串到下一泡。
  */
 export const splitSARChatSurfaceBubbles = (raw: string): string[] => {
-    let content = ChatParser.sanitize(raw || '', { keepCitations: true });
-    content = content.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, '').trim();
+    // Match canonical preprocessing before splitting. History-style stickers must
+    // become emoji tokens, not text chunks that consume the next speech's slot.
+    // This only normalizes display text; surface commands are never executed.
+    const withoutShares = extractMimickedXhsShares(normalizeAiContent(raw)).cleanedContent;
+    const withoutCards = extractHtmlBlocks(withoutShares).cleanedContent;
+    let content = ChatParser.sanitize(withoutCards, { keepCitations: true });
+    // Only speech takes a surface slot. Card/action directives belong to canonical;
+    // keep emoji tokens just long enough for splitResponse to exclude them too.
+    content = content.replace(/\[\[(?!SEND_EMOJI:)[\s\S]*?\]\]/g, '').trim();
     if (!content) return [];
 
     const chunks: string[] = [];
