@@ -7,6 +7,7 @@ import { consumeOwnedSARModule, drawSARModuleWithPayment, readSARCommerce } from
 import { acquireCharacterModule, consumeCharacterModule } from './vrWorld/sarCharacterCommerce';
 import { collectSARLocalBackup, restoreSARLocalBackup } from './vrWorld/sarBackup';
 import { SAR_ALL_MODULES } from './vrWorld/sarGacha';
+import { freshFamiliarity } from './vrWorld/sarFamiliarity/storageTypes';
 const id = SAR_MODULE_CATALOG[0].id, other = SAR_MODULE_CATALOG[1].id;
 const actor = { id: 'aran', name: '阿岚', kind: 'character' as const };
 const init = () => ({ ...M.createFishingMarketState(42), sarCommerce: { moduleShop: createSARModuleShopState(), gacha: { version: 1 as const, collection: {}, history: [], freeDrawDate: {} } } });
@@ -16,9 +17,24 @@ describe('SAR personal collection atlas', () => {
     it('uses the actual catalogs and counts distinct kinds, not duplicate units', () => {
         const s = init(); s.sarCommerce.gacha.collection = { 'story-01': 6, 'variant-01': 4, unknown: 90 }; s.sarCommerce.moduleShop.inventory = { [id]: 12, unknown: 8 };
         const p = sarCollectionProgress(sarCollectionEntries(s, 'user'));
-        expect(p.map(x => x.total)).toEqual([M.FISH_CATALOG.filter(f => f.category === 'fish').length, M.FISH_CATALOG.filter(f => f.category !== 'fish').length, SAR_ALL_MODULES.length, SAR_MODULE_CATALOG.length]);
+        const availableDinos=[...M.FISH_CATALOG,...M.STORY_CATCH_CATALOG].filter(f=>f.category==='time-relic'&&f.id!=='dinosaur-egg').map(f=>f.id);
+        expect(sarCollectionEntries(s,'user').filter(e=>e.category==='dinosaur').map(e=>e.id)).toEqual(availableDinos);
+        expect(p.map(x => x.total)).toEqual([M.FISH_CATALOG.filter(f => f.category === 'fish').length, availableDinos.length, SAR_ALL_MODULES.length, SAR_MODULE_CATALOG.length]);
         expect(p.map(x => x.collected)).toEqual([0,0,2,1]);
         expect(sarCollectionProgress(sarCollectionEntries(s, actor.id)).every(x => x.collected === 0)).toBe(true);
+    });
+    it('opens the egg atlas at the authored unlock and preserves legacy egg/chimera ownership history',()=>{
+        let s:M.FishingMarketState=init();
+        expect(entry(s,'user','dinosaur-egg')).toBeUndefined();
+        s.sarFamiliarity=freshFamiliarity();s.sarFamiliarity.unlocks.push('eggs');
+        expect(entry(s,'user','dinosaur-egg')).toMatchObject({collected:false,owned:0});
+        delete s.sarFamiliarity;
+        for(const speciesId of ['dinosaur-egg','aiven-chimera'])s=M.addCatchToState(s,{id:speciesId,ownerId:'user',ownerName:'我',speciesId,caughtAt:1,weather:'clear',weatherLabel:'晴',weatherSource:'simulated',sizeCm:12,quality:1});
+        expect(entry(s,'user','dinosaur-egg')).toMatchObject({collected:true,owned:1});
+        s={...s,inventory:[]};
+        expect(entry(s,'user','dinosaur-egg')).toMatchObject({collected:true,owned:0});
+        expect(entry(s,'user','aiven-chimera')).toMatchObject({collected:true,owned:0});
+        expect(entry(s,'friend','dinosaur-egg')).toBeUndefined();
     });
     it('preserves fish discovery after sale or release and records each true owner', () => {
         const fish = M.rollFishingCatch(actor, { kind: 'clear', label: '晴', detail: '', source: 'simulated' }, () => 0);

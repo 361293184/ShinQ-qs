@@ -28,3 +28,5 @@ pnpm exec vite build --config prototypes/dino-cafe/vite.config.ts
 摆放采用可取消的草稿：选摆件或恐龙后出现格子、光圈和朝向箭头，最后点「确定摆放」才保存。可直接点场景的小爪印选择互动玩具；恐龙固定在确认位置，只做原地头部、尾巴、脚部动作与相应物品反馈。原型与正式彼方共用这套逻辑。
 
 面向用户的 SAR 全设施流程、角色行动与 LLM 调用次数：[SAR 活动室怎么玩](../../docs/sar-user-guide.md)。
+
+艾文三星专属「？？？」使用 `aiven-chimera` 模型 ID，与普通恐龙共用材质、换色与箱庭动作。可用 `node prototypes/dino-cafe/generate-models.mjs --only=aiven-chimera` 只重建这一只，保留其他二进制模型。独立视觉检查在 `test/fixtures/aiven-chimera.html`（内存数据，无存档读写），运行 `scripts/test-aiven-chimera-model.mjs` 检查模型结构、换色、动作及三个屏宽。该模型的 catalog 条目不会自行进入随机垂钓池。

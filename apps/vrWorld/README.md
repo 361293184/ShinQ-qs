@@ -1,23 +1,27 @@
 # 彼方 / SAR 开发交接
 
-2026-09-07：SAR 活动空间暂时使用用户提供的原画（`assets/sar-club-room.png`），按原比例完整显示，保留原有功能入口；已移除本次 Three.js 场景。
+当前实现核对：2026-09-11。开发分支：`codex/dino-cafe-art`。
 
-更新时间：2026-09-06
+SAR 活动室使用用户提供的原画（`assets/sar-club-room.png`），按原比例显示；恐龙箱庭在自己的设施页面按需加载 Three.js。两人的个人线、情绪立绘、特殊演出、真实赠品与名册回放已经接入正式入口。
 
-开发分支：`codex/kanata-update`
-功能基线提交：`668a3926 feat: expand Kanata SAR systems`
+| 文档 | 内容 |
+| --- | --- |
+| [SAR 活动室怎么玩](../../docs/sar-user-guide.md) | 用户入口、完整流程、模型调用次数与存档 |
+| [个人线](../../docs/sar-personal-lines.md) / [凯恩原稿核对](../../docs/sar-familiarity-caian-content.md) | 每日话题、星级事件、演出、奖励、回忆与内容来源 |
+| [数值规划](../../docs/sar-economy.md) | 钱包、抽取、模块、折扣和系统回收 |
+| [叙事与世界意志](../../docs/sar-narrative-principles.md) | 生成式推演的叙事边界，与固定个人线的区别 |
+| [水域与布告板](./FISHING.md) | 钓鱼、交易、行情、图鉴与事实回执 |
+| [恐龙箱庭](./DINOSAUR-GARDEN.md) / [SAR 美术](./SAR-ART.md) | 模型、摆放、来访、立绘与手游式界面 |
 
-2026-09-06 新增水域、每家独立布告板及往期活动入口，玩法、事实边界与验证见 [FISHING.md](./FISHING.md)。
+这份文档用于在另一台电脑上继续开发当前的彼方大更新。当前结构：**SAR 是与「世界」并列的一级入口，点击后进入独立全屏活动室**，收起公共顶栏和世界翻页；左上角返回彼方，右上角提供隐藏标记、设置与仓库。凯恩与艾文是可关闭的固定 NPC；人格推演、陈列柜、模块商店都属于这片空间的设施。
 
-这份文档用于在另一台电脑上继续开发当前的彼方大更新。当前结构：**SAR 是与「世界」并列的一级入口，点击后进入独立全屏活动室**，收起公共顶栏和世界翻页；左上角返回彼方，右上角设置与仓库。凯恩与艾文是可关闭的固定 NPC；人格推演、陈列柜、模块商店都属于这片空间的设施。
-
-## 在家里的电脑接续
+## 换电脑继续开发
 
 首次拉取这个分支：
 
 ```bash
 git fetch origin
-git switch -c codex/kanata-update --track origin/codex/kanata-update
+git switch -c codex/dino-cafe-art --track origin/codex/dino-cafe-art
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -25,7 +29,7 @@ pnpm dev
 如果本地已经有同名分支：
 
 ```bash
-git switch codex/kanata-update
+git switch codex/dino-cafe-art
 git pull --ff-only
 pnpm install --frozen-lockfile
 pnpm dev
@@ -42,6 +46,10 @@ pnpm dev
 - 凯恩初见是写死的 Galgame 分支，不调用 LLM；结束后移除感叹号。
 - “监控回档”只重置凯恩初见，不重置更新公告与 NPC 偏好。
 - 历史备份恢复后，SAR 首次触发状态跟随导入数据，不沿用导入前设备状态。
+- 凯恩初见结束后及艾文入口进入各自个人线。每位 NPC 每个本地自然日固定一次随机结果：80% 有未完成话题、20% 日常问候；当前星级十个普通话题完成后，直接开放星级事件。只有事件完整结束才升星，五颗星目前实现到三星。
+- 本人讲话时单人居中；只有另一位 NPC 实际发言才临时同框，回到本人讲话恢复单人。提及名字不会让对方出场；叙述沿用最近说话者，续看和回放遵循同一规则。
+- 13 张用户原画表情已作为本地 WebP 随包提供，失败才回落原 CDN。证件、会议、合照、礼炮、券雨、物品堆、神秘按钮和专属混合恐龙由程序演出，不调用模型。
+- 「仓库 → 图鉴 → 名册」保留两人完整简介、星级和已完成回忆；名册属于用户，不随仓库主人切换。回放不推进进度、不重复领物品或优惠，不发送第二次私聊彩蛋。
 
 ### 2. 异世界人格推演
 
@@ -55,7 +63,7 @@ pnpm dev
 ### 3. 模块商店与装载
 
 - 固定模块目录目前 46 件；每日随机上架 5 件，每天可手动刷新 3 次。
-- 用户模块购买按原目录价格扣鳞币；扭蛋两池每日各免费一次，其后每次 30 鳞币。余额与水域、布告板共用，原库存保留。
+- 用户模块按目录价及实际优惠扣鳞币；个人线可给 30 分钟八折和九折券，取最优单项，不叠加。扭蛋两池每日各免费一次，其后每次 30 鳞币。余额与水域、布告板共用，原库存保留；无限抽取与免费购买只属于早期试玩行为。
 - 购买只发生在 SAR 柜台；使用从角色本身发起：在彼方任意房间点击任意小人，都可以“抓住 TA · 使用模块”。
 - 对角色使用持续 10 次成功 LLM 互动；对 User 使用持续 5 次。
 - 结束后保留 3 次稳定提示：第 1 次明确察觉模块解除，后 2 次防止模型继续沿用污染语气。
@@ -99,6 +107,9 @@ Message.content              metadata.sarModuleSurface.surface
 | --- | --- |
 | `apps/VRWorldApp.tsx` | 彼方总路由、SAR 独立入口、设施弹层、任意房间抓取角色、设置与回档入口 |
 | `apps/vrWorld/SARClubEvent.tsx` | 更新弹窗、NPC 舞台、凯恩固定初见对白 |
+| `apps/vrWorld/SARFamiliarityDialog.tsx` / `SARFamiliarityEffects.tsx` | 个人线续读、分支、情绪立绘、交互演出与独立回放 |
+| `apps/vrWorld/SARFamiliarityRoster.tsx` / `SARCollectionView.tsx` | 图鉴收藏与名册两页、五颗星、已完成回忆入口 |
+| `utils/vrWorld/sarFamiliarity/` | 两人原稿、每日与星级状态、奖励事务、优惠与数据校验 |
 | `apps/vrWorld/SARGacha.tsx` | 双卡池与扭蛋动效 |
 | `apps/vrWorld/SARAssemblyCabinet.tsx` | 陈列柜、角色分类史册、身份档案与角色随笔 |
 | `apps/vrWorld/SARSimulationSession.tsx` | 正式 50 轮推演、封存、阅读与导出 |
@@ -123,11 +134,14 @@ Message.content              metadata.sarModuleSurface.surface
 | Key | 内容 |
 | --- | --- |
 | `vr_sar_club_state_v1` | 更新公告、NPC 偏好、凯恩是否见过 |
-| `vr_sar_gacha_state_v1` | 双卡池每日次数、收藏与抽取历史 |
+| `vr_fishing_market_v1` | 钱包、鱼获、交易、箱庭、收集记录；`sarCommerce` 保存用户卡池/模块，`sarCharacterModules` 保存角色模块，`sarFamiliarity` 保存个人线、纪念物、优惠与解锁 |
+| `vr_sar_gacha_state_v1` | 兼容旧卡池存档；完成迁移后以市场内 `sarCommerce.gacha` 为准 |
 | `vr_sar_simulations_v1` | 身份卡与 50 轮推演实例 |
-| `vr_sar_module_shop_v1` | 每日货架、刷新次数、模块库存与购买记录 |
+| `vr_sar_module_shop_v1` | 兼容旧商店存档；完成迁移后以市场内 `sarCommerce.moduleShop` 为准 |
 
 角色身上的模块存在 `CharacterProfile.vrState.sarModule`；User 身上的模块存在 `UserProfile.vrState.sarModule`。角色自由活动随笔以普通 `vr_card` 写进聊天，因此自然进入原有消息、上下文和记忆流程。
+
+完整 ZIP 通过 `sarBackup.ts` 采集 SAR 状态，并随 `metadata.json` 扫描纪念物及未完成照片草稿的嵌套 `blobref:`，导出二进制图片，恢复时保留原 token。纯文字备份去掉这些图片引用及内嵌图片，保留进度、文字、构图和优惠记录。代码提交不会代替用户存档备份。
 
 ## 建议先跑的检查
 
@@ -137,7 +151,7 @@ Message.content              metadata.sarModuleSurface.surface
 pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharacterCabinet.test.ts utils/sarModuleShop.test.ts utils/sarModuleRuntime.test.ts utils/vrWorld/vrWorld.test.ts utils/applyAssistantPostProcessing.test.ts utils/chatRequestPayload.test.ts utils/chatParser.chunkText.test.ts utils/minimaxTts.voice.test.ts --no-cache
 ```
 
-最近一次针对模块商店、模块气泡、翻译、语音、记忆总结与无模块回退边界的检查为 17 个文件、230 个用例全部通过；隔离 Vite 生产构建也已通过。
+个人线还需跑 `utils/sarFamiliarity.test.ts`、`utils/sarFamiliarityEdges.test.ts`、`utils/sarFamiliarityDiscounts.test.ts`、`utils/sarCollection.test.ts`、`utils/sarEconomy.test.ts`、`utils/fishBackup.roundtrip.test.ts`，以及 `scripts/test-sar-familiarity-*.mjs`、`scripts/test-sar-roster-ui.mjs`。真实 Root 测试覆盖新对话、断点、单人/临时同框、名册返回、回放不写档和赠品去重；全部使用隔离存档，模型分支使用假 API。
 
 手动测试优先顺序：
 
@@ -154,7 +168,7 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 - **鳞币消费已接通。** 用户抽卡与模块购买通过同一个写入锁，将余额、库存、免费次数和购买收据保存在 `vr_fishing_market_v1.sarCommerce` 所属的同一完整记录；旧模块键仅作为首次迁移来源。Web Locks 可用时也串行化其他页面。鳞币仍是本地游戏数据，并未接入真实充值。
 - **已经落库的旧错位气泡不会自动重排。** 重掷或生成新回复会走新映射规则。
 - **仍需真实模型矩阵测试。** 尤其检查注意力较弱的模型同时遵守 SAR 容器、内置翻译和语音标签时是否掉格式；本轮没有为了 QA 消耗真实 LLM 调用。
-- **NPC 立绘仍是 CSS 占位。** 后续导入凯恩/艾文立绘与表情拆分时，替换 `SARClubEvent.tsx` 的 `NpcStandIn`，不要改对白状态机。
+- **个人线原稿只到三星。** 四、五星保留锁定占位，不让模型临时补写。名册未解锁条目使用简短通用标题，避免泄露后续台词。
 - 柜子与模块 UI 已可用，但视觉仍可在真机性能测试后继续收敛；优先避免大面积 blur、持续发光和大量常驻动画。
 
 ## 不要破坏的约束
@@ -176,9 +190,10 @@ pnpm test:run utils/sarGacha.test.ts utils/sarSimulation.test.ts utils/sarCharac
 
 ### 随身图鉴与称号
 
-- `SARCollectionView` 从仓库右上角进入；四类目录取真实 catalog，总数目前 9 鱼类 / 12 恐龙 / 49 芯片 / 46 模块。种类点亮和当前持有数量分别统计，按 owner 切换。
+- `SARCollectionView` 从仓库右上角进入；收藏页按真实 catalog 统计鱼类、恐龙、芯片、模块，种类点亮与持有数量分开并按 owner 切换。恐龙蛋到艾文三星话题才开放，旧档当前/历史有蛋也保留；目录另有剧情专属 `aiven-chimera`，不要把可见总数写死为十二种。
 - `sarCollectionJournal` 在消耗旧库存前保留可证实的芯片/模块收集；历史购买及真实付款人的回执可补录，不把效果接收人或临时演绎算成拥有者。journal 与钱包库一起存储和备份，鱼类继续使用原有个人 collectionEntries。
 - `KanataTitleEditor` 写入个人/角色 `vrState.title` 与随机 revision；头顶称号、脚下人名、暖白设施牌采用三套外观，站位避让可见标签，自定义 chibi 缩放也计入头顶位置。
+- 新档在艾文二星事件开放称号；已获得的「听懂风的人」可选，也可自定义，不自动覆盖当前称号。旧档已有称号保留编辑资格。个人线纪念物和未用券在用户仓库的「纪念」「优惠券」中，实际物品只发一次。
 - `kanataTitle.ts` 统一 12 字符文本规范、JSON/XML 可选 metadata 提取与并发检查。`chatPrompts.ts` 注入当前聊天状态；`prompts.ts` / `runSession.ts` 接受角色本次活动的自改请求。先保存有效活动，后尝试称号更新；被关闭接入或 revision 已改变时不覆盖。普通活动状态回写也必须保留最新称号。
 - `scripts/test-sar-collection-ui.mjs` 覆盖仓库编辑、图鉴四类进度、消耗留档、主人隔离、嵌套返回与六种模型返回路径。全部模型请求在隔离浏览器里本地模拟。
 

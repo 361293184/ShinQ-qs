@@ -104,7 +104,7 @@ export const SARCaianDialogue: React.FC<{
             <button type="button" onClick={onClose} aria-label="暂时离开对话" className="absolute right-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white/65 backdrop-blur-md active:bg-white/15" style={{ top: `calc(${SAFE_TOP} + .5rem)` }}><X size={17} /></button>
 
             <div className="sar-dialogue-portraits">
-                <SARDialogueCast speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions}/>
+                <SARDialogueCast lead="caian" speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions}/>
             </div>
 
             <div className="sar-dialogue-panel" ref={panel}>

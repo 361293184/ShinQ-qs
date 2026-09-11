@@ -17,6 +17,7 @@
 .sar-dialogue-cast__actor.is-speaking{filter:none}
 .sar-dialogue-cast__actor.cast-caian.is-speaking{z-index:var(--sar-caian-depth,2)}
 .sar-dialogue-cast__actor.cast-aiven.is-speaking{z-index:var(--sar-aiven-depth,2)}
+.sar-dialogue-cast.is-solo .sar-dialogue-cast__actor{left:50%;width:100%;aspect-ratio:auto}
 .sar-dialogue-portraits .sar-npc-portrait__image{object-fit:contain;object-position:center bottom}
 .sar-dialogue-panel{position:relative;flex:none;width:min(100%,660px);height:164px;min-height:164px;max-height:164px;margin:0 auto;padding-bottom:0;overflow:auto;overscroll-behavior:contain;background:#101117}
 .sar-dialogue-panel>div{min-height:100%;overflow:hidden;border-radius:0;background:#101117;border:0;border-top:1px solid #bfb7ce26;box-shadow:none}

@@ -580,8 +580,10 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             // 且纯文本情景里历史图片只是撑爆上下文的噪声 → 压平成文本占位
             stripImages: true,
         });
+        let titleUnlocked = !!userProfile?.vrState?.title || characters.some(c=>!!c.vrState?.title);
+        try { titleUnlocked ||= !!readFishingMarketState().sarFamiliarity?.unlocks.includes('titles'); } catch { /* preserve unreadable progress, no unlock */ }
         const systemPrompt = payload.systemPrompt + buildVRSystemAddendum(room, char.name,
-            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined, char.vrState?.title);
+            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined, char.vrState?.title, titleUnlocked);
 
         // 调 LLM（记录一次调用，供"调用记录"对账）
         const baseUrl = vrApi.baseUrl.replace(/\/+$/, '');
@@ -993,7 +995,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
 
         if (!(room.id === 'sar' && sarMode === 'fishing')) await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'vr_card', content: cardLines.join('\n'), metadata: meta });
         // Only a successfully parsed and saved activity can change the title, and only its actor.
-        if (titleProposal.title !== undefined) {
+        if (titleUnlocked && titleProposal.title !== undefined) {
             try { await deps.updateCharacter(char.id, current => applyKanataTitle(current, char.vrState, titleProposal.title!)); }
             catch (error) { console.warn('[VRWorld] Activity saved; optional title update failed', error); }
         }

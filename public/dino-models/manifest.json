@@ -70,5 +70,11 @@
     "triangles": 2908,
     "drawCalls": 1,
     "bytes": 84660
+  },
+  {
+    "id": "aiven-chimera",
+    "triangles": 8236,
+    "drawCalls": 1,
+    "bytes": 307840
   }
 ]

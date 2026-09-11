@@ -29,6 +29,7 @@ import {
     type SARModuleShopState,
 } from '../../utils/vrWorld/sarModuleShop';
 import { buySARModuleWithPayment, consumeOwnedSARModule, ensureSARCommerce, newSARPurchaseId, readSARCommerce, refreshSARModuleShelf } from '../../utils/vrWorld/sarCommerce';
+import { quoteSARModulePrice, type SARModuleBenefits, type SARModulePriceQuote } from '../../utils/vrWorld/sarFamiliarity/discounts';
 import { FISHING_MARKET_STORAGE_KEY } from '../../utils/vrWorld/fishingMarket';
 import {
     installSARModuleOnCharacter,
@@ -61,8 +62,9 @@ const ModuleCard: React.FC<{
     module: SARModuleDefinition;
     index: number;
     owned: number;
+    quote?: SARModulePriceQuote;
     onOpen: () => void;
-}> = ({ module, index, owned, onOpen }) => {
+}> = ({ module, index, owned, quote, onOpen }) => {
     const meta = categoryMeta[module.category];
     return (
         <button
@@ -80,7 +82,7 @@ const ModuleCard: React.FC<{
                 <div className="sar-module-card__effect">{module.effectLabel}</div>
             </div>
             <div className="sar-module-card__footer">
-                <span><Ticket size={11} weight="fill" />{module.price}</span>
+                <span title={quote?.source !== 'regular' ? quote?.label : undefined}><Ticket size={11} weight="fill" />{quote && quote.price < module.price && <del className="sar-module-original">{module.price}</del>}{quote?.price ?? module.price}</span>
                 <span>{owned > 0 ? `持有 ${owned}` : '查看'}</span>
             </div>
         </button>
@@ -99,7 +101,8 @@ const ModuleDetail: React.FC<{
     balance: number;
     busy: boolean;
     error: string;
-}> = ({ module, owned, npcEnabled, onClose, onPurchase, inventoryMode, onInstall, targetName, balance, busy, error }) => {
+    quote: SARModulePriceQuote;
+}> = ({ module, owned, npcEnabled, onClose, onPurchase, inventoryMode, onInstall, targetName, balance, busy, error, quote }) => {
     const meta = categoryMeta[module.category];
     return (
         <div className="sar-module-detail-backdrop" onPointerDown={event => {
@@ -133,9 +136,10 @@ const ModuleDetail: React.FC<{
                     <span>角色 10 回合</span>
                     {module.supportsUserTarget && <span>用户 5 回合</span>}
                 </div>
-                <button type="button" className="sar-module-buy" disabled={busy||(!inventoryMode&&balance<module.price)} onClick={inventoryMode ? onInstall : onPurchase}>
-                    <span>{inventoryMode ? <><MagicWand size={17} weight="fill" />{targetName ? `装载给 ${targetName}` : '选择装载对象'}</> : <><ShoppingBag size={17} weight="fill" />{busy?'正在保存…':balance<module.price?'鳞币不足':'购买模块'}</>}</span>
-                    <span>{inventoryMode ? '消耗 1 枚' : `${module.price} 鳞币`}</span>
+                {!inventoryMode && quote.source !== 'regular' && <div className="sar-module-discount" role="status"><Ticket size={14}/><div><b>{quote.label}</b><span>原价 <del>{quote.originalPrice}</del> → {quote.price} 鳞币 · {quote.source === 'coupon' ? '本次自动使用 1 张' : `有效至 ${new Date(quote.expiresAt!).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`}<br/>自动采用最优惠的一项，不叠加。</span></div></div>}
+                <button type="button" className="sar-module-buy" disabled={busy||(!inventoryMode&&balance<quote.price)} onClick={inventoryMode ? onInstall : onPurchase}>
+                    <span>{inventoryMode ? <><MagicWand size={17} weight="fill" />{targetName ? `装载给 ${targetName}` : '选择装载对象'}</> : <><ShoppingBag size={17} weight="fill" />{busy?'正在保存…':balance<quote.price?'鳞币不足':'购买模块'}</>}</span>
+                    <span>{inventoryMode ? '消耗 1 枚' : `${quote.price} 鳞币`}</span>
                 </button>
                 <div className="sar-module-detail__owned">当前持有 {owned} 枚 · {inventoryMode ? '角色端持续 10 次成功互动' : `余额 ${balance} 鳞币 · 购买后收入模块袋`}</div>
                 {error&&<p role="alert" className="sar-module-detail__owned">{error}</p>}
@@ -152,19 +156,30 @@ export const SARModuleShopOverlay: React.FC<{
     const { characters, userProfile, updateCharacter, updateUserProfile, addToast } = useOS();
     const [state, setState] = useState<SARModuleShopState>(() => readSARModuleShopState());
     const [balance, setBalance] = useState(0);
+    const [benefits, setBenefits] = useState<SARModuleBenefits>();
+    const [quoteAt, setQuoteAt] = useState(Date.now);
     const [ready, setReady] = useState(false);
     const [paying, setPaying] = useState(false);
     const [paymentError, setPaymentError] = useState('');
     const payingRef = useRef(false);
+    const acceptCommerce = (value: ReturnType<typeof readSARCommerce>) => {
+        setState(value.shop); setBalance(value.balance); setBenefits(value.market.sarFamiliarity); setQuoteAt(Date.now());
+    };
     useEffect(() => {
         let live=true;
-        const refresh=()=>{try{const value=readSARCommerce();if(live){setState(value.shop);setBalance(value.balance);}}catch(cause){if(live)setPaymentError(cause instanceof Error?cause.message:'余额读取失败');}};
-        void ensureSARCommerce().then(value=>{if(live){setState(value.shop);setBalance(value.balance);setReady(true);}}).catch(cause=>{if(live)setPaymentError(cause.message);});
+        const refresh=()=>{try{const value=readSARCommerce();if(live)acceptCommerce(value);}catch(cause){if(live)setPaymentError(cause instanceof Error?cause.message:'余额读取失败');}};
+        void ensureSARCommerce().then(value=>{if(live){acceptCommerce(value);setReady(true);}}).catch(cause=>{if(live)setPaymentError(cause.message);});
         const onStorage=(event:StorageEvent)=>{if(event.key===FISHING_MARKET_STORAGE_KEY)refresh();};
         window.addEventListener('vr-fishing-market-updated',refresh);window.addEventListener('storage',onStorage);window.addEventListener('focus',refresh);
         const timer=window.setInterval(refresh,30000);
         return()=>{live=false;window.clearInterval(timer);window.removeEventListener('vr-fishing-market-updated',refresh);window.removeEventListener('storage',onStorage);window.removeEventListener('focus',refresh);};
     },[]);
+    useEffect(() => {
+        const expiresAt = Math.min(...(benefits?.discounts || []).map(discount => discount.expiresAt).filter(at => at > quoteAt));
+        if (!Number.isFinite(expiresAt)) return;
+        const timer = window.setTimeout(() => setQuoteAt(Date.now()), Math.min(2147483647, Math.max(0, expiresAt - Date.now()) + 20));
+        return () => window.clearTimeout(timer);
+    }, [benefits, quoteAt]);
     const [view, setView] = useState<'market' | 'inventory'>(() => initialTargetCharacterId ? 'inventory' : 'market');
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [receipt, setReceipt] = useState<{ title: string; count: number } | null>(null);
@@ -179,6 +194,7 @@ export const SARModuleShopOverlay: React.FC<{
         .map(([id]) => getSARModuleById(id))
         .filter((module): module is SARModuleDefinition => Boolean(module)), [state.inventory]);
     const selected = selectedId ? getSARModuleById(selectedId) : undefined;
+    const selectedQuote = selected ? quoteSARModulePrice(selected, benefits, quoteAt) : undefined;
     const ownedTotal = Object.values(state.inventory).reduce((sum, count) => sum + count, 0);
     const eligibleChars = useMemo(() => characters.filter(character => character.vrState?.enabled), [characters]);
     const capturedTarget = initialTargetCharacterId
@@ -212,7 +228,7 @@ export const SARModuleShopOverlay: React.FC<{
             day: state.market.dayKey,
             rollsRemaining: state.market.rollsRemaining,
             balance,
-            offers: offers.map(module => ({ id: module.id, title: module.title, price: module.price, owned: state.inventory[module.id] || 0 })),
+            offers: offers.map(module => ({ id: module.id, title: module.title, price: quoteSARModulePrice(module, benefits, quoteAt).price, originalPrice: module.price, discount: quoteSARModulePrice(module, benefits, quoteAt).label, owned: state.inventory[module.id] || 0 })),
             inventory: inventoryModules.map(module => ({ id: module.id, title: module.title, count: state.inventory[module.id] || 0 })),
             selected: selected?.title || null,
             allowCharacterModules: allowReverse,
@@ -234,22 +250,22 @@ export const SARModuleShopOverlay: React.FC<{
             if (previousAdvance) target.advanceTime = previousAdvance;
             else delete target.advanceTime;
         };
-    }, [allowReverse, capturedTarget?.name, installConfiguration?.keyword, installPhase, installTarget?.name, installing, inventoryModules, offers, reverseInstall, selected, state.inventory, state.market.dayKey, state.market.rollsRemaining, view, balance]);
+    }, [allowReverse, capturedTarget?.name, installConfiguration?.keyword, installPhase, installTarget?.name, installing, inventoryModules, offers, reverseInstall, selected, state.inventory, state.market.dayKey, state.market.rollsRemaining, view, balance, benefits, quoteAt]);
 
     const roll = async () => {
         if (state.market.rollsRemaining <= 0 || payingRef.current || !ready) return;
         payingRef.current=true;setPaying(true);setPaymentError('');
-        try { const next=await refreshSARModuleShelf();setState(next.shop);setBalance(next.balance);setSelectedId(null); }
+        try { const next=await refreshSARModuleShelf();acceptCommerce(next);setSelectedId(null); }
         catch(cause){setPaymentError(cause instanceof Error?cause.message:'货架刷新失败');}
         finally{payingRef.current=false;setPaying(false);}
     };
 
-    const purchase = async (module: SARModuleDefinition) => {
+    const purchase = async (module: SARModuleDefinition, shownPrice: number) => {
         if(payingRef.current||!ready)return;
         payingRef.current=true;setPaying(true);setPaymentError('');
-        try { const result=await buySARModuleWithPayment(module.id,{requestId:newSARPurchaseId(),maxCost:module.price});
-            setState(result.shop);setBalance(result.balance);setReceipt({title:module.title,count:result.shop.inventory[module.id]||1});
-        }catch(cause){setPaymentError(cause instanceof Error?cause.message:'购买未完成，没有扣款');}
+        try { const result=await buySARModuleWithPayment(module.id,{requestId:newSARPurchaseId(),maxCost:shownPrice});
+            acceptCommerce(result);setReceipt({title:module.title,count:result.shop.inventory[module.id]||1});
+        }catch(cause){setPaymentError(cause instanceof Error?cause.message:'购买未完成，没有扣款');try { acceptCommerce(readSARCommerce()); } catch { /* Keep the original transaction error. */ }}
         finally{payingRef.current=false;setPaying(false);}
     };
 
@@ -375,7 +391,7 @@ export const SARModuleShopOverlay: React.FC<{
                 @media (min-width:620px){.sar-module-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.sar-module-detail{left:50%;max-width:560px;transform:translateX(-50%);border-left:1px solid rgba(180,220,212,.12);border-right:1px solid rgba(180,220,212,.12)}@keyframes sar-module-sheet{from{transform:translate(-50%,28px);opacity:.6}to{transform:translate(-50%,0);opacity:1}}}
                 @media (prefers-reduced-motion:reduce){.sar-module-card,.sar-module-detail-backdrop,.sar-module-detail,.sar-module-receipt,.sar-module-install,.sar-module-install__sheet,.sar-module-loading__avatar,.sar-module-loading__chip{animation:none!important}.sar-module-card:active,.sar-module-buy:active,.sar-module-roll button:active:not(:disabled){transform:none}}
             `}</style>
-            <style>{`.sar-module-buy{min-height:48px;font-size:13px}.sar-module-buy span:last-child{font:500 13px/1.4 system-ui,sans-serif;color:inherit}.sar-module-buy:disabled{opacity:.48;cursor:not-allowed}.sar-module-detail__owned{font-size:11px;line-height:1.8;color:#b0c1ba}`}</style>
+            <style>{`.sar-module-buy{min-height:48px;font-size:13px}.sar-module-buy span:last-child{font:500 13px/1.4 system-ui,sans-serif;color:inherit}.sar-module-buy:disabled{opacity:.48;cursor:not-allowed}.sar-module-detail__owned{font-size:11px;line-height:1.8;color:#b0c1ba}.sar-module-original{font-size:10px;opacity:.58;margin-right:2px}.sar-module-discount{display:flex;gap:9px;align-items:flex-start;margin:14px 0;padding:11px 12px;border:1px solid rgba(199,164,112,.24);border-radius:10px;background:rgba(185,142,83,.07);color:#dbc39e}.sar-module-discount svg{flex-shrink:0;margin-top:3px}.sar-module-discount b{display:block;font-size:12px;font-weight:600;line-height:1.6}.sar-module-discount span{display:block;font-size:11px;line-height:1.7;color:inherit;opacity:.82}`}</style>
             <header className="sar-module-shop__header" style={{ paddingTop: `max(0px, calc(${SAFE_TOP} - 44px))`, height: `calc(58px + max(0px, calc(${SAFE_TOP} - 44px)))` }}>
                 <button type="button" className="sar-module-shop__back" onClick={onClose} aria-label={capturedTarget ? '放开角色并返回' : '离开模块商店'}><CaretLeft size={18} /></button>
                 <div className="sar-module-shop__title"><small>{capturedTarget ? 'SAR · FIELD LOADOUT' : 'SAR · MODULE COUNTER'}</small><h1>{capturedTarget ? '现场装载' : '模块商店'}</h1></div>
@@ -425,7 +441,7 @@ export const SARModuleShopOverlay: React.FC<{
                 </div>
                 <div className="sar-module-grid">
                     {modules.map((module, index) => (
-                        <ModuleCard key={module.id} module={module} index={index} owned={state.inventory[module.id] || 0} onOpen={() => setSelectedId(module.id)} />
+                        <ModuleCard key={module.id} module={module} index={index} owned={state.inventory[module.id] || 0} quote={view === 'market' && !capturedTarget ? quoteSARModulePrice(module, benefits, quoteAt) : undefined} onOpen={() => setSelectedId(module.id)} />
                     ))}
                     {modules.length === 0 && (
                         <div className="sar-module-empty"><Package size={25} /><h3>模块袋还是空的</h3><p>可以去今日货架选一枚。购买后会收入模块袋。</p></div>
@@ -445,7 +461,8 @@ export const SARModuleShopOverlay: React.FC<{
                     owned={state.inventory[selected.id] || 0}
                     npcEnabled={npcEnabled}
                     onClose={() => setSelectedId(null)}
-                    onPurchase={() => void purchase(selected)}
+                    onPurchase={() => void purchase(selected, selectedQuote!.price)}
+                    quote={selectedQuote!}
                     balance={balance}
                     busy={paying||!ready}
                     error={paymentError}

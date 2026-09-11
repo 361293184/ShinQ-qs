@@ -1,3 +1,4 @@
+import { validateFamiliarity } from './sarFamiliarity/storageTypes';
 import { SAR_STARTING_BALANCE, SAR_WANDERER_BALANCE, SAR_DAILY_BUYBACK, SAR_ECONOMY_VERSION, sarEconomyDay, remainingSARBuyback, creditSARWallet, type SARBuybackBudget } from './sarEconomy';
 import type { CharacterProfile, RealtimeConfig, UserProfile } from '../../types';
 import type { DinosaurGarden, DinoOrigin } from './dinosaurTypes';
@@ -57,6 +58,7 @@ export interface FishingTrip {
     result?: FishingReaction; settledAt?: number; cardSent?: boolean; shareSent?: boolean;
 }
 export interface FishingMarketState {
+    sarFamiliarity?: import('./sarFamiliarity/storageTypes').FamiliarityState;
     sarCollection?: import('./sarCollectionJournal').SARCollectionJournal;
     economyVersion?: number;
     buybackBudgets?: Record<string, SARBuybackBudget>;
@@ -98,7 +100,8 @@ export const FISH_CATALOG: FishSpecies[] = [
 ];
 
 
-export const speciesById = (id: string) => FISH_CATALOG.find(species => species.id === id);
+export const STORY_CATCH_CATALOG: FishSpecies[] = [{ id: 'aiven-chimera', name: '？？？', icon: '？', category: 'time-relic', rarity: 'relic', basePrice: 80, difficulty: 1, weathers: [], blurb: '艾文从异常的物品堆里找出的专属混合恐龙：霸王龙的身体、三角龙的角、剑龙的背板和腕龙的长脖子。' }];
+export const speciesById = (id: string) => [...FISH_CATALOG, ...STORY_CATCH_CATALOG].find(species => species.id === id);
 export const marketId = (p: string) => p + '_' + (globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
 const money = (n: number) => {
     if (!Number.isSafeInteger(n) || n < 0 || n > 1_000_000) throw new Error('金额须为 0～1,000,000 的整数');
@@ -143,6 +146,7 @@ export const readFishingMarketState = (storage: Pick<Storage, 'getItem'> = local
         || Object.values(raw.sarCharacterModules).some(bag => !bag || typeof bag !== 'object' || Array.isArray(bag) || Object.values(bag).some(n => !Number.isSafeInteger(n) || n < 0)))) throw new Error('角色仓库存档异常，请先备份');
     if (raw.collectionEntries !== undefined && (!Array.isArray(raw.collectionEntries) || raw.collectionEntries.some(e => !e || typeof e.actorId !== 'string' || !speciesById(e.speciesId) || !Number.isFinite(e.firstObtainedAt) || !Array.isArray(e.acquisitionIds) || e.acquisitionIds.some(id => typeof id !== 'string') || (e.announcement && (typeof e.announcement.id !== 'string' || typeof e.announcement.published !== 'boolean'))))) throw new Error('个人图鉴存档无法读取；没有覆盖原存档');
     if (raw.fishingTrips !== undefined && (!Array.isArray(raw.fishingTrips) || raw.fishingTrips.some(t => !t?.catch?.id || typeof t.catch.ownerId !== 'string' || !speciesById(t.catch.speciesId) || !Number.isFinite(t.catch.caughtAt) || !['pending', 'settled'].includes(t.status) || (t.status === 'settled' && (!t.result || !['keep', 'release'].includes(t.result.disposition) || typeof t.result.reaction !== 'string' || (t.result.shareToUser !== null && typeof t.result.shareToUser?.text !== 'string')))))) throw new Error('钓鱼记录无法读取；没有覆盖原存档');
+    if (raw.sarFamiliarity !== undefined) validateFamiliarity(raw.sarFamiliarity);
     return migrateFishingCollection({ ...raw, ...(raw.dinosaurGarden ? {dinosaurGarden:readDinosaurGarden(raw.dinosaurGarden)} : {}), research: raw.research || {}, discovered: raw.discovered || [],
         listings: raw.listings.map(p => ({ ...p, comments: p.comments || [] })),
         requests: raw.requests.map(p => ({ ...p, comments: p.comments || [], kind: p.kind || (p.speciesId ? 'item' : 'favor') })),
@@ -224,7 +228,7 @@ export const resolveFishingWeather = async (config: RealtimeConfig | undefined, 
 };
 const rarityWeight: Record<FishingRarity, number> = { common: 52, uncommon: 26, rare: 12, epic: 5, relic: .62 };
 export const rollFishingCatch = (owner: Pick<MarketActor, 'id' | 'name'>, weather: FishingWeather, random = Math.random, now = Date.now()): FishingCatch => {
-    const entries = FISH_CATALOG.map(f => ({ f, w: rarityWeight[f.rarity] * (f.weathers.includes(weather.kind) ? 3.3 : f.category === 'time-relic' ? .28 : .42) }));
+    const entries = FISH_CATALOG.filter(f => f.id !== 'dinosaur-egg').map(f => ({ f, w: rarityWeight[f.rarity] * (f.weathers.includes(weather.kind) ? 3.3 : f.category === 'time-relic' ? .28 : .42) }));
     let cursor = Math.max(0, Math.min(.999999, random())) * entries.reduce((sum, e) => sum + e.w, 0);
     const f = entries.find(e => (cursor -= e.w) <= 0)?.f || entries[0].f; const q = random();
     return { id: marketId('catch'), speciesId: f.id, ownerId: owner.id, ownerName: owner.name, caughtAt: now, origin:{kind:'fished',actorId:owner.id,actorName:owner.name,at:now},

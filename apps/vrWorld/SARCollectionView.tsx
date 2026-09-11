@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, CaretDown, CaretLeft, CaretRight, Check, Cpu, Fish, MagnifyingGlass, PawPrint, Stack } from '@phosphor-icons/react';
+import { ArrowLeft, BookOpen, CaretDown, CaretLeft, CaretRight, Check, Cpu, Fish, MagnifyingGlass, PawPrint, Stack, Users } from '@phosphor-icons/react';
 import type { FishingMarketState, MarketActor } from '../../utils/vrWorld/fishingMarket';
 import { sarCollectionEntries, sarCollectionProgress, type SARCollectionCategory, type SARCollectionEntry } from '../../utils/vrWorld/sarCollection';
 import { FishArt } from './FishArt';
+import { SARFamiliarityRoster } from './SARFamiliarityRoster';
+import type { FamiliarityNpc } from '../../utils/vrWorld/sarFamiliarity/types';
 
 const Icons = { fish: Fish, dinosaur: PawPrint, chip: Stack, module: Cpu };
 const PAGE_SIZE = 12;
@@ -10,10 +12,12 @@ function CollectionArt({ entry, size = 56 }: { entry: SARCollectionEntry; size?:
     const Icon = Icons[entry.category];
     return entry.speciesId ? <FishArt speciesId={entry.speciesId} size={size + 28} silhouette={!entry.collected}/> : <Icon size={size} weight={entry.collected ? 'duotone' : 'thin'}/>;
 }
-export function SARCollectionView({ market, owner, actors, onOwnerChange, onClose, backRef }: {
+export function SARCollectionView({ market, owner, actors, onOwnerChange, onClose, backRef, onOpenFamiliarity }: {
     market: FishingMarketState; owner: MarketActor; actors: MarketActor[]; onOwnerChange: (id: string) => void; onClose: () => void;
     backRef: React.MutableRefObject<(() => boolean) | null>;
+    onOpenFamiliarity?: (npc: FamiliarityNpc, sceneId?: string) => void;
 }) {
+    const [section, setSection] = useState<'collection' | 'roster'>('collection');
     const [category, setCategory] = useState<SARCollectionCategory | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [query, setQuery] = useState('');
@@ -29,25 +33,29 @@ export function SARCollectionView({ market, owner, actors, onOwnerChange, onClos
     const shown = matches.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
     const collected = entries.filter(item => item.collected).length;
     const goBack = () => {
+        if (section === 'roster') { setSection('collection'); return true; }
         if (selectedId) { setSelectedId(null); return true; }
         if (category) { setCategory(null); return true; }
         return false;
     };
-    useEffect(() => { backRef.current = goBack; return () => { backRef.current = null; }; }, [selectedId, category]);
+    useEffect(() => { backRef.current = goBack; return () => { backRef.current = null; }; }, [selectedId, category, section]);
     useEffect(() => { setSelectedId(null); setQuery(''); setFilter('all'); setPage(0); }, [owner.id, category]);
     useEffect(() => { setPage(0); }, [query, filter]);
     useEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [category, selectedId, currentPage, owner.id]);
     // Replacing a grid removes its focused button; keep Escape/Tab inside the dialog.
-    useEffect(() => { scroll.current?.parentElement?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true }); }, [category, selectedId]);
+    useEffect(() => { scroll.current?.parentElement?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true }); }, [category, selectedId, section]);
     useEffect(() => {
+        if (section === 'roster') return;
         const target = window as Window & { render_game_to_text?: () => string };
         const render = () => JSON.stringify({ mode: 'sar-collection', ownerId: owner.id, category, selectedId, progress, page: currentPage + 1, pages, filter, entries: shown.map(({ id, title, collected, owned }) => ({ id, title, collected, owned })) });
         target.render_game_to_text = render;
         return () => { if (target.render_game_to_text === render) delete target.render_game_to_text; };
-    }, [owner.id, category, selectedId, market, query, filter, currentPage]);
+    }, [owner.id, category, selectedId, market, query, filter, currentPage, section]);
     const chipProgress = (tag: string) => { const chips = entries.filter(entry => entry.category === 'chip' && entry.tag === tag); return `${chips.filter(entry => entry.collected).length} / ${chips.length}`; };
+    if (section === 'roster') return <SARFamiliarityRoster onBack={() => setSection('collection')} onOpenScene={(npc, sceneId) => onOpenFamiliarity?.(npc, sceneId)}/>;
     return <>
         <header className="sar-hub-header"><button type="button" onClick={() => { if (!goBack()) onClose(); }} aria-label={selected ? '返回分类图鉴' : category ? '返回图鉴总览' : '返回随身仓库'}><ArrowLeft size={21}/></button><div><small>SAR · COLLECTION</small><h2>{selected ? selected.title : current ? `${current.title}图鉴` : '收集图鉴'}</h2></div></header>
+        {!category && !selected && <nav className="sar-collection-sections" aria-label="图鉴页面"><button type="button" aria-current="page"><BookOpen size={16} weight="fill"/>收藏</button><button type="button" onClick={() => setSection('roster')}><Users size={16}/>名册</button></nav>}
         <main ref={scroll} className="sar-hub-warehouse sar-collection">
             <div className="sar-hub-owner"><span>正在查看</span><label><select aria-label="图鉴主人" value={owner.id} onChange={event => onOwnerChange(event.target.value)}>{actors.map(actor => <option key={actor.id} value={actor.id}>{actor.id === 'user' ? `我 · ${actor.name}` : actor.name}</option>)}</select><CaretDown size={16}/></label></div>
             {selected ? <article className="sar-collection-entry">

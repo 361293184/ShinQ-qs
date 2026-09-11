@@ -1,8 +1,9 @@
 import { ensureActorAccounts, marketId, mutateFishingMarket, readFishingMarketState, type FishingMarketState } from './fishingMarket';
 import { drawSARModule, getSARModuleById as getDrawModule, isSARFreeDrawAvailable, readSARGachaState, SAR_GACHA_STORAGE_KEY, type SARModulePool } from './sarGacha';
-import { consumeSARModule, getSARModuleById, purchaseSARModule, readSARModuleShopState, rollSARModuleOffers, SAR_MODULE_SHOP_STORAGE_KEY } from './sarModuleShop';
+import { consumeSARModule, getSARModuleById, readSARModuleShopState, rollSARModuleOffers, SAR_MODULE_SHOP_STORAGE_KEY } from './sarModuleShop';
 import type { SARStorage } from './sarCommerceStorage';
 import { rememberSARCollections } from './sarCollectionJournal';
+import { quoteSARModulePrice } from './sarFamiliarity/discounts';
 
 export const SAR_EXTRA_DRAW_PRICE = 30;
 const user = { id: 'user', name: '我', kind: 'user' as const };
@@ -75,25 +76,31 @@ export const drawSARModuleWithPayment = async (pool: SARModulePool, options: Pay
 
 export const buySARModuleWithPayment = async (moduleId: string, options: PaymentOptions) => {
     const storage = options.storage || localStorage;
-    const now = options.now || new Date();
     const market = await mutateFishingMarket(current => {
+        const now = options.now || new Date();
         const next = prepare(current, storage, now);
         const prior = previousReceipt(next, options.requestId);
         if (prior) {
-            if (prior.sarPurchase?.kind !== 'module' || prior.sarPurchase.itemId !== moduleId) throw new Error('购买记录不匹配');
+            if (prior.sarPurchase?.kind !== 'module' || prior.sarPurchase.itemId !== moduleId || prior.participants[0] !== 'user') throw new Error('购买记录不匹配');
             return next;
         }
         const module = getSARModuleById(moduleId);
         if (!module) throw new Error('模块不存在');
         if (!next.sarCommerce.moduleShop.market.offerIds.includes(moduleId)) throw new Error('货架已经更新，请重新选择模块');
-        validateQuote(module.price, options.maxCost, next.accounts.user);
+        const quote = quoteSARModulePrice(module, next.sarFamiliarity, now.getTime());
+        validateQuote(quote.price, options.maxCost, next.accounts.user);
         if ((next.sarCommerce.moduleShop.inventory[moduleId] || 0) >= Number.MAX_SAFE_INTEGER) throw new Error('模块数量已达存储上限');
-        const purchased = purchaseSARModule({ ...next.sarCommerce.moduleShop, credits: next.accounts.user }, moduleId, { now: now.getTime(), storage: null });
-        if (!purchased.ok) throw new Error('购买未完成，请刷新货架后重试');
-        return { ...next, accounts: { ...next.accounts, user: next.accounts.user - module.price },
-            sarCommerce: { ...next.sarCommerce, moduleShop: { ...purchased.state, credits: next.sarCommerce.moduleShop.credits } },
-            ledger: [...next.ledger, { id: options.requestId, at: now.getTime(), text: `我支付 ${module.price} 鳞币，买下「${module.title}」。`, participants: ['user'], deliveredTo: [],
-                sarPurchase: { kind: 'module', itemId: module.id, paid: module.price } }],
+        const shop = next.sarCommerce.moduleShop;
+        return { ...next, accounts: { ...next.accounts, user: next.accounts.user - quote.price },
+            sarCommerce: { ...next.sarCommerce, moduleShop: { ...shop,
+                inventory: { ...shop.inventory, [moduleId]: (shop.inventory[moduleId] || 0) + 1 },
+                purchases: [...shop.purchases, { id: options.requestId, moduleId, purchasedAt: now.getTime(), pricePaid: quote.price }],
+            } },
+            ...(quote.couponId && next.sarFamiliarity ? { sarFamiliarity: { ...next.sarFamiliarity,
+                coupons: next.sarFamiliarity.coupons.map(coupon => coupon.id === quote.couponId ? { ...coupon, usedBy: options.requestId } : coupon),
+            } } : {}),
+            ledger: [...next.ledger, { id: options.requestId, at: now.getTime(), text: `我支付 ${quote.price} 鳞币，买下「${module.title}」${quote.source === 'regular' ? '' : `（${quote.label}）`}。`, participants: ['user'], deliveredTo: [],
+                sarPurchase: { kind: 'module', itemId: module.id, paid: quote.price } }],
         };
     }, storage);
     return snapshot(market);

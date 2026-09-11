@@ -22,13 +22,14 @@ export function SARNpcChibi({who,className=''}:{who:SARDialogueSpeaker;className
 
 function PortraitImage({who,expression}:{who:SARDialogueSpeaker;expression:SARExpression}){
     const desired=sarPortraitPath(who,expression),normal=sarPortraitPath(who);
-    const [lastReady,setLastReady]=useState<{path:string;src:string}|null>(null),[failed,setFailed]=useState<string[]>([]);
+    const [lastReady,setLastReady]=useState<{path:string;src:string}|null>(null),[failed,setFailed]=useState<string[]>([]),[localFailed,setLocalFailed]=useState<string[]>([]);
     const path=failed.includes(desired)?normal:desired,broken=failed.includes(path);
     const cached=loadedPortraits.get(path),shown=cached?{path,src:cached}:lastReady;
     const waiting=!broken&&!cached;
     return <div className="sar-npc-portrait" data-speaker={who} data-expression={expression} aria-busy={waiting}>
         {shown&&<img src={shown.src} className="sar-npc-portrait__image" alt={`${SAR_NPC_NAMES[who]}立绘`} draggable={false}/>}
-        {waiting&&<CdnImg key={`loading:${path}`} path={path} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async"
+        {waiting&&!localFailed.includes(path)&&<img src={'/sar-portraits/'+path.replace(/^SAR\//,'').replace(/\.png$/,'.webp')} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async" onLoad={event=>{const src=event.currentTarget.currentSrc;loadedPortraits.set(path,src);setLastReady({path,src});}} onError={()=>setLocalFailed(prev=>[...prev,path])}/>}
+        {waiting&&localFailed.includes(path)&&<CdnImg key={`loading:${path}`} path={path} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async"
             onLoad={event=>{const src=event.currentTarget.currentSrc;loadedPortraits.set(path,src);setLastReady({path,src});}} onError={()=>setFailed(prev=>[...prev,path])}/>}
         {!shown&&<div className="sar-npc-portrait__placeholder" role="status">{broken?'立绘暂时未加载':SAR_NPC_NAMES[who]}
             {broken&&<button type="button" onClick={()=>setFailed([])}>重新加载</button>}</div>}
@@ -38,12 +39,14 @@ export function SARPortrait({who,expression='normal'}:{who:SARDialogueSpeaker;ex
     return <PortraitImage key={who} who={who} expression={expression}/>;
 }
 
-export function SARDialogueCast({speaker,expression='normal',castExpressions}:{speaker:SARDialogueSpeaker;expression?:SARExpression;castExpressions?:Partial<SARCastExpressions>}){
+export function SARDialogueCast({speaker,lead=speaker,expression='normal',castExpressions}:{speaker:SARDialogueSpeaker;lead?:SARDialogueSpeaker;expression?:SARExpression;castExpressions?:Partial<SARCastExpressions>}){
     const [expressions,setExpressions]=useState<Record<SARDialogueSpeaker,SARExpression>>({caian:'normal',aiven:'normal'});
     useEffect(()=>setExpressions(previous=>({...previous,...castExpressions,[speaker]:expression})),[speaker,expression,castExpressions]);
     const visible={...expressions,...castExpressions,[speaker]:expression};
-    return <div className="sar-dialogue-cast" data-speaking={speaker}>
-        {(['caian','aiven'] as const).map(who=><div key={who} className={`sar-dialogue-cast__actor cast-${who} ${speaker===who?'is-speaking':''}`}>
+    // Personal lines keep their protagonist alone until the other NPC actually speaks.
+    const actors:SARDialogueSpeaker[]=speaker===lead?[lead]:['caian','aiven'];
+    return <div className={`sar-dialogue-cast ${actors.length===1?'is-solo':'is-exchange'}`} data-speaking={speaker} data-lead={lead}>
+        {actors.map(who=><div key={who} className={`sar-dialogue-cast__actor cast-${who} ${speaker===who?'is-speaking':''}`}>
             <SARPortrait who={who} expression={visible[who]}/>
         </div>)}
     </div>;

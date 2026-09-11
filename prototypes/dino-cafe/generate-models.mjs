@@ -3,7 +3,7 @@ import * as T from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 globalThis.FileReader = class {
@@ -11,6 +11,8 @@ globalThis.FileReader = class {
     readAsDataURL(blob) { blob.arrayBuffer().then(value => { this.result = `data:${blob.type};base64,${Buffer.from(value).toString('base64')}`; this.onloadend?.(); }); }
 };
 const output = fileURLToPath(new URL('../../public/dino-models/', import.meta.url));
+// Regenerate one authored model without touching the other binary assets.
+const only = process.argv.find(arg => arg.startsWith('--only='))?.slice(7);
 mkdirSync(output, { recursive: true });
 const V = p => new T.Vector3(...p);
 const smoothMin = (a,b,k=.12) => { const h=Math.max(k-Math.abs(a-b),0)/k;return Math.min(a,b)-h*h*k*.25; };
@@ -38,6 +40,7 @@ function sculpt(parts, color, kind) {
         const index=positions.length/3;lookup.set(hash,index);positions.push(p.x,p.y,p.z);
         const n=gradient(p);normals.push(n.x,n.y,n.z);
         const tint=base.clone();
+        if(kind==='aiven-chimera')tint.lerp(new T.Color('#dcaca7'),T.MathUtils.smoothstep(p.y,1.5,2.1));
         let belly=kind==='brachiosaurus'?Math.max(0,n.x-.45)*.55:Math.max(0,-n.y-.05)*.55;
         if(kind==='tyrannosaurus')belly=Math.exp(-(((p.x-.51)/.6)**2)-((p.y-1.0)/.74)**2)*Math.max(0,n.x)*.6;
         tint.lerp(cream,belly);
@@ -69,6 +72,7 @@ function sculpt(parts, color, kind) {
 
 const stats=[];
 async function make(id,color,build) {
+    if(only&&only!==id)return;
     const parts=[], bins=new Map();
     const e=(p,r)=>parts.push(ellipsoid(p,r));
     const c=(a,b,ra,rb)=>parts.push(capsule(a,b,ra,rb));
@@ -207,4 +211,27 @@ await make('dinosaur-fossil','#dfd2b4',({e,c,tail,ball,eyes,line})=>{
     for(const s of [-1,1]){c([-.4,.83,0],[-.38,.50,s*.30],.095);c([-.38,.5,s*.3],[-.1,.15,s*.34],.07);c([-.1,.1,s*.34],[.24,.1,s*.34],.065);c([.32,1.15,s*.1],[.6,.91,s*.35],.06);
       ball([1.0,1.87,s*.251],[.12,.12,.035],'#4d4544');for(let i=0;i<4;i++){const x=-.45+i*.20;line([[x,.94,0],[x+.09,.82,s*.29],[x+.10,.58,s*.22]],'#dfd2b4',.048);}for(let i=0;i<4;i++)c([.83+i*.12,1.70,s*.20],[.83+i*.12,1.58,s*.20],.028);}
 });
-writeFileSync(`${output}/manifest.json`,JSON.stringify(stats,null,2));
+await make('aiven-chimera','#b784b5',({e,c,tail,eyes,ball,line,toes,horn,plate})=>{
+    // Aiven's impossible three-star catch: a T. rex torso and tiny arms,
+    // brachiosaur neck, three ceratopsian horns and paired stegosaur plates.
+    e([-.20,.98,0],[.69,.71,.48]);e([.26,1.29,0],[.40,.48,.37]);
+    tail([[.19,1.24,0,.29],[.36,1.76,0,.23],[.39,2.26,0,.18],[.59,2.75,0,.18],[.75,2.94,0,.22]]);
+    e([.88,3.02,0],[.43,.30,.29]);e([1.21,2.93,0],[.34,.20,.25]);e([1.12,2.79,0],[.29,.12,.22]);
+    for(const s of [-1,1]){
+        e([-.32,.51,s*.39],[.32,.42,.26]);c([-.30,.45,s*.4],[-.18,.17,s*.44],.18,.14);e([.04,.12,s*.44],[.33,.12,.22]);
+        c([.40,1.24,s*.37],[.62,1.02,s*.48],.094,.07);c([.62,1.02,s*.48],[.77,1.11,s*.49],.07,.043);
+        horn([.84,3.20,s*.19],[1.02,3.66,s*.25],.095,'#e4ca83');
+        line([[1.49,2.86,s*.13],[1.29,2.78,s*.225],[1.03,2.81,s*.25]],'#4d4544',.01);
+        ball([1.44,3.00,s*.14],[.018,.026,.015],'#795956');
+    }
+    horn([1.38,3.07,0],[1.55,3.35,0],.076,'#e4ca83');
+    tail([[-.64,.92,0,.34],[-1.24,.66,0,.25],[-1.82,.74,0,.13],[-2.13,1.08,0,.065],[-2.22,1.40,0,.02]]);
+    for(let i=0;i<5;i++){
+        const x=-1.53+i*.31,y=[.87,1.04,1.34,1.55,1.63][i],h=[.27,.38,.47,.54,.40][i];
+        for(const s of [-1,1])plate(x,y,s*.13,.33,h,s>0?'#9ebdc9':'#89a9bd',s*.20);
+    }
+    eyes(1.04,3.09,.269,.043);toes([-.16],.44);
+});
+if(only&&!stats.length)throw new Error(`Unknown dinosaur model: ${only}`);
+const previous=only&&existsSync(`${output}/manifest.json`)?JSON.parse(readFileSync(`${output}/manifest.json`,'utf8')):[];
+writeFileSync(`${output}/manifest.json`,JSON.stringify([...previous.filter(entry=>!stats.some(item=>item.id===entry.id)),...stats],null,2));

@@ -756,3 +756,44 @@ TODO — Qixi rewrite
 - Implemented persisted labelsHidden preference in SAR club state, Eye/EyeSlash control beside settings, and CSS hiding for room labels, title text, facility/nav markers, NPC quest badge, roster and text-only avatar initials. Avatars and positions remain stable; visible top controls remain available. Compact header spacing supports 320 px.
 - Verified both real-provider browser suites: toggle/hide/show, keyboard activation, hidden facility non-interactivity, visible avatars/unchanged feet, settings access, persistence in both directions after reload, 320 px header fit, existing atlas/title and six mocked activity sessions, and existing hub economic flows. Zero page errors in isolated suites. Six SAR club unit tests passed. Production build passed in 1m 1s.
 - Updated gallery with two hide-state screenshots (17 total). No live model calls, production user-store edits, commit or push.
+
+2026-09-11 — Aiven special dinosaur model
+- Visual thesis: the existing soft clay material carries an impossible dinosaur silhouette, with a purple T. rex torso, warm pink long neck, pale yellow horns and powder-blue paired plates. Content: one collectible model plus its collection silhouette; no new room UI. Interaction: reuse garden orbit, paint and gentle greeting morphs.
+- Added a reproducible --only=aiven-chimera model target, unique catalog/icon and matching long-neck motion pivot. No fishing pool, pricing or reward logic changes in this visual task. Browser model verification pending.
+- Visual validation complete: aiven-chimera.glb has 8,236 triangles, one mesh/draw and 307,840 bytes. Dedicated memory-only fixture and test cover complete finite geometry, body/accent/fixed paint channels, 320/390/1100 px, portrait/garden modes, recolouring, orbit, greeting and reduced motion. All 6 screenshots inspected; no browser errors. Official game client rerun clean after adding a fixture favicon; final canvas/state inspected. Existing dinosaur garden/play/placement/activities tests: 33 passed.
+- Integration handoff: DINO_CATALOG/dinoDefinition/defaultDinoPaint, DinoIcon and /dino-models/aiven-chimera.glb are ready. Root handles event-only species lookup, granting/collecting and story reveal. The model does not enter the random fishing pool.
+
+
+## 2026-09-11 — SAR 个人线
+- 读取两份熟悉度 V2 原稿，忠实编译台词与分支；日常随机一次/空白日、星级事件、断点续看、五颗星上限与已写三星。
+- 仓库图鉴添加 NPC 名册和回顾；暖白档案、情绪立绘、原稿特殊演出、持久纪念物。
+- 剧情奖励与游玩进度在同一市场事务保存，回看无奖励；测试并发、刷新、跨日、拒绝分支和限时优惠。
+
+2026-09-11 — SAR NPC roster
+- Visual thesis: a warm-white mobile character archive, using existing emotional portraits as the dominant art and restrained sand/gold accents. Content: Collection/Roster navigation, two residents, five-star progress, full supplied profiles, and replay records grouped by events/topics/easter eggs. Interaction: simple NPC/content switching, folding rank lists, and replay through the root callback; reduced motion omits entry transitions.
+- Roster is global user progress, independent of the warehouse owner selector. Only completed scenes are replayable, locked labels omit scene titles and four/five-star stories remain unopened. Collection back chain and focus restoration wired; scoped browser validation in progress.
+- Roster verified: dedicated browser tests pass full supplied profiles, local portraits, 5-star display, completed-only callbacks, locked title secrecy, global owner independence, storage broadcast refresh, zero-progress state and 320/390/1100 px. Screenshots inspected; trimmed no hair from the portrait frame. Official game client final screenshot/state inspected with mode=sar-familiarity-roster and no errors.
+- Real root smoke passes SAR NPC Caian C1-01 and Aiven A1-02, completion into the roster, same-day no repeat, root replay callback, unchanged replay progress/rewards/inventory and back to roster/collection/warehouse. No model calls or page errors. Existing collection+titles full browser regression also passes. Full tsc retains baseline errors elsewhere; no diagnostics in SARFamiliarityRoster, SARCollectionView or new fixtures.
+- Reported to root for consideration: on a 390x844 phone, the dialog stage leaves Aiven's third response below the initial viewport; it remains reachable by scrolling. No dialog/root edits made by this subtask.
+
+2026-09-11 — SAR souvenir backup audit
+- Full ZIP is covered by the existing v3 pipeline: collectSARLocalBackup is nested in backupData.sarLocalState, metadata serialization runs collectBlobRefs over the entire JSON (including pending and souvenir photo/member chibi tokens), writeBlobsToZip includes each token binary, and restoreBlobsFromZip restores original token IDs before restoreSARLocalBackup writes the references. No token rewrite is needed. DB.importFullData does not clear blob_assets; GC and token dedupe both enumerate all localStorage values.
+- Fixed one text_only omission in OSContext: sarLocalState now passes through the existing recursive stripBase64, so this media-free export cannot retain dead photo/member blobref pointers or embedded images. Actual production strip function and assignment were extracted/transpiled and executed against nested pending photo, membership, souvenir photo and legacy data:image; every image was removed while progress, flags, names, positions/scales, coupons and original live data remained intact. Report: output/fishing-qa/npc-lines/text-only-sar-strip.json.
+- Existing regression suites passed: fishingMarket34, dinosaurGarden14, sarCollection7, fishBackup2, sarEconomy13 (includes warehouse), backupFormat22, backupRoundtrip19 = 111 tests. No assertions were changed. The existing atlas-total assertion currently passes because the extra chimera and hidden egg cancel; notified root to add identity/egg unlock cases instead of relying on the fixed count.
+
+### SAR 个人线完成与验证
+- 已实现 canonical sarFamiliarity 状态/每日80%有话题20%空白/已解锁彩蛋替代率20%/两人独立/全部十话题后事件开放/退出和跨日保留游标/原子奖励/独立回放。84场原稿图全部可达。
+- 本地13张情绪WebP共2.48 MB；仓库名册、完整人物档案、五颗星、纪念物快照与可回顾列表。表情逐句变化并持久到下一节点，原图比例和透明通道保留。
+- 原稿演出已实装：会员证、合照编辑与背面、会议记录、数据卡、礼炮、3张券雨、两个小人之间的物品堆、可旋转专属混合恐龙。普通演出不加额外确认，‘不要点’按钮按下即放礼炮。
+- 修复审查问题：title prompt/自动改称号也遵循二星门槛；旧称号资格持久迁移；蛋图鉴按unlock/历史/当前持有开放；Sully稳定ID优先；回放interactive竞态不再阻塞；减少动态的券雨可见；合照按实际拍摄日存储。
+- 新增状态/分支/并发/优惠/图鉴单测48项通过；独立审查的既有相关111项通过（包含部分重叠套件）。实际Root UI20张截图、真实回放全存档字节一致、无页面错误；表情/名册/特殊演出/模型官方客户端检查通过。
+- Vite生产构建通过；全仓tsc仍有既有MemoryPalace/Companion/output测试诊断，当前feature源文件无诊断。
+- 静态交付展示 output/fishing-qa/npc-lines/gallery.html，不打开seed fixture进入用户浏览器。此阶段尚未提交；后续远端交接见下。
+
+### 2026-09-11 单人线出场规则与远端交接
+- 用户明确要求个人聊天默认单人、对方实际发言才出场。共享SARDialogueCast新增lead参数，solo居中；另一NPC插话时同框，主角接话后回solo。初遇与固定功能引导也遵循此规则，合照/物品堆中的原稿小人演出保留。
+- 真实Root UI共23张截图验证提名字不出场/实际插话同框/恢复solo/关闭续看/名册回放/320与1100宽度。截图集已更新。
+- 本次用户已明确授权提交并推远端，目标保持codex/dino-cafe-art；同步彼方说明和最新实现后提交。
+- 最终验证：6 个相关单测文件共 54 项通过，23 张实际 Root UI 截图全部通过且无 page errors；截图等待表情素材完成加载，生产构建通过（33.82 s）。远端检查与本地 HEAD 无分歧。
+- 九份彼方相关说明已按 2026-09-11 实现同步，21 个文档链接有效；根 README 提供开发与游玩入口。旧双人/CDN/鱼池/称号描述已校正，旧测试记录明确标历史。
+- 更新旧美术 QA 的单人规则、本地 WebP 等待和正式 SAR 导航；Edge 隔离验证通过，13 张表情、单人/插话/恢复、320/390/600/横屏、六设施、NPC 开关及功能引导到箱庭均通过，页面错误为零。

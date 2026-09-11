@@ -1,3 +1,4 @@
+import { SARFamiliarityDialog } from './vrWorld/SARFamiliarityDialog';
 import { flushFishingDeliveries } from '../utils/vrWorld/fishingDelivery';
 import { flushMarketReceipts } from '../utils/vrWorld/fishingCharacter';
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
@@ -183,6 +184,7 @@ const VRWorldApp: React.FC = () => {
     const [worldPage, setWorldPage] = useState<0 | 1>(0);
     const [showSarDialogue, setShowSarDialogue] = useState(false);
     const [showAivenDialogue, setShowAivenDialogue] = useState(false);
+    const [familiarity, setFamiliarity] = useState<{npc:'caian'|'aiven';sceneId?:string}|null>(null);
     const [showSarGacha, setShowSarGacha] = useState(false);
     const [showSarCabinet, setShowSarCabinet] = useState(false);
     const [showSarModuleShop, setShowSarModuleShop] = useState(false);
@@ -274,7 +276,7 @@ const VRWorldApp: React.FC = () => {
 
     // 网页游戏验证钩子：彼方是 DOM 场景而非 canvas，仍暴露当前可交互状态供自动化读取。
     useEffect(() => {
-        if (showFishingMarket || sarHubPanel) return; // 子水域拥有自己的游戏时钟与验证状态。
+        if (showFishingMarket || sarHubPanel || familiarity) return; // 子水域拥有自己的游戏时钟与验证状态。
         const target = window as Window & {
             render_game_to_text?: () => string;
             advanceTime?: (ms: number) => void;
@@ -308,7 +310,7 @@ const VRWorldApp: React.FC = () => {
             if (target.render_game_to_text === renderState) delete target.render_game_to_text;
             if (target.advanceTime === advanceTime) delete target.advanceTime;
         };
-    }, [sarHubPanel, tab, loading, enterRoom, sarPromptStep, showSarDialogue, showSarGacha, showSarCabinet, showSarModuleShop, showFishingMarket, showHelp, sarState, worldPage]);
+    }, [familiarity, sarHubPanel, tab, loading, enterRoom, sarPromptStep, showSarDialogue, showSarGacha, showSarCabinet, showSarModuleShop, showFishingMarket, showHelp, sarState, worldPage]);
 
     const loadNovels = useCallback(async () => setNovels(await DB.getVRNovels()), []);
     const loadFeed = useCallback(async () => {
@@ -386,6 +388,8 @@ const VRWorldApp: React.FC = () => {
 
     // 返回键：有弹层先关弹层（阅读器/房间/上传/捏人），而不是直接退回桌面
     useEffect(() => registerBackHandler(() => {
+        if (familiarity && chibiEditUser) { setChibiEditUser(false); return true; }
+        if (familiarity) { setFamiliarity(null); return true; }
         if (sarHubPanel) { if (!sarHubBack.current?.()) setSarHubPanel(null); return true; }
         if (showFishingMarket) { setShowFishingMarket(null); return true; }
         if (showSarModuleShop) { setShowSarModuleShop(false); setSarModuleTargetCharId(null); return true; }
@@ -403,7 +407,7 @@ const VRWorldApp: React.FC = () => {
         if (enterRoom) { setEnterRoom(null); return true; }
         if (tab === 'sar') { setTab('world'); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, tab, sarHubPanel, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, showAivenDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, tab, familiarity, sarHubPanel, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, showAivenDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -551,7 +555,7 @@ const VRWorldApp: React.FC = () => {
                 ) : tab === 'sar' ? (
                     <SARWorldPage occupants={occupantsByRoom.sar || []} npcEnabled={sarState.npcPreference === 'show'} caianMet={sarState.caianMet}
                         labelsHidden={!!sarState.labelsHidden} onToggleLabels={() => setSarState(patchSARClubState({ labelsHidden: !sarState.labelsHidden }))}
-                        onTalkToCaian={() => setShowSarDialogue(true)} onTalkToAiven={() => setShowAivenDialogue(true)}
+                        onTalkToCaian={() => sarState.caianMet ? setFamiliarity({npc:'caian'}) : setShowSarDialogue(true)} onTalkToAiven={() => setFamiliarity({npc:'aiven'})}
                         onSelectCharacter={char => { setSarModuleTargetCharId(char.id); setShowSarModuleShop(true); }}
                         onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
                         onOpenModuleShop={() => setShowSarModuleShop(true)} onOpenFishingMarket={setShowFishingMarket}
@@ -582,7 +586,8 @@ const VRWorldApp: React.FC = () => {
                 )}
             </div>
 
-            {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} userProfile={userProfile} characters={characters}/>}
+            {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
+            {familiarity && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)} onOpenGuide={()=>{const npc=familiarity.npc;setFamiliarity(null);if(npc==='aiven')setShowAivenDialogue(true);else setShowSarDialogue(true);}}/>}
             {/* 进入房间场景 */}
             {enterRoom && (
                 <RoomScene roomId={enterRoom} occupants={occupantsByRoom[enterRoom] || []}
@@ -697,14 +702,14 @@ const VRWorldApp: React.FC = () => {
                     }} />
             )}
             {chibiEditUser && (
-                <UserChibiEditor userName={userName} existing={userProfile?.vrState?.chibi}
+                <div className="fixed inset-0 z-[600]"><UserChibiEditor userName={userName} existing={userProfile?.vrState?.chibi}
                     onClose={() => setChibiEditUser(false)}
                     onSave={(chibi) => {
                         const uv = userProfile?.vrState;
                         updateUserProfile({ vrState: { ...(uv || {}), enabled: !!uv?.enabled, chibi, updatedAt: Date.now() } });
                         setChibiEditUser(false);
                         addToast?.('形象已更新', 'success');
-                    }} />
+                    }} /></div>
             )}
         </div>
     );

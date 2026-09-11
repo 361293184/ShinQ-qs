@@ -4195,6 +4195,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               if (backupData.roomCustomAssets) backupData.roomCustomAssets = stripBase64(backupData.roomCustomAssets);
               if (backupData.customIcons) backupData.customIcons = stripBase64(backupData.customIcons);
               if (backupData.appearancePresets) backupData.appearancePresets = stripBase64(backupData.appearancePresets);
+              if (backupData.sarLocalState) backupData.sarLocalState = stripBase64(backupData.sarLocalState);
               if (backupData.theme) {
                   // Save preset decoration content before stripping (SVGs start with data:image and would be stripped)
                   const savedPresetDecos = backupData.theme.desktopDecorations
