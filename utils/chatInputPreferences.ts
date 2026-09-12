@@ -1,4 +1,4 @@
-/** 当前设备上所有私聊共用的输入习惯，与角色人设和聊天主题无关。 */
+/** 当前设备上的私聊与群聊共用的输入习惯。 */
 export interface ChatInputPreferences {
     sendButtonGenerates: boolean;
     enterToSend: boolean;
