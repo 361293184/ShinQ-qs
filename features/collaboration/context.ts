@@ -14,7 +14,8 @@ const COLLABORATION_PROTOCOL = `### 协同工作规则
 
 - 主动拆解、执行、检查并交付；只有缺少会改变结果的关键信息时才询问。
 - 保持你自己的语言习惯和判断，不要变成没有人格的客服，也不要为了演绎而拖延任务。
-- 可以阅读用户在本会话上传的文件。文件内容会跟在用户消息中，不要假装读到了没有提供的内容。
+- 可以阅读用户在本会话上传的文件和参考图片。PDF 会标明页数并提取全文；图片会以视觉输入或识图描述提供。不要假装读到了没有提供的内容。
+- 普通聊天正文默认使用 Markdown 排版，但这不代表只能生成 .md。用户选择或点名 Word、PDF、TXT、HTML、JSON、Markdown 时，必须按指定格式交付真正的文件。
 - 不能只说“我已经生成了文件”。需要交付文件时，在自然回复之后输出一个或多个 artifact 块，由前端真正制作文件。
 - artifact 块必须严格使用下面的形式，format 可选 txt、md、html、json、docx、pdf：
 
@@ -154,36 +155,41 @@ export const buildCollaborationContextSnapshot = async ({
   ].join('');
 };
 
-export interface BuildImmersiveChatContextInput {
+export interface BuildLiveCollaborationChatContextInput {
   char: CharacterProfile;
   user: UserProfile;
   groups: GroupProfile[];
   emojis: Emoji[];
   categories: EmojiCategory[];
   recentChatMessages: Message[];
+  mode?: CollaborationMode;
+  chatContextLimit?: number;
   realtimeConfig?: RealtimeConfig;
 }
 
 /**
- * Build immersive collaboration from the exact same prompt pipeline as
- * ChatApp. The returned array is persisted on the collaboration session, so
- * later turns (and other collaboration windows) cannot silently rewrite it.
+ * Build the ChatApp bridge for one collaboration request. This intentionally
+ * runs on every send: only the selected latest rows (or ChatApp's effective
+ * user-configured range) are read, and a collaboration session never freezes
+ * an increasingly stale chat transcript.
  */
-export const buildImmersiveChatContextSnapshot = async ({
+export const buildLiveCollaborationChatContext = async ({
   char,
   user,
   groups,
   emojis,
   categories,
   recentChatMessages,
+  mode = 'immersive',
+  chatContextLimit = 20,
   realtimeConfig,
-}: BuildImmersiveChatContextInput): Promise<{
+}: BuildLiveCollaborationChatContextInput): Promise<{
   contextSnapshot: string;
   chatContextSnapshot: CollaborationContextMessage[];
 }> => {
-  const history = recentChatMessages.slice(-Math.max(1, char.contextLimit || 500));
-  // The session identity/history is frozen, but Memory Palace is deliberately
-  // omitted here: collaboration adds a fresh recall block on every turn.
+  const history = selectRecentCollaborationChatMessages(recentChatMessages, chatContextLimit);
+  // Memory Palace is deliberately omitted here: collaboration adds a fresh
+  // recall block on every turn through its own isolated entry point.
   const staticChar: CharacterProfile = {
     ...char,
     chatCollaborationEnabled: false,
@@ -211,7 +217,7 @@ export const buildImmersiveChatContextSnapshot = async ({
     stripImages: true,
   });
 
-  const chatContextSnapshot: CollaborationContextMessage[] = payload.fullMessages
+  const fullChatContext: CollaborationContextMessage[] = payload.fullMessages
     .map(message => {
       const role: CollaborationContextMessage['role'] = message.role === 'user' || message.role === 'assistant'
         ? message.role
@@ -222,10 +228,15 @@ export const buildImmersiveChatContextSnapshot = async ({
       return { role, content };
     })
     .filter(message => !!message.content.trim());
+  const chatContextSnapshot = mode === 'immersive'
+    ? fullChatContext
+    : fullChatContext.filter(message => message.role === 'user' || message.role === 'assistant');
 
   return {
     contextSnapshot: [
-      `### 当前模式\n用户选择了“沉浸式协同”：上方内容直接来自 ChatApp 本人的 ContextBuilder 与最近聊天上下文；在完整保留角色、关系和当下对话连续性的同时，把完成当前任务放在本窗口的最前面。任务相关记忆会在每次发送时重新召回；其它协同窗口的对话仍不进入这里。\n\n`,
+      mode === 'immersive'
+        ? `### 当前模式\n用户选择了“沉浸式协同”：上方内容直接来自 ChatApp 本人的 ContextBuilder；最近 ${history.length} 条聊天会在每次生成时重新读取而非冻结。在完整保留角色、关系和当下对话连续性的同时，把完成当前任务放在本窗口的最前面。任务相关记忆会在每次发送时重新召回；其它协同窗口的对话仍不进入这里。\n\n`
+        : `### ChatApp 实时聊天衔接\n最近 ${history.length} 条聊天会在每次生成时重新读取而非冻结。\n\n`,
       COLLABORATION_PROTOCOL,
       collaborationRichOutputPrompt(char, emojis, categories),
     ].join(''),
@@ -233,16 +244,35 @@ export const buildImmersiveChatContextSnapshot = async ({
   };
 };
 
+export const selectRecentCollaborationChatMessages = (
+  messages: Message[],
+  limit: number,
+): Message[] => {
+  if (limit <= 0) return [];
+  return messages.slice(-limit);
+};
+
 const formatAttachmentContext = (message: CollaborationMessage): string => {
   const attachments = message.attachments || [];
   if (attachments.length === 0) return '';
   return attachments.map(attachment => {
     const text = attachment.extractedText?.trim();
+    const isImage = /^image\//i.test(attachment.mimeType);
+    if (!text && isImage) return `\n\n[用户上传参考图片：${attachment.name}；图片数据将作为视觉输入发送]`;
     if (!text) return `\n\n[附件：${attachment.name}，未提取到可读正文]`;
-    const label = attachment.kind === 'artifact' ? '本会话已生成文件' : '用户上传文件';
-    return `\n\n[${label}：${attachment.name}]\n${text}`;
+    const label = attachment.kind === 'artifact'
+      ? '本会话已生成文件'
+      : isImage
+        ? '用户上传参考图片（已识图）'
+        : '用户上传文件';
+    const coverage = attachment.pageCount ? `；PDF 共 ${attachment.pageCount} 页` : '';
+    return `\n\n[${label}：${attachment.name}${coverage}]\n${text}`;
   }).join('');
 };
+
+const formatRequestedOutput = (message: CollaborationMessage): string => message.requestedFormat
+  ? `\n\n[本轮文件交付格式：${message.requestedFormat}。若本轮需要交付成果，必须输出该格式的 artifact 真文件，不要只在聊天正文中给 Markdown。]`
+  : '';
 
 const collaborationMessagesForRecall = (
   messages: CollaborationMessage[],
@@ -255,7 +285,7 @@ const collaborationMessagesForRecall = (
     charId,
     role: message.role as 'user' | 'assistant',
     type: 'text',
-    content: `${message.content}${formatAttachmentContext(message)}`.slice(0, 30_000),
+    content: `${message.content}${formatRequestedOutput(message)}${formatAttachmentContext(message)}`.slice(0, 30_000),
     timestamp: message.createdAt,
   }));
 
@@ -330,10 +360,15 @@ export const stripFrozenCollaborationMemoryContext = (source: string): string =>
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | Array<
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } }
+  >;
 }
 
-const MAX_HISTORY_CHARS = 180_000;
+// 一篇完整论文常会超过 180k 字符。协同附件已经在上传边界限制到 300k，
+// 这里要让它在“上传后的下一轮追问”里仍能留下，而不是只剩模型上一轮提到的摘要。
+const MAX_HISTORY_CHARS = 420_000;
 
 export const buildCollaborationModelMessages = (
   contextSnapshot: string,
@@ -346,7 +381,7 @@ export const buildCollaborationModelMessages = (
     .filter(message => message.role === 'user' || message.role === 'assistant')
     .map(message => ({
       role: message.role as 'user' | 'assistant',
-      content: `${message.content}${formatAttachmentContext(message)}`.trim(),
+      content: `${message.content}${formatRequestedOutput(message)}${formatAttachmentContext(message)}`.trim(),
     }))
     .filter(message => !!message.content);
 
