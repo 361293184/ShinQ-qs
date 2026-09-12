@@ -1002,3 +1002,7 @@ TODO — Qixi rewrite
 - Module shop uses full chrome inset and a four-column header; garden keeps a full-bleed background with an inset control viewport. Standalone keepsakes, object inspector and facility guides respect the shared iOS fallback.
 - Browser: 32 layouts plus keepsake checks across portrait/landscape/small/no-inset; exits, guide dialogs, tall inspector and content/header bounds passed. Official game client screenshot checked. Production Vite build passed (43.02s).
 
+2026-09-12 — Kanata library categories
+- Added searchable/category-filtered shelves, transactional category management and bulk moves, upload category defaults, and reading preferences reachable directly from the library.
+- Category mode restricts rotation to selected categories (new books join automatically; empty/deleted categories do not fall back). Legacy per-book priorities and bookmarks/annotations preserved; background activity writes preserve latest reading preferences.
+- 71 focused unit checks passed. Isolated browser verified grouping/import/persistence/backup/annotation preservation and 320px/390px/landscape safe areas. Production build passed; existing repository tsc errors remain, with no diagnostics in changed library files. Changes prepared for PR 644; do not merge without explicit authorization.

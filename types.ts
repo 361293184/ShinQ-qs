@@ -1221,6 +1221,8 @@ export interface VRWorldNovel {
     id: string;
     title: string;
     author?: string;
+    /** 书库分类的稳定 ID；旧书缺省为未分类。 */
+    categoryId?: string;
     /** 简介，喂给角色当背景，也用于 UI 展示 */
     summary?: string;
     /** 原文按阅读单元切好的段落块（每块 ~数百字，便于定位批注与推进书签）。 */
@@ -1230,6 +1232,8 @@ export interface VRWorldNovel {
     createdAt: number;
     updatedAt: number;
 }
+
+export interface VRLibraryCategory { id: string; name: string; }
 
 /** 小说里的一个阅读单元（原文段落块）。 */
 export interface VRNovelSegment {
@@ -1306,6 +1310,9 @@ export interface VRWorldCharState {
     novelBookmarks?: Record<string, number>;
     /** 用户为该角色圈定的优先书单。为空时从全书库自动轮换。 */
     preferredNovelIds?: string[];
+    /** categories 模式只在所选分类中阅读，不回退到其他分类。缺省兼容旧的逐本优先规则。 */
+    novelReadingMode?: 'all' | 'books' | 'categories';
+    preferredNovelCategoryIds?: string[];
     /** 上一次图书馆活动选中的小说，用于有其它候选时避免连续读同一本。 */
     lastNovelId?: string;
     /** 最近一次活动落在哪个房间（UI 立绘站位用） */

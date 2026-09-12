@@ -34,6 +34,7 @@ import { getVRApi, logVRApiCall } from './vrApi';
 import { PostOffice } from './postOffice';
 import { Signal, SignalState, recordMyLine, getMyRecentLines, takeSignalWhisper } from './signal';
 import { getReadingWindow, getBookmark, buildAnnotation } from './novel';
+import { novelReadingMode, readableNovels } from './library';
 import {
     buildVRSystemAddendum, buildLibraryRoomTurn, parseVROutput,
     buildMusicRoomTurn, parseMusicOutput,
@@ -163,6 +164,7 @@ function withSharedRoomLock<T>(fn: () => Promise<T>): Promise<T> {
  * 选一本要读的书：
  * - 默认从所有尚未读完的书里随机轮换，不再因为某本刚开始读就一直黏到结尾；
  * - 用户圈了优先书单时，先在其中的未读完书目里轮换，读完后回到全书库；
+ * - 按分类模式先限定范围，读完也只在选中分类内重读；空分类不扩大范围；
  * - 有多个候选时排除上一次选中的书，避免连续两轮重复。
  *
  * random 作为参数是为了让选书规则可以稳定测试；生产环境使用 Math.random。
@@ -172,12 +174,12 @@ export function pickNovel(
     char: CharacterProfile,
     random: () => number = Math.random,
 ): VRWorldNovel | null {
-    const readable = novels.filter(novel => novel.segments.length > 0);
+    const readable = readableNovels(novels, char);
     if (readable.length === 0) return null;
     const bookmarks = char.vrState?.novelBookmarks;
     const unfinished = readable.filter(novel => getBookmark(bookmarks, novel.id) < novel.segments.length);
     const available = unfinished.length > 0 ? unfinished : readable;
-    const preferred = new Set(char.vrState?.preferredNovelIds || []);
+    const preferred = new Set(novelReadingMode(char) === 'books' ? char.vrState?.preferredNovelIds || [] : []);
     const preferredAvailable = preferred.size > 0
         ? available.filter(novel => preferred.has(novel.id))
         : [];
@@ -244,8 +246,9 @@ export function rollRoom(
     // 用户手动点“听歌房”时必须尊重选择。即使当前没有歌，听歌房提示词也支持
     // 角色戴着耳机放空；不能因为没有歌单就悄悄随机跳去剧院等其他房间。
     if (prefer === 'music') return 'music';
+    if (prefer === 'library') return readableNovels(novels, char).length ? 'library' : null;
     const pool: VRRoomId[] = ['guestbook', 'gym', 'postoffice', 'theater', 'sar'];
-    if (novels.length > 0) pool.push('library');
+    if (readableNovels(novels, char).length > 0) pool.push('library');
     if (gatherCharSongs(char).length > 0 || musicState?.nowPlaying) pool.push('music');
     if (prefer && pool.includes(prefer)) return prefer; // 指定的房间可用则去，否则回退随机
     const rolled = Number(random());
