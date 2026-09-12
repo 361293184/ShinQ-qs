@@ -997,3 +997,17 @@ TODO — Qixi rewrite
 2026-09-12 — Aiven RPG fish-sales entry
 - User correction: clicking Aiven starts normal dialogue immediately. Services appear only after greeting/story; star-event completion keeps a separate end page before services. Replay never offers selling. Weekday greeting comes first for Aiven.
 - Verified browser greeting, after-dialogue sale payout, live star ending, replay, and 37 unit checks. Dinosaur GLB base-path hotfix separately deployed (PR 641).
+
+2026-09-12 — SAR iOS safe-area fixes
+- Module shop uses full chrome inset and a four-column header; garden keeps a full-bleed background with an inset control viewport. Standalone keepsakes, object inspector and facility guides respect the shared iOS fallback.
+- Browser: 32 layouts plus keepsake checks across portrait/landscape/small/no-inset; exits, guide dialogs, tall inspector and content/header bounds passed. Official game client screenshot checked. Production Vite build passed (43.02s).
+
+2026-09-12 — Kanata library categories
+- Added searchable/category-filtered shelves, transactional category management and bulk moves, upload category defaults, and reading preferences reachable directly from the library.
+- Category mode restricts rotation to selected categories (new books join automatically; empty/deleted categories do not fall back). Legacy per-book priorities and bookmarks/annotations preserved; background activity writes preserve latest reading preferences.
+- 71 focused unit checks passed. Isolated browser verified grouping/import/persistence/backup/annotation preservation and 320px/390px/landscape safe areas. Production build passed; existing repository tsc errors remain, with no diagnostics in changed library files. Changes prepared for PR 644; do not merge without explicit authorization.
+
+2026-09-12 — Grouped Kanata activity picker and automatic exclusions
+- Manual invitation now has ordinary/SAR groups and all five implemented SAR subactivities, forwarded end-to-end through scheduler and OSContext. Module shop has its own activity prompt.
+- Per-character advanced restrictions filter both automatic room and SAR pools; all blocked skips the model, manual invitations bypass only these restrictions, and current settings survive session writes. Existing random weights and garden preconditions preserved.
+- 101 focused tests passed. Isolated browser verified every SAR route, exclusions persistence/inheritance/reset/backup, mobile safe areas, and real UI-to-session execution for module/cabinet with one mocked local model response each. Final production build checked before pushing. Keep PR 644 open pending explicit merge authorization.

@@ -467,10 +467,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         {emojiSelectionMode && (
             <div className={`fixed inset-0 z-[-1] ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
         )}
-        <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
+        {/* 辅助提示保持在输入栏外，避免改变社区 CSS 的 > div:first-child / nth-child 目标。 */}
             {suggestedEmojis.length > 0 && (
                 <div ref={suggestionsRef} role="region" aria-label="表情包联想"
-                    className={`sully-emoji-suggestions border-b px-4 pb-2 pt-2 ${isDiscordStyle ? 'border-white/10 bg-slate-900 text-slate-300' : isPixelStyle ? 'border-[#8f674a]/20 text-[#8f674a]' : 'border-slate-100 text-slate-500'}`}>
+                    className={`sully-chat-emoji-suggestions sully-emoji-suggestions shrink-0 relative z-40 border-b px-4 pb-2 pt-2 ${shellClass} ${isDiscordStyle ? 'border-white/10 bg-slate-900 text-slate-300' : isPixelStyle ? 'border-[#8f674a]/20 text-[#8f674a]' : 'border-slate-100 text-slate-500'}`}>
                     <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px]">表情联想 · 点击发送</span>
                         <button type="button" aria-label="收起表情联想" onClick={() => setDismissedSuggestionInput(input)}
@@ -494,12 +494,12 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 </div>
             )}
             {autoReplySeconds !== null && !selectionMode && (
-                <div className="flex min-h-10 items-center justify-center gap-1 px-4 text-xs text-slate-500">
+                <div className={`sully-chat-auto-reply shrink-0 relative z-40 flex min-h-10 items-center justify-center gap-1 px-4 text-xs text-slate-500 ${shellClass}`}>
                     <span role="status">即将回复 · {autoReplySeconds} 秒</span>
                     <button type="button" onClick={onCancelAutoReply} className="min-h-11 px-3 font-bold text-primary" aria-label="取消自动回复">取消</button>
                 </div>
             )}
-            
+        <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
                     {onForwardSelected && (
@@ -521,11 +521,11 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     </button>
                 </div>
             ) : (
-                <div className="p-3 px-4 flex gap-3 items-end relative">
-                    <button aria-label="聊天功能" aria-expanded={showPanel === 'actions'} onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
+                <div className="sully-chat-composer p-3 px-4 flex gap-3 items-end relative">
+                    <button aria-label="聊天功能" aria-expanded={showPanel === 'actions'} onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={`sully-chat-actions-button ${actionButtonClass}`}>
                         <Plus className="w-6 h-6" weight="bold" />
                     </button>
-                    <div className={`flex-1 min-w-0 flex items-center px-1 transition-all ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
+                    <div className={`sully-chat-input-wrap flex-1 min-w-0 flex items-center px-1 transition-all ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
                         <textarea 
                             ref={textareaRef}
                             rows={1} 
@@ -540,7 +540,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             enterKeyHint={enterToSend ? 'send' : 'enter'}
                             autoCorrect="on"
                             autoCapitalize="sentences"
-                            className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
+                            className={`sully-chat-textarea flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`}
                             placeholder="Message..." 
                             style={{ height: 'auto' }} 
                         />
@@ -559,7 +559,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         disabled={primaryButtonDisabled}
                         aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
                         title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
-                        className={`${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
+                        className={`sully-chat-send-button ${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
                     >
                         {sendButtonStyle === 'pill'
                             ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
