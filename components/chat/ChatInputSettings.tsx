@@ -5,13 +5,14 @@ import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 interface ChatInputSettingsProps {
     value: ChatInputPreferences;
     onChange: (value: ChatInputPreferences) => void;
+    scope?: 'private' | 'group';
 }
 
-const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange }) => {
+const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange, scope = 'private' }) => {
     const [openHelp, setOpenHelp] = useState<keyof ChatInputPreferences | null>(null);
     return (
         <div className="space-y-1">
-            <p className="mb-2 text-[10px] text-slate-400">以下输入习惯对所有私聊生效</p>
+            <p className="mb-2 text-[10px] text-slate-400">以下输入习惯对当前设备的私聊和群聊生效</p>
             {([
                 {
                     key: 'sendButtonGenerates',
@@ -26,12 +27,12 @@ const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange }
                 {
                     key: 'autoReply',
                     label: '发完后自动生成回复',
-                    help: '发过文字、图片或表情后，等输入框没有草稿和光标、加号等底部面板全部收起，再等 2 秒让对方回复。继续输入、打开面板或发送新消息，就重新等待。倒计时可以取消。这项开启时，Instant Push 的发送即回复也会按这里等。',
+                    help: '发过文字、图片或表情后，等输入框没有草稿和光标、加号等底部面板全部收起，再等 2 秒让对方回复。继续输入、打开面板或发送新消息，就重新等待。倒计时可以取消。' + (scope === 'group' ? '群聊沿用本群的导演或轮询模式；退出群聊会取消等待。' : '这项开启时，Instant Push 的发送即回复也会按这里等。'),
                 },
                 {
                     key: 'emojiSuggestions',
                     label: '表情包智能匹配',
-                    help: '输入“抱”就会联想名称里有“抱”的表情包，点击候选即可发送。匹配当前角色可见的所有分类，文字草稿会保留。默认关闭。',
+                    help: '输入“抱”就会联想名称里有“抱”的表情包，点击候选即可发送。私聊匹配当前角色可见的所有分类，群聊匹配群聊表情库的所有分类，文字草稿会保留。两者共用开关，默认关闭。',
                 },
             ] as const).map(({ key, label, help }) => (
                 <div key={key}>
