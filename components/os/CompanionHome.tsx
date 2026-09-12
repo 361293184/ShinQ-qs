@@ -64,6 +64,7 @@ import {
   generateAvatarTouchVoicePack,
 } from '../../utils/avatarTouchVoice';
 import { DB } from '../../utils/db';
+import { isChatPreviewMessage } from '../../utils/chatMessageVisibility';
 import { getLastInnerState } from '../../utils/emotionApply';
 import { getFlowNarrativeKey } from '../../utils/scheduleFeature';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
@@ -546,16 +547,17 @@ const CompanionHome: React.FC = () => {
       return () => { cancelled = true; };
     }
     void Promise.all([
-      DB.getRecentMessagesByCharId(character.id, 12, true),
-      getDailyScheduleForChar(character),
-    ]).then(([messages, schedule]) => {
-      if (cancelled) return;
-      const latestAssistant = [...messages].reverse().find(message =>
-        message.role === 'assistant'
+      DB.getRecentMessagesWithCount(character.id, 1, message =>
+        isChatPreviewMessage(message)
+        && message.role === 'assistant'
         && (!message.type || message.type === 'text')
         && typeof message.content === 'string'
-        && message.content.trim(),
-      );
+        && !!message.content.trim(),
+      ),
+      getDailyScheduleForChar(character),
+    ]).then(([recent, schedule]) => {
+      if (cancelled) return;
+      const latestAssistant = recent.messages[0];
       const scheduleThought = schedule?.flowNarrative?.[
         getFlowNarrativeKey(getScheduleWallClock(character).getHours())
       ];
@@ -3477,7 +3479,7 @@ const CompanionHome: React.FC = () => {
               <span className="companion-dock-primary-label text-[9px] font-semibold tracking-[0.18em] sm:text-[10px]" style={{ color: uiTint }}>功能</span>
             </button>
             {[
-              { id: AppID.Music, icon: Icons.Music, label: '音乐' },
+              { id: AppID.VRWorld, icon: Icons.VRWorld, label: '彼方' },
               { id: AppID.Settings, icon: Icons.Settings, label: '设置' },
             ].map(item => (
               <button key={item.id} onClick={() => launchCompanionApp(item.id)} className="companion-dock-item flex h-full flex-col items-center justify-center gap-1 text-white/90 active:scale-[.97]">

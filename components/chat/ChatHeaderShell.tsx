@@ -28,6 +28,8 @@ interface ChatHeaderShellProps {
     extraAction?: { label: string; icon: React.ReactNode; onClick: () => void };
     /** 触发按钮图标：生成中想显示"停止"时传 'stop'。不传 = 原行为（闪电） */
     triggerIcon?: 'lightning' | 'stop';
+    /** 私聊启用底部生成入口时隐藏顶栏闪电。 */
+    hideTrigger?: boolean;
     isEmotionEvaluating?: boolean;
     isInstantSending?: boolean;
     isMemoryPalaceProcessing?: boolean;
@@ -84,6 +86,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     statusText,
     extraAction,
     triggerIcon = 'lightning',
+    hideTrigger = false,
     hideBuffs = false,
     headerStyle = 'default',
     avatarShape = 'circle',
@@ -429,9 +432,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                         {renderCenteredInfo()}
                     </div>
 
-                    <button onClick={onTriggerAI} className={`sully-chat-trigger absolute right-0 bottom-2 p-2 ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
+                    {!hideTrigger && <button onClick={onTriggerAI} className={`sully-chat-trigger absolute right-0 bottom-2 p-2 ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
                         {triggerIconNode}
-                    </button>
+                    </button>}
                     {extraAction && (
                         <button onClick={extraAction.onClick} className={`absolute right-10 bottom-2 p-2 ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}
@@ -454,9 +457,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                             {extraAction.icon}
                         </button>
                     )}
-                    <button onClick={onTriggerAI} className={`sully-chat-trigger p-2 ${extraAction ? '' : 'ml-auto'} ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
+                    {!hideTrigger && <button onClick={onTriggerAI} className={`sully-chat-trigger p-2 ${extraAction ? '' : 'ml-auto'} ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
                         {triggerIconNode}
-                    </button>
+                    </button>}
                 </div>
             )}
 
