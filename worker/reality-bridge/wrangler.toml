@@ -19,7 +19,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "reality-bridge-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "bbba106d-56c1-4f85-9da8-fbfd24a279fe"
 
 ## 非 secret 变量：
 [vars]

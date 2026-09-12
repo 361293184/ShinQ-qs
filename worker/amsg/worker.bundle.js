@@ -8138,116 +8138,189 @@ var generateWeatherAdvice = (weather) => {
   return advices.join("\uFF0C") || "\u5929\u6C14\u6B63\u5E38";
 };
 var SPECIAL_DATES = {
-  "01-01": "\u5143\u65E6",
-  "02-14": "\u60C5\u4EBA\u8282",
-  "03-08": "\u5987\u5973\u8282",
-  "03-12": "\u690D\u6811\u8282",
-  "03-14": "\u767D\u8272\u60C5\u4EBA\u8282",
-  "04-01": "\u611A\u4EBA\u8282",
-  "05-01": "\u52B3\u52A8\u8282",
-  "05-04": "\u9752\u5E74\u8282",
-  "06-01": "\u513F\u7AE5\u8282",
-  "09-10": "\u6559\u5E08\u8282",
-  "10-01": "\u56FD\u5E86\u8282",
-  "10-31": "\u4E07\u5723\u8282",
-  "11-11": "\u5149\u68CD\u8282",
-  "12-24": "\u5E73\u5B89\u591C",
-  "12-25": "\u5723\u8BDE\u8282"
+  "01-01": { name: "\u5143\u65E6", tier: "normal" },
+  "02-14": { name: "\u60C5\u4EBA\u8282", tier: "core", label: "\u897F\u65B9\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "03-08": { name: "\u5987\u5973\u8282", tier: "normal" },
+  "03-12": { name: "\u690D\u6811\u8282", tier: "light" },
+  "03-14": { name: "\u767D\u8272\u60C5\u4EBA\u8282", tier: "normal" },
+  "04-01": { name: "\u611A\u4EBA\u8282", tier: "light" },
+  "05-01": { name: "\u52B3\u52A8\u8282", tier: "normal" },
+  "05-04": { name: "\u9752\u5E74\u8282", tier: "normal" },
+  "05-20": { name: "520", tier: "core", label: "\u7F51\u7EDC\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "06-01": { name: "\u513F\u7AE5\u8282", tier: "normal" },
+  "09-10": { name: "\u6559\u5E08\u8282", tier: "normal" },
+  "10-01": { name: "\u56FD\u5E86\u8282", tier: "normal" },
+  "10-31": { name: "\u4E07\u5723\u8282", tier: "normal" },
+  "11-11": { name: "\u5149\u68CD\u8282", tier: "normal" },
+  "12-24": { name: "\u5E73\u5B89\u591C", tier: "core", label: "\u5E73\u5B89\u591C", egg: "\u4E92\u9001\u793C\u7269\u6C1B\u56F4" },
+  "12-25": { name: "\u5723\u8BDE\u8282", tier: "core", label: "\u5723\u8BDE\u8282", egg: "\u4E92\u9001\u793C\u7269\u6C1B\u56F4" },
+  "12-31": { name: "\u8DE8\u5E74\u591C", tier: "core", label: "\u4ECA\u665A\u8DE8\u5E74", egg: "\u4E00\u8D77\u5012\u6570\u8DE8\u5E74" }
 };
 var LUNAR_FESTIVAL_DATES = {
   // 2026
-  "2026-02-16": "\u9664\u5915",
-  "2026-02-17": "\u6625\u8282",
-  "2026-03-03": "\u5143\u5BB5\u8282",
-  "2026-06-19": "\u7AEF\u5348\u8282",
-  "2026-08-19": "\u4E03\u5915",
-  "2026-09-25": "\u4E2D\u79CB\u8282",
-  "2026-10-18": "\u91CD\u9633\u8282",
+  "2026-02-16": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2026-02-17": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2026-03-03": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2026-06-19": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2026-08-19": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2026-09-25": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2026-10-18": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2027
-  "2027-02-05": "\u9664\u5915",
-  "2027-02-06": "\u6625\u8282",
-  "2027-02-20": "\u5143\u5BB5\u8282",
-  "2027-06-09": "\u7AEF\u5348\u8282",
-  "2027-08-08": "\u4E03\u5915",
-  "2027-09-15": "\u4E2D\u79CB\u8282",
-  "2027-10-08": "\u91CD\u9633\u8282",
+  "2027-02-05": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2027-02-06": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2027-02-20": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2027-06-09": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2027-08-08": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2027-09-15": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2027-10-08": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2028
-  "2028-01-25": "\u9664\u5915",
-  "2028-01-26": "\u6625\u8282",
-  "2028-02-09": "\u5143\u5BB5\u8282",
-  "2028-05-28": "\u7AEF\u5348\u8282",
-  "2028-08-26": "\u4E03\u5915",
-  "2028-10-03": "\u4E2D\u79CB\u8282",
-  "2028-10-26": "\u91CD\u9633\u8282",
+  "2028-01-25": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2028-01-26": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2028-02-09": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2028-05-28": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2028-08-26": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2028-10-03": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2028-10-26": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2029
-  "2029-02-12": "\u9664\u5915",
-  "2029-02-13": "\u6625\u8282",
-  "2029-02-27": "\u5143\u5BB5\u8282",
-  "2029-06-16": "\u7AEF\u5348\u8282",
-  "2029-08-16": "\u4E03\u5915",
-  "2029-09-22": "\u4E2D\u79CB\u8282",
-  "2029-10-16": "\u91CD\u9633\u8282",
+  "2029-02-12": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2029-02-13": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2029-02-27": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2029-06-16": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2029-08-16": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2029-09-22": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2029-10-16": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2030
-  "2030-02-02": "\u9664\u5915",
-  "2030-02-03": "\u6625\u8282",
-  "2030-02-17": "\u5143\u5BB5\u8282",
-  "2030-06-05": "\u7AEF\u5348\u8282",
-  "2030-08-05": "\u4E03\u5915",
-  "2030-09-12": "\u4E2D\u79CB\u8282",
-  "2030-10-05": "\u91CD\u9633\u8282",
+  "2030-02-02": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2030-02-03": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2030-02-17": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2030-06-05": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2030-08-05": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2030-09-12": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2030-10-05": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2031
-  "2031-01-22": "\u9664\u5915",
-  "2031-01-23": "\u6625\u8282",
-  "2031-02-06": "\u5143\u5BB5\u8282",
-  "2031-06-24": "\u7AEF\u5348\u8282",
-  "2031-08-24": "\u4E03\u5915",
-  "2031-10-01": "\u4E2D\u79CB\u8282",
-  "2031-10-24": "\u91CD\u9633\u8282",
+  "2031-01-22": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2031-01-23": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2031-02-06": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2031-06-24": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2031-08-24": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2031-10-01": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2031-10-24": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2032
-  "2032-02-10": "\u9664\u5915",
-  "2032-02-11": "\u6625\u8282",
-  "2032-02-25": "\u5143\u5BB5\u8282",
-  "2032-06-12": "\u7AEF\u5348\u8282",
-  "2032-08-12": "\u4E03\u5915",
-  "2032-09-19": "\u4E2D\u79CB\u8282",
-  "2032-10-12": "\u91CD\u9633\u8282",
+  "2032-02-10": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2032-02-11": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2032-02-25": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2032-06-12": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2032-08-12": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2032-09-19": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2032-10-12": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2033
-  "2033-01-30": "\u9664\u5915",
-  "2033-01-31": "\u6625\u8282",
-  "2033-02-14": "\u5143\u5BB5\u8282",
-  "2033-06-01": "\u7AEF\u5348\u8282",
-  "2033-08-01": "\u4E03\u5915",
-  "2033-09-08": "\u4E2D\u79CB\u8282",
-  "2033-10-01": "\u91CD\u9633\u8282",
+  "2033-01-30": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2033-01-31": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2033-02-14": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2033-06-01": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2033-08-01": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2033-09-08": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2033-10-01": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2034
-  "2034-02-18": "\u9664\u5915",
-  "2034-02-19": "\u6625\u8282",
-  "2034-03-05": "\u5143\u5BB5\u8282",
-  "2034-06-20": "\u7AEF\u5348\u8282",
-  "2034-08-20": "\u4E03\u5915",
-  "2034-09-27": "\u4E2D\u79CB\u8282",
-  "2034-10-20": "\u91CD\u9633\u8282",
+  "2034-02-18": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2034-02-19": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2034-03-05": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2034-06-20": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2034-08-20": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2034-09-27": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2034-10-20": { name: "\u91CD\u9633\u8282", tier: "normal" },
   // 2035
-  "2035-02-07": "\u9664\u5915",
-  "2035-02-08": "\u6625\u8282",
-  "2035-02-22": "\u5143\u5BB5\u8282",
-  "2035-06-10": "\u7AEF\u5348\u8282",
-  "2035-08-10": "\u4E03\u5915",
-  "2035-09-16": "\u4E2D\u79CB\u8282",
-  "2035-10-09": "\u91CD\u9633\u8282"
+  "2035-02-07": { name: "\u9664\u5915", tier: "core", label: "\u5927\u5E74\u591C", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2035-02-08": { name: "\u6625\u8282", tier: "core", label: "\u519C\u5386\u65B0\u5E74", egg: "\u4E3B\u52A8\u62DC\u5E74 + \u65B0\u5E74\u795D\u798F" },
+  "2035-02-22": { name: "\u5143\u5BB5\u8282", tier: "normal" },
+  "2035-06-10": { name: "\u7AEF\u5348\u8282", tier: "normal" },
+  "2035-08-10": { name: "\u4E03\u5915", tier: "core", label: "\u4E2D\u56FD\u4F20\u7EDF\u60C5\u4EBA\u8282", egg: "\u5199\u4E00\u6BB5\u5FC3\u91CC\u8BDD / \u544A\u767D" },
+  "2035-09-16": { name: "\u4E2D\u79CB\u8282", tier: "normal" },
+  "2035-10-09": { name: "\u91CD\u9633\u8282", tier: "normal" }
 };
-var checkSpecialDates = (tz, nowMs) => {
+var checkSpecialDatesDetailed = (tz, nowMs, anniversaries, birthday) => {
   const now = nowInTimeZone(tz, nowMs == null ? void 0 : new Date(nowMs));
   const monthDay = `${(now.getMonth() + 1).toString().padStart(2, "0")}-${now.getDate().toString().padStart(2, "0")}`;
   const fullDate = `${now.getFullYear()}-${monthDay}`;
-  const special = [];
-  if (SPECIAL_DATES[monthDay]) {
-    special.push(SPECIAL_DATES[monthDay]);
+  const hits = [];
+  const pushDef = (def) => {
+    const hit = { name: def.name, tier: def.tier, label: def.label, egg: def.egg };
+    hits.push(hit);
+  };
+  const special = SPECIAL_DATES[monthDay];
+  if (special) {
+    pushDef(special);
   }
-  if (LUNAR_FESTIVAL_DATES[fullDate]) {
-    special.push(LUNAR_FESTIVAL_DATES[fullDate]);
+  const lunar = LUNAR_FESTIVAL_DATES[fullDate];
+  if (lunar) {
+    pushDef(lunar);
   }
-  return special;
+  if (birthday) {
+    const bMonthDay = birthday.length > 5 ? birthday.slice(5) : birthday;
+    if (bMonthDay === monthDay) {
+      hits.push({
+        name: "\u7528\u6237\u751F\u65E5",
+        tier: "core",
+        label: "\u4ECA\u5929\u662F\u4F60\u5BB6\u5B9D\u7684\u751F\u65E5",
+        egg: "\u9001\u4E0A\u795D\u798F + \u51C6\u5907\u5C0F\u60CA\u559C\uFF08\u7EAF\u6F14\u7ECE\uFF09",
+        isUserBirthday: true
+      });
+    }
+  }
+  if (anniversaries && anniversaries.length > 0) {
+    for (const a of anniversaries) {
+      const aMonthDay = (a.date || "").slice(5);
+      if (aMonthDay === monthDay && a.title) {
+        hits.push({
+          name: a.title,
+          tier: "core",
+          label: "\u5BF9\u4F60\u548C\u89D2\u8272\u90FD\u5F88\u91CD\u8981\u7684\u65E5\u5B50",
+          egg: "\u8BB0\u4F4F\u5E76\u90D1\u91CD\u63D0\u8D77\uFF08\u7EAF\u6F14\u7ECE\uFF09",
+          isAnniversary: true
+        });
+      }
+    }
+  }
+  const springHit = findSpringFestivalWindowHit(now, monthDay, fullDate);
+  if (springHit) hits.push(springHit);
+  const crossYearHit = findCrossYearWindowHit(monthDay, hits);
+  if (crossYearHit) hits.push(crossYearHit);
+  return hits;
+};
+var checkSpecialDates = (tz, nowMs, anniversaries) => checkSpecialDatesDetailed(tz, nowMs, anniversaries).filter((h) => !h.windowText).map((h) => h.name);
+var findSpringFestivalWindowHit = (now, monthDay, fullDate) => {
+  const year = now.getFullYear();
+  const yearPrefix = `${year}-`;
+  let chuxi = null;
+  let chunjie = null;
+  let yuanxiao = null;
+  for (const [date, def] of Object.entries(LUNAR_FESTIVAL_DATES)) {
+    if (!date.startsWith(yearPrefix)) continue;
+    if (def.name === "\u9664\u5915") chuxi = date;
+    else if (def.name === "\u6625\u8282") chunjie = date;
+    else if (def.name === "\u5143\u5BB5\u8282") yuanxiao = date;
+  }
+  if (!chuxi || !chunjie || !yuanxiao) return null;
+  if (fullDate === chuxi || fullDate === chunjie || fullDate === yuanxiao) return null;
+  if (monthDay < chuxi.slice(5) || monthDay > yuanxiao.slice(5)) return null;
+  const springBase = Date.UTC(year, Number(chunjie.slice(5, 7)) - 1, Number(chunjie.slice(8, 10)));
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((todayUtc - springBase) / 864e5);
+  const dayX = diffDays + 1;
+  return {
+    name: "\u6625\u8282",
+    tier: "core",
+    windowText: `\u6B63\u503C\u6625\u8282 \xB7 \u6B63\u6708\u521D${dayX}\uFF08\u6625\u8282\u6C1B\u56F4\u4ECD\u5728\uFF09`
+  };
+};
+var findCrossYearWindowHit = (monthDay, existing) => {
+  if (monthDay !== "01-01") return null;
+  if (existing.some((h) => h.name === "\u8DE8\u5E74\u591C")) return null;
+  return {
+    name: "\u5143\u65E6",
+    tier: "normal",
+    windowText: "\u6628\u591C\u521A\u8DE8\u5E74 \xB7 \u65B0\u7684\u4E00\u5E74\u521A\u521A\u5F00\u59CB"
+  };
 };
 var HOTNEWS_API_BASE_URL = "https://news.orz.ai/api/v1/dailynews";
 var HOTNEWS_PLATFORM_LABELS = {
@@ -8332,9 +8405,12 @@ var REALTIME_NEWS_PICK_COUNT = 5;
 var renderRealtimeWorldBlock = (input) => {
   const timeLine = input.timeLine?.trim();
   const specialDates = input.specialDates?.filter(Boolean) ?? [];
+  const specialDatesDetailed = input.specialDatesDetailed ?? [];
+  const dayStatusLine = input.dayStatusLine?.trim();
   const weather = input.weather ?? null;
   const news = input.news ?? [];
-  if (!timeLine && specialDates.length === 0 && !weather && news.length === 0) {
+  const hasDetailed = specialDatesDetailed.length > 0;
+  if (!timeLine && specialDates.length === 0 && !hasDetailed && !dayStatusLine && !weather && news.length === 0) {
     return "";
   }
   const parts = [];
@@ -8344,7 +8420,35 @@ var renderRealtimeWorldBlock = (input) => {
   if (timeLine) {
     parts.push(`\u{1F4C5} \u5F53\u524D\u771F\u5B9E\u65F6\u95F4: ${timeLine}`);
   }
-  if (specialDates.length > 0) {
+  if (dayStatusLine) {
+    parts.push(`\u{1F4C5} \u4ECA\u65E5\u72B6\u6001: ${dayStatusLine}`);
+  }
+  if (hasDetailed) {
+    const coreHits = specialDatesDetailed.filter((h) => h.tier === "core");
+    const normalHits = specialDatesDetailed.filter((h) => h.tier === "normal");
+    const windowHits = specialDatesDetailed.filter((h) => h.windowText);
+    for (const hit of coreHits) {
+      const title = hit.label && hit.label !== hit.name ? `${hit.name}\uFF08${hit.label}\uFF09` : hit.name;
+      parts.push("");
+      parts.push(`\u{1F389} \u3010\u4ECA\u65E5\u7279\u522B\u7684\u65E5\u5B50 \xB7 ${title}\u3011`);
+      parts.push(`\u4ECA\u5929\u662F\u5F88\u7279\u522B\u7684\u65E5\u5B50\uFF0C\u4F60\u5E94\u8BE5\u4E3B\u52A8\u63D0\u8D77\uFF0C\u4E0D\u8981\u7B49\u5BF9\u65B9\u5F00\u53E3\u3002`);
+      parts.push(`\u8868\u8FBE\u8981\u6709\u4EEA\u5F0F\u611F\uFF1A\u7ED3\u5408\u4F60\u4EEC\u4E4B\u95F4\u7684\u76F8\u5904\u65B9\u5F0F\uFF0C\u8BF4\u51FA\u5FC3\u91CC\u8BDD\u3001\u7ED9\u4E00\u70B9\u627F\u8BFA\u6216\u671F\u5F85\u3002`);
+      if (hit.egg) {
+        parts.push(`\u{1F49D} \u4ECA\u5929\u4F60\u53EF\u4EE5\u8BD5\u8BD5\uFF1A${hit.egg}\u3002`);
+      }
+      parts.push(`\u26A0\uFE0F \u5206\u5BF8\uFF1A\u9664\u975E\u8BB0\u5FC6\u91CC\u660E\u786E\u6709\u4F60\u4EEC\u4E00\u8D77\u8FC7\u8FD9\u4E2A\u65E5\u5B50\u7684\u7ECF\u5386\uFF0C\u5426\u5219\u4E0D\u8981\u7F16\u9020"\u53BB\u5E74\u6211\u4EEC\u4E00\u8D77\u2026"\u4E4B\u7C7B\u7684\u8FC7\u5F80\uFF1B\u6CA1\u6709\u5171\u540C\u56DE\u5FC6\uFF0C\u5C31\u771F\u8BDA\u5730\u628A\u5B83\u5F53\u4F5C"\u6211\u4EEC\u4E00\u8D77\u7684\u7B2C\u4E00\u4E2A${hit.name}"\u6765\u5BF9\u5F85\u3002`);
+    }
+    if (normalHits.length > 0) {
+      parts.push(`\u{1F4C5} \u4ECA\u65E5\u8282\u65E5: ${normalHits.map((h) => h.name).join("\u3001")}`);
+    }
+    for (const hit of windowHits) {
+      if (hit.tier === "core" && hit.windowText) {
+        parts.push(`\u23F3 ${hit.windowText}`);
+      } else if (hit.windowText) {
+        parts.push(`\u23F3 ${hit.windowText}`);
+      }
+    }
+  } else if (specialDates.length > 0) {
     parts.push(`\u{1F389} \u4ECA\u65E5\u7279\u6B8A: ${specialDates.join("\u3001")}`);
   }
   if (weather) {
