@@ -39,6 +39,7 @@ import {
     removeContentFavoriteById,
     saveMessageContentFavorite,
 } from '../utils/contentFavorites';
+import type { ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
 import { CollaborationStore } from '../features/collaboration/store';
 import type { CollaborationTransferMessage } from '../features/collaboration/types';
 const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
@@ -63,6 +64,8 @@ import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import { HeartFloats, ReadMindStickerSet } from '../components/chat/InnerVoicePanelFx';
 import ChatModals from '../components/chat/ChatModals';
+import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
+import type { ChatCleanupPlan } from '../utils/chatHistoryCleanup';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
@@ -75,8 +78,16 @@ import { buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts'
 import { useChatAI } from '../hooks/useChatAI';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
-import { synthesizeSpeechDetailed, characterHasVoice } from '../utils/ttsRouter';
-import { shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
+import {
+    canSynthesizeSpeech,
+    characterHasVoice,
+    cleanTextForTtsProvider,
+    providerUsesRawVoiceMarkup,
+    stripTtsMarkupForDisplay,
+    synthesizeSpeechDetailed,
+} from '../utils/ttsRouter';
+import { playVoiceAudio, primeVoiceAudio, stopVoiceAudio, voicePlaybackErrorMessage, shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
+import { voiceLanguageAnalyticsValue, voiceLanguagePromptLabel } from '../utils/voiceLanguage';
 import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { resolveFishAudioApiKey, stripFishMarkupForDisplay, cleanTextForTtsFish } from '../utils/fishAudioTts';
@@ -112,7 +123,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink, addWorldbook } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink, addWorldbook } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -179,6 +190,10 @@ const Chat: React.FC = () => {
     // 协作文档（协同工作）面板 + 要预览的附件 assetId
     const [collaborationOpen, setCollaborationOpen] = useState(false);
     const [collaborationPreviewAssetId, setCollaborationPreviewAssetId] = useState<string | null>(null);
+    // 历史窗口（上游引入的机制）：跳到旧消息时把显示范围收窄，回到当前清空。
+    // 本地定位仍走 windowedFocusMsgId，这里保留上游的状态/引用，让合并进来的回退逻辑能跑。
+    const [historyWindowRange, setHistoryWindowRange] = useState<ChatHistoryWindowRange | null>(null);
+    const historyWindowRangeRef = useRef<ChatHistoryWindowRange | null>(null);
     // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
     const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
     
@@ -236,6 +251,28 @@ const Chat: React.FC = () => {
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
     const [settingsHtmlModeCustomPrompt, setSettingsHtmlModeCustomPrompt] = useState('');
     const [preserveContext, setPreserveContext] = useState(true);
+    const contextSuiteAnyEnabled = memoryPalaceConfig.featureFlags?.recallRouter === true
+        || memoryPalaceConfig.featureFlags?.interactionAdaptation === true
+        || memoryPalaceConfig.featureFlags?.deepEngagement === true;
+    const contextSuiteAllEnabled = memoryPalaceConfig.featureFlags?.recallRouter === true
+        && memoryPalaceConfig.featureFlags?.interactionAdaptation === true
+        && memoryPalaceConfig.featureFlags?.deepEngagement === true;
+    const handleToggleContextSuite = () => {
+        const enabled = !contextSuiteAnyEnabled;
+        trackEvent('切换智能语境', {
+            状态: enabled ? '开' : '关',
+            此前: contextSuiteAllEnabled ? '全开' : contextSuiteAnyEnabled ? '部分开' : '全关',
+        });
+        updateMemoryPalaceConfig({
+            featureFlags: {
+                ...memoryPalaceConfig.featureFlags,
+                recallRouter: enabled,
+                interactionAdaptation: enabled,
+                deepEngagement: enabled,
+            },
+        });
+        addToast(enabled ? '已开启智能语境' : '已关闭智能语境，回复恢复旧流程', 'success');
+    };
     const [isVectorizing, setIsVectorizing] = useState(false);
     // 记忆宫殿「一键存入」：打开设置弹窗时算出待处理条数（排除热区的真实口径），处理中显示逐轮进度
     const [vectorizePendingCount, setVectorizePendingCount] = useState<number | null>(null);
@@ -265,6 +302,8 @@ const Chat: React.FC = () => {
 
     // --- Multi-Select State ---
     const [selectionMode, setSelectionMode] = useState(false);
+    const [showHistoryCleanup, setShowHistoryCleanup] = useState(false);
+    useEffect(() => setShowHistoryCleanup(false), [activeCharacterId]);
     const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
     // 思维链是 metadata.thinkingChain，没有独立 id，所以用宿主消息 id 作为键，
     // 与 selectedMsgIds 并行存在 —— 只勾思维链时只清 metadata，宿主消息保留。
@@ -433,6 +472,7 @@ const Chat: React.FC = () => {
     // Persisted shape (IndexedDB assets store). `blob` is the raw audio;
     // `remoteUrl` is the fallback when fetching the MiniMax CDN blob was blocked by CORS.
     interface StoredVoice { blob?: Blob; remoteUrl?: string; originalText: string; spokenText?: string; lang?: string; }
+    type GeneratedVoiceData = VoiceData & { blob: Blob | null };
     const voiceAssetKey = (msgId: number) => `voice_msg_${msgId}`;
     /** 语音收藏的来源键：聊天里一条消息对应一个（与收藏面板 sourceKey 同构）。 */
     const chatFavoriteSourceKey = (msg: Pick<Message, 'charId' | 'id'>) => `${msg.charId}:${msg.id}`;
@@ -444,6 +484,8 @@ const Chat: React.FC = () => {
     const [voiceLoading, setVoiceLoading] = useState<Set<number>>(new Set());
     const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
     const chatAudioRef = useRef<HTMLAudioElement | null>(null);
+    const voiceRequestsRef = useRef(new Set<number>());
+    const voiceMountedRef = useRef(true);
     const prevIsTypingRef = useRef(false);
     // 即时对话那条路的自动合成扫描窗（用法见下面那个 auto-TTS 的 effect）：
     // 「正在输入」灯灭的那一下开窗，窗口内每次消息变化都补扫一遍；角色不对就整个作废。
@@ -456,16 +498,12 @@ const Chat: React.FC = () => {
     const voiceFailedRef = useRef<Set<number>>(new Set());
     // Track blob: URLs we created so we can revoke them on character switch / unmount.
     const voiceBlobUrlsRef = useRef<Set<string>>(new Set());
-    // We warn the user at most once (per character) that MiniMax voice isn't configured —
+    // We warn the user at most once (per character) that the active TTS isn't configured —
     // a character can produce many <语音> messages and we don't want to spam toasts.
-    const minimaxWarnedRef = useRef(false);
+    const ttsWarnedRef = useRef(false);
 
     /** Whether this character can synthesize real voice under the active TTS provider (key + a voice profile). */
-    const isMinimaxReady = useCallback(() => {
-        if (!characterHasVoice(char, apiConfig)) return false;
-        if (resolveTtsProvider(apiConfig) === 'fishaudio') return !!resolveFishAudioApiKey(apiConfig);
-        return !!resolveMiniMaxApiKey(apiConfig);
-    }, [char, apiConfig]);
+    const isTtsReady = useCallback(() => canSynthesizeSpeech(char, apiConfig), [char, apiConfig]);
 
     const persistVoice = async (msgId: number, url: string, blob: Blob | null, originalText: string, spokenText: string | undefined, lang: string | undefined) => {
         try {
@@ -479,7 +517,7 @@ const Chat: React.FC = () => {
     };
 
     /** Drop in-memory + on-disk voice data for the given message ids. */
-    const discardVoiceForMessages = (ids: Iterable<number>) => {
+    const discardVoiceForMessages = (ids: Iterable<number>, deletePersisted = true) => {
         const idList = Array.from(ids);
         if (!idList.length) return;
         setVoiceDataMap(prev => {
@@ -497,10 +535,23 @@ const Chat: React.FC = () => {
             }
             return changed ? next : prev;
         });
+        if (!deletePersisted) return; // 区间清理已在同一事务中删掉磁盘语音。
         // Best-effort: remove persisted entries so they don't reappear on next load.
         for (const id of idList) {
             DB.deleteAsset(voiceAssetKey(id)).catch(() => { /* ignore */ });
         }
+    };
+
+    const prepareChatAudio = () => {
+        if (!chatAudioRef.current) chatAudioRef.current = new Audio();
+        return chatAudioRef.current;
+    };
+    const playChatVoice = (msgId: number, url: string) => {
+        void playVoiceAudio(prepareChatAudio(), url, {
+            onPlaying: () => setPlayingMsgId(msgId),
+            onStopped: () => setPlayingMsgId(null),
+            onError: error => addToast(voicePlaybackErrorMessage(error), 'info'),
+        });
     };
 
     const handlePlayVoice = (msgId: number) => {
@@ -511,17 +562,13 @@ const Chat: React.FC = () => {
             if (msg) handleManualTts(msg, false);
             return;
         }
-        if (!chatAudioRef.current) chatAudioRef.current = new Audio();
-        const audio = chatAudioRef.current;
+        const audio = prepareChatAudio();
         if (playingMsgId === msgId) {
-            audio.pause();
+            stopVoiceAudio(audio);
             setPlayingMsgId(null);
             return;
         }
-        audio.src = data.url;
-        audio.onended = () => setPlayingMsgId(null);
-        audio.play().catch(() => {});
-        setPlayingMsgId(msgId);
+        playChatVoice(msgId, data.url);
     };
 
     // 稳定的播放回调：用 ref 持有最新闭包，引用永不变 —— 避免每条消息每次渲染都新建箭头函数，
@@ -551,10 +598,10 @@ const Chat: React.FC = () => {
         catch { try { return await attempt(); } catch { return ''; } }
     };
 
-    const handleManualTts = async (msg: Message, autoTriggered = false) => {
-        if (voiceLoading.has(msg.id)) return;
+    const handleManualTts = async (msg: Message, autoTriggered = false): Promise<GeneratedVoiceData | null> => {
+        if (voiceRequestsRef.current.has(msg.id)) return null;
         if (voiceDataMap[msg.id]) {
-            if (autoTriggered) return;
+            if (autoTriggered) return null;
             // 手动点「转换语音」= 用户要求重新生成（典型场景：编辑了消息内容后）。
             // 丢掉这条旧语音再走正常合成；文本没变时会命中共享 TTS 缓存，不会重复请求 API。
             discardVoiceForMessages([msg.id]);
@@ -569,7 +616,7 @@ const Chat: React.FC = () => {
         const voiceEmotion = parsedVoice.emotion;
 
         // Auto-TTS: only generate voice when AI explicitly used <语音> tag
-        if (autoTriggered && !parsedVoice.hasVoiceTag) return;
+        if (autoTriggered && !parsedVoice.hasVoiceTag) return null;
         // F12 调试：打印 LLM 这条消息的带标签原文，方便核对语音标签写法是否正确。
         // 放在上面那道门之后：即时对话的扫描窗里每来一条消息都要重扫一遍，
         // 搁在门前的话没有语音标签的普通消息会被反复打印，控制台直接刷屏。
@@ -579,17 +626,19 @@ const Chat: React.FC = () => {
         // throw and surface an error toast on every message / every tap). Instead remind
         // the user just once — the <语音> bubble still shows its 转文字 button so the
         // text stays readable, matching real voice messages.
-        if (!isMinimaxReady()) {
-            if (!autoTriggered && !minimaxWarnedRef.current) {
-                minimaxWarnedRef.current = true;
+        if (!isTtsReady()) {
+            if (!autoTriggered && !ttsWarnedRef.current) {
+                ttsWarnedRef.current = true;
                 const tip = resolveTtsProvider(apiConfig) === 'fishaudio'
                     ? '该角色未配置鱼声音色或缺少 Fish API Key，无法播放真实语音，可点「转文字」查看内容'
                     : '该角色未配置 MiniMax 语音，无法播放真实语音，可点「转文字」查看内容';
                 addToast(tip, 'info');
             }
-            return;
+            return null;
         }
 
+        if (!autoTriggered) primeVoiceAudio(prepareChatAudio());
+        voiceRequestsRef.current.add(msg.id);
         setVoiceLoading(prev => new Set(prev).add(msg.id));
         try {
             let spokenText: string;
@@ -627,18 +676,18 @@ const Chat: React.FC = () => {
                 if (hasBilingual && voiceLang) {
                     const langAText = cleanTextForTts(msg.content.substring(0, bilingualIdx));
                     const langBText = cleanTextForTts(msg.content.substring(bilingualIdx + '%%BILINGUAL%%'.length));
-                    if (!langAText || langAText.length < 2) return;
+                    if (!langAText || langAText.length < 2) return null;
                     spokenText = langAText;
                     originalText = langBText || '';
                 } else {
                     // 鱼声：保留 inline cue 送 API，显示侧剥掉；MiniMax：照旧。
                     if (isFishTts) {
                         spokenText = cleanTextForTtsFish(msg.content);
-                        if (!spokenText || spokenText.length < 2) return;
+                        if (!spokenText || spokenText.length < 2) return null;
                         originalText = stripFishMarkupForDisplay(spokenText) || spokenText;
                     } else {
                         originalText = cleanTextForTts(msg.content);
-                        if (!originalText || originalText.length < 2) return;
+                        if (!originalText || originalText.length < 2) return null;
                         spokenText = originalText;
                     }
                     if (voiceLang) {
@@ -649,7 +698,7 @@ const Chat: React.FC = () => {
                 }
             }
 
-            if (!spokenText || spokenText.length < 2) return;
+            if (!spokenText || spokenText.length < 2) return null;
 
             const { url: blobUrl, blob } = await synthesizeSpeechDetailed(spokenText, char, apiConfig, {
                 languageBoost: voiceLang || undefined,
@@ -657,21 +706,22 @@ const Chat: React.FC = () => {
                 emotion: voiceEmotion,
             });
             if (blobUrl.startsWith('blob:')) voiceBlobUrlsRef.current.add(blobUrl);
-            // 鱼声的 spokenText 里有 inline cue（[whispering] 等），转文字面板要剥掉再存，别让用户看到标记。
-            const displaySpoken = isFishTts ? stripFishMarkupForDisplay(spokenText) : spokenText;
+            // 转文字面板只展示实际台词，不展示当前引擎的停顿 / 表演标记。
+            const displaySpoken = stripTtsMarkupForDisplay(spokenText, apiConfig);
             const storedSpokenText = voiceTagContent ? displaySpoken : (voiceLang ? displaySpoken : undefined);
             const storedLang = voiceLang || undefined;
-            setVoiceDataMap(prev => ({ ...prev, [msg.id]: { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang } }));
             // Persist so the voice bar survives leaving and re-entering the chat.
             persistVoice(msg.id, blobUrl, blob, originalText, storedSpokenText, storedLang);
+            if (!voiceMountedRef.current || activeCharIdRef.current !== msg.charId) {
+                if (blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
+                return null;
+            }
+            if (blobUrl.startsWith('blob:')) voiceBlobUrlsRef.current.add(blobUrl);
+            setVoiceDataMap(prev => ({ ...prev, [msg.id]: { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang } }));
             // 合成完是否立刻播（规则和来由见 shouldAutoPlayGeneratedVoice）：
             // AI 自动发来的默认不响、等用户点；用户自己点着要的一定响。
             if (shouldAutoPlayGeneratedVoice({ autoTriggered, autoPlayEnabled: char.chatVoiceAutoPlay })) {
-                if (!chatAudioRef.current) chatAudioRef.current = new Audio();
-                chatAudioRef.current.src = blobUrl;
-                chatAudioRef.current.onended = () => setPlayingMsgId(null);
-                chatAudioRef.current.play().catch(() => {});
-                setPlayingMsgId(msg.id);
+                playChatVoice(msg.id, blobUrl);
             }
             // 长按收藏语音需要刚合成的音频本身（blob 要写进收藏库），所以这里回传一份。
             // 所有既有调用方都忽略返回值，纯增量，不影响现行为。
@@ -680,7 +730,9 @@ const Chat: React.FC = () => {
             // 记一笔失败：自动那条路下次扫到就跳过（见 voiceFailedRef 的说明）。
             voiceFailedRef.current.add(msg.id);
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
+            return null;
         } finally {
+            voiceRequestsRef.current.delete(msg.id);
             setVoiceLoading(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
         }
     };
@@ -884,12 +936,15 @@ const Chat: React.FC = () => {
 
     // Revoke blob URLs when switching characters / unmounting to avoid leaks.
     useEffect(() => {
-        // Reset the "MiniMax not configured" warning so each character gets one reminder.
-        minimaxWarnedRef.current = false;
+        voiceMountedRef.current = true;
+        // Reset the "active TTS not configured" warning so each character gets one reminder.
+        ttsWarnedRef.current = false;
         // 自动合成的失败记录也跟着换角色清空：这一位的失败不该拦着下一位。
         voiceFailedRef.current.clear();
         const urls = voiceBlobUrlsRef.current;
         return () => {
+            voiceMountedRef.current = false;
+            if (chatAudioRef.current) stopVoiceAudio(chatAudioRef.current);
             urls.forEach(u => { try { URL.revokeObjectURL(u); } catch { /* ignore */ } });
             urls.clear();
         };
@@ -957,7 +1012,7 @@ const Chat: React.FC = () => {
             // by the cleanup effect and must not be reused against new messages.
             setVoiceDataMap({});
             setPlayingMsgId(null);
-            if (chatAudioRef.current) { try { chatAudioRef.current.pause(); } catch { /* ignore */ } }
+            if (chatAudioRef.current) { try { stopVoiceAudio(chatAudioRef.current); } catch { /* ignore */ } }
 
             reloadMessages(LOAD_BATCH_SIZE);
             loadEmojiData();
@@ -1245,6 +1300,7 @@ const Chat: React.FC = () => {
         noteMessageSent();
         // 借用户"发送"这个手势解锁音频上下文，好让稍后 AI 回复时的白框提示音能顺利播放（移动端自动播放策略）。
         unlockWhiteboxAudio();
+        if (char.chatVoiceEnabled && char.chatVoiceAutoPlay && isTtsReady()) primeVoiceAudio(prepareChatAudio());
         const text = customContent || input.trim();
         const type = customType || 'text';
 
@@ -2661,85 +2717,20 @@ const Chat: React.FC = () => {
         );
     };
 
-    const handleClearHistory = async () => {
-        if (!char) return;
-
-        // 记忆宫殿安全检查：如果角色启用了记忆宫殿，检查是否有未被向量化处理的消息
-        if (char.memoryPalaceEnabled) {
-            const hwm = await getMemoryPalaceHWM(char.id);
-            const allMessages = await DB.getMessagesByCharId(char.id, true);
-            const textMessages = allMessages.filter(m => m.type === 'text' && m.content?.trim());
-            const unprocessedCount = textMessages.filter(m => m.id > hwm).length;
-
-            if (unprocessedCount > 0) {
-                // 有未处理的消息，弹出选择对话框
-                const processedMsgs = allMessages.filter(m => m.id <= hwm);
-                const choice = confirm(
-                    `⚠️ 记忆宫殿提醒\n\n` +
-                    `当前有 ${unprocessedCount} 条聊天记录尚未被记忆宫殿处理（向量化）。\n` +
-                    `直接清空会导致这些记录永久丢失，无法被角色记住。\n\n` +
-                    `点击「确定」→ 仅删除已被记忆宫殿处理过的记录（安全）\n` +
-                    `点击「取消」→ 取消清空操作\n\n` +
-                    `（看不懂在问什么的话就点确定）`
-                );
-
-                if (!choice) {
-                    return; // 用户取消
-                }
-
-                // 安全删除：只删除高水位之前的消息
-                if (processedMsgs.length === 0) {
-                    addToast('没有已处理的记录可以删除', 'info');
-                    return;
-                }
-                const processedIds = processedMsgs.map(m => m.id);
-                await DB.deleteMessages(processedIds);
-                discardVoiceForMessages(processedIds);
-                // 清历史同样动了云端 fire_pack 的对话快照来源，落库后打脏（下同）。
-                markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
-                const remaining = allMessages.filter(m => m.id > hwm);
-                setMessages(remaining.slice(-200));
-                setTotalMsgCount(remaining.length);
-                setVisibleCount(LOAD_BATCH_SIZE);
-                visibleCountRef.current = LOAD_BATCH_SIZE;
-                addToast(`已安全清理 ${processedMsgs.length} 条已处理记录，保留 ${remaining.length} 条未处理记录`, 'success');
-                trackEvent('清空聊天记录');
-                setModalType('none');
-                return;
-            }
-        }
-
-        // 原有逻辑（无记忆宫殿 or 所有消息已处理）
-        if (preserveContext) {
-            const allMessages = await DB.getMessagesByCharId(char.id, true);
-            const toKeep = allMessages.slice(-10);
-            const toKeepIds = new Set(toKeep.map(m => m.id));
-            const toDelete = allMessages.filter(m => !toKeepIds.has(m.id));
-            if (toDelete.length === 0) {
-                addToast('消息太少，无需清理', 'info');
-                return;
-            }
-            const toDeleteIds = toDelete.map(m => m.id);
-            await DB.deleteMessages(toDeleteIds);
-            discardVoiceForMessages(toDeleteIds);
-            setMessages(toKeep);
-            setTotalMsgCount(toKeep.length);
-            setVisibleCount(LOAD_BATCH_SIZE);
-            visibleCountRef.current = LOAD_BATCH_SIZE;
-            addToast(`已清理 ${toDelete.length} 条历史，保留最近10条`, 'success');
-        } else {
-            const allIds = (await DB.getMessagesByCharId(char.id, true)).map(m => m.id);
-            await DB.clearMessages(char.id);
-            discardVoiceForMessages(allIds);
-            setMessages([]);
-            setTotalMsgCount(0);
-            setVisibleCount(LOAD_BATCH_SIZE);
-            visibleCountRef.current = LOAD_BATCH_SIZE;
-            addToast('已清空', 'success');
-        }
-        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+    const handleHistoryCleanupDone = async (plan: ChatCleanupPlan) => {
         trackEvent('清空聊天记录');
-        setModalType('none');
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        if (activeCharIdRef.current !== plan.charId) return;
+        discardVoiceForMessages(plan.ids, false);
+        setAllHistoryMessages([]);
+        setSelectedMessage(null);
+        setSelectedMsgIds(new Set());
+        setSelectedThinkingMsgIds(new Set());
+        setHistoryWindowRange(null);
+        historyWindowRangeRef.current = null;
+        setVisibleCount(LOAD_BATCH_SIZE);
+        visibleCountRef.current = LOAD_BATCH_SIZE;
+        await reloadMessages(LOAD_BATCH_SIZE);
     };
 
     // 只在打开聊天设置时计算一键存入的待处理量；不开弹窗的用户没有额外 DB 扫描。
@@ -3851,6 +3842,7 @@ const Chat: React.FC = () => {
                  </div>
              )}
 
+             {showHistoryCleanup && <ChatHistoryCleanupModal key={char.id} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
              <ChatModals
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
@@ -3860,6 +3852,9 @@ const Chat: React.FC = () => {
                 settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
                 preserveContext={preserveContext} setPreserveContext={setPreserveContext}
+                contextSuiteAnyEnabled={contextSuiteAnyEnabled}
+                contextSuiteAllEnabled={contextSuiteAllEnabled}
+                onToggleContextSuite={handleToggleContextSuite}
                 editContent={editContent} setEditContent={setEditContent}
                 archivePrompts={archivePrompts} selectedPromptId={selectedPromptId} setSelectedPromptId={(id: string) => {
                     setSelectedPromptId(id);
@@ -3878,7 +3873,7 @@ const Chat: React.FC = () => {
                 onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
                 onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
-                onClearHistory={handleClearHistory} onArchive={handleFullArchive}
+                onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}

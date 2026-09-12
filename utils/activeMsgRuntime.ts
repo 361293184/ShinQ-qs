@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 import { ActiveMsg2InboxMessage, ActiveMsg2TaskRecord, APIConfig, RealtimeConfig, UserProfile } from '../types';
 import { DB } from './db';
 import { ChatPrompts } from './chatPrompts';
@@ -593,7 +594,7 @@ const processInboxMessageWithPostProcessing = async (
     await DB.getEmojiCategories(),
     message.charId,
   );
-  const contextMsgs = await DB.getRecentMessagesByCharId(message.charId, 200);
+  const contextMsgs = await loadCharacterContextMessages(char);
 
   const apiConfig = loadApiConfigFromLocalStorage();
   const realtimeConfig = loadRealtimeConfigFromLocalStorage();
