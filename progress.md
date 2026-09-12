@@ -997,3 +997,8 @@ TODO — Qixi rewrite
 2026-09-12 — Aiven RPG fish-sales entry
 - User correction: clicking Aiven starts normal dialogue immediately. Services appear only after greeting/story; star-event completion keeps a separate end page before services. Replay never offers selling. Weekday greeting comes first for Aiven.
 - Verified browser greeting, after-dialogue sale payout, live star ending, replay, and 37 unit checks. Dinosaur GLB base-path hotfix separately deployed (PR 641).
+
+2026-09-12 — SAR iOS safe-area fixes
+- Module shop uses full chrome inset and a four-column header; garden keeps a full-bleed background with an inset control viewport. Standalone keepsakes, object inspector and facility guides respect the shared iOS fallback.
+- Browser: 32 layouts plus keepsake checks across portrait/landscape/small/no-inset; exits, guide dialogs, tall inspector and content/header bounds passed. Official game client screenshot checked. Production Vite build passed (43.02s).
+

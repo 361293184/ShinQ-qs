@@ -37,7 +37,7 @@ import {
     installSARModuleOnUser,
 } from '../../utils/vrWorld/sarModuleRuntime';
 
-const SAFE_TOP = 'var(--chrome-top)';
+const SAFE_TOP = 'var(--chrome-top, var(--safe-top, 0px))';
 const SAFE_BOTTOM = 'var(--safe-bottom,0px)';
 
 const categoryMeta: Record<SARModuleCategory, { label: string; code: string; color: string; glow: string; mark: string }> = {
@@ -358,7 +358,7 @@ export const SARModuleShopOverlay: React.FC<{
                 .sar-module-shop{position:fixed;inset:0;z-index:390;overflow:hidden;color:#edf4f0;background:linear-gradient(180deg,rgba(7,15,20,.94),rgba(10,15,19,.985));font-family:ui-sans-serif,system-ui,-apple-system,"Noto Sans SC",sans-serif;isolation:isolate}
                 .sar-module-shop:before{content:"";position:absolute;inset:0;z-index:-2;background:radial-gradient(circle at 76% 10%,rgba(111,173,170,.13),transparent 32%),radial-gradient(circle at 10% 62%,rgba(142,123,193,.11),transparent 38%),linear-gradient(rgba(151,203,196,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(151,203,196,.035) 1px,transparent 1px);background-size:auto,auto,28px 28px,28px 28px}
                 .sar-module-shop:after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,transparent 3.5%,rgba(159,207,200,.12) 3.7%,transparent 3.9%,transparent 96.1%,rgba(159,207,200,.1) 96.3%,transparent 96.5%)}
-                .sar-module-shop__header{position:absolute;inset:0 0 auto;height:58px;display:grid;grid-template-columns:52px 1fr auto;align-items:center;padding:0 12px;border-bottom:1px solid rgba(174,218,210,.12);background:rgba(6,13,17,.82);backdrop-filter:blur(14px)}
+                .sar-module-shop__header{position:absolute;inset:0 0 auto;height:58px;display:grid;grid-template-columns:44px minmax(0,1fr) auto 40px;align-items:center;padding:0 12px;border-bottom:1px solid rgba(174,218,210,.12);background:rgba(6,13,17,.82);backdrop-filter:blur(14px)}
                 .sar-module-shop__back{width:38px;height:38px;border:1px solid rgba(181,224,216,.16);background:rgba(255,255,255,.025);color:#c5d7d2;display:grid;place-items:center;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
                 .sar-module-shop__title{text-align:center}.sar-module-shop__title small{display:block;font-family:ui-monospace,monospace;font-size:7px;letter-spacing:.34em;color:rgba(157,212,203,.48)}.sar-module-shop__title h1{margin:3px 0 0;font:500 17px/1.1 "Noto Serif SC",serif;letter-spacing:.2em;color:#edf4f0}
                 .sar-module-shop__currency{min-width:64px;text-align:right;font:600 10px/1 ui-monospace,monospace;color:#a8d8d0}.sar-module-shop__currency span{display:block;margin-top:5px;font:400 7px/1 ui-sans-serif,system-ui;color:rgba(219,238,234,.4);letter-spacing:.12em}
@@ -393,13 +393,13 @@ export const SARModuleShopOverlay: React.FC<{
                 @media (prefers-reduced-motion:reduce){.sar-module-card,.sar-module-detail-backdrop,.sar-module-detail,.sar-module-receipt,.sar-module-install,.sar-module-install__sheet,.sar-module-loading__avatar,.sar-module-loading__chip{animation:none!important}.sar-module-card:active,.sar-module-buy:active,.sar-module-roll button:active:not(:disabled){transform:none}}
             `}</style>
             <style>{`.sar-module-buy{min-height:48px;font-size:13px}.sar-module-buy span:last-child{font:500 13px/1.4 system-ui,sans-serif;color:inherit}.sar-module-buy:disabled{opacity:.48;cursor:not-allowed}.sar-module-detail__owned{font-size:11px;line-height:1.8;color:#b0c1ba}.sar-module-original{font-size:10px;opacity:.58;margin-right:2px}.sar-module-discount{display:flex;gap:9px;align-items:flex-start;margin:14px 0;padding:11px 12px;border:1px solid rgba(199,164,112,.24);border-radius:10px;background:rgba(185,142,83,.07);color:#dbc39e}.sar-module-discount svg{flex-shrink:0;margin-top:3px}.sar-module-discount b{display:block;font-size:12px;font-weight:600;line-height:1.6}.sar-module-discount span{display:block;font-size:11px;line-height:1.7;color:inherit;opacity:.82}`}</style>
-            <header className="sar-module-shop__header" style={{ paddingTop: `max(0px, calc(${SAFE_TOP} - 44px))`, height: `calc(58px + max(0px, calc(${SAFE_TOP} - 44px)))` }}>
+            <header className="sar-module-shop__header" style={{ paddingTop: SAFE_TOP, height: `calc(58px + ${SAFE_TOP})` }}>
                 <button type="button" className="sar-module-shop__back" onClick={onClose} aria-label={capturedTarget ? '放开角色并返回' : '离开模块商店'}><CaretLeft size={18} /></button>
                 <div className="sar-module-shop__title"><small>{capturedTarget ? 'SAR · FIELD LOADOUT' : 'SAR · MODULE COUNTER'}</small><h1>{capturedTarget ? '现场装载' : '模块商店'}</h1></div>
                 <div className="sar-module-shop__currency">{capturedTarget ? ownedTotal : balance}<span>{capturedTarget ? '袋中模块' : '鳞币'}</span></div>
                 <SARFacilityGuide facility="modules" auto={!capturedTarget}/>
             </header>
-            <main className="sar-module-shop__body" style={{ top: `calc(58px + max(0px, calc(${SAFE_TOP} - 44px)))` }}>
+            <main className="sar-module-shop__body" style={{ top: `calc(58px + ${SAFE_TOP})` }}>
                 {capturedTarget && capturedChibi ? (
                     <div className="sar-module-captured">
                         <div className="sar-module-captured__figure">
