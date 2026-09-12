@@ -18,7 +18,7 @@
 
 `SARDialogueBackdrop` 与活动室共享整屏取景范围和原图等比缩放；打开初见、日常或回放时，背景的位置与尺寸不随立绘舞台和对话框改变。共用取景规则在 `sar-club-room.css`，不要在 `.srf-stage` 重新裁切背景。
 
-`utils/vrWorld/sarArt.ts` 注册用户原画的 13 种表情：凯恩 `normal / happy / curious / embarrassed / serious / shy / aboutaster`，艾文 `normal / happy / interested / sad / shy / sleeping`。正式素材在 `public/sar-portraits/Caian` 和 `public/sar-portraits/Aiven`，保留透明通道与原画布比例，最大边 1500 px 的 WebP 合计约 2.48 MB。
+`utils/vrWorld/sarArt.ts` 注册用户原画的 17 种表情：凯恩 11 种 `normal / happy / curious / embarrassed / serious / shy / aboutaster / Enduring Pain / avoidant / normal2 / warm`，艾文 6 种 `normal / happy / interested / sad / shy / sleeping`。新增四种在校对界面显示为「忍痛 / 回避 / 平常2 / 温柔」，`Enduring Pain` 的大小写与空格按原名保留。正式素材在 `public/sar-portraits/Caian` 和 `public/sar-portraits/Aiven`，保留原画布比例，最大边 1500 px 的 WebP 合计 3,190,522 B（约 3.19 MB）。新增四张已同步素材提交 `01edb974` 的 2629 × 2899 透明 PNG，并保留透明通道重新生成 WebP；加载地址附带素材版本，避免复用旧白底缓存。原有 13 张素材及其透明信息保持不变；新增素材可用于手动校对，已应用用户校对的表情编排，校对草稿与导出支持新增值。
 
 `SARNpcArt.tsx` 优先按需加载本地 WebP，失败才经原 `CdnImg` 镜像链请求相应 PNG；仍失败则回退 normal，再失败显示重试。房间不预载全部立绘；切换表情时保留上一张已加载图片，成功 URL 在会话中复用。
 
@@ -26,7 +26,7 @@
 
 个人线演出由 `SARFamiliarityDialog.tsx` 与 `sar-familiarity-dialog.css` 承载。正文逐句使用指定表情，旁白保持最近情绪；证件、合照等特殊演出占据主画面时，台词边保留当前角色的情绪头像。关闭 NPC 的设置同时隐藏两人的房间与对话入口，设施仍可用。
 
-初遇脚本逐句指定表情，覆盖凯恩全部七种立绘。拆台台词当句保持凯恩此前的表情，他接下一句时才变为 embarrassed。`getSARDialogueNode` 先过滤条件台词，再逐句生成表情快照；换分支重新计算。个人线表情保留到当前阅读结束，中断后整段重开。
+初遇脚本逐句指定表情，覆盖凯恩原有七种立绘。拆台台词当句保持凯恩此前的表情，他接下一句时才变为 embarrassed。`getSARDialogueNode` 先过滤条件台词，再逐句生成表情快照；换分支重新计算。个人线表情保留到当前阅读结束，中断后整段重开。
 
 ## 名册与特殊演出
 
@@ -49,9 +49,9 @@
 ## 验证
 
 - `pnpm vitest run utils/sarClub.test.ts utils/assetUrl.test.ts utils/vrWorld/sarRoomLayout.test.ts`：剧情 6 项、URL 13 项、站位 2 项。剧情覆盖拆台延后反应及回应、条件过滤、听者反应保留、换段重置和快照不变性。
-- `prototypes/sar-art/qa.mjs`：移动端 390 / 320、横屏，13 张原始立绘，双人对话、六个设施、遮罩脚底、NPC 设置和完整 Provider → SAR → 艾文 → 恐龙箱庭。
+- `prototypes/sar-art/qa.mjs` 的历史验证：移动端 390 / 320、横屏，当时的 13 张原始立绘，双人对话、六个设施、遮罩脚底、NPC 设置和完整 Provider → SAR → 艾文 → 恐龙箱庭。
 - 编辑器实测：六个滑条、遮挡顺序、切换说话人、刷新恢复、还原、移动端收起及同画布 chibi 宽度。
 - 对话 QA 同时检查各句及选项前后场景与对白框矩形不变、选项位于画面中心且在对白框之外；320 / 390 / 600 和横屏的顶部留白，以及只改变宽度时立绘尺寸保持不变。
 - 表情检查先按当前 `lead / speaker` 判断可见人物，再等待真实图片切换。艾文插话时检查凯恩仍保留此前表情，凯恩接话时检查 embarrassed；只提及 Aster 或艾文时不为检查 sad 表情而强行展示艾文。历史双人版截图只作原画与表情参考。完整构建写出的 HTML 可能触发预览服务器刷新，构建和浏览器 QA 应先后运行。
 - 2026-09-11 的真实 Root 回归验证本人单人、对方实际发言临时同框、接话时留场、仅被提及不出场、旁白和刷新重开；名册回放复用相同逻辑。重开对话期间不渲染旧存档的中间快照；旁白不会把已离场的上一位说话人重新带进画面。新演出和名册检查在 `scripts/test-sar-familiarity-*.mjs`、`scripts/test-sar-roster-ui.mjs`，使用实际本地立绘。
-- 历史美术截图在忽略目录 `output/sar-art-qa`；本次截图、原画缓存及展示页在 `output/fishing-qa/npc-lines`。正式 13 张 WebP 已加入生产素材包，原 PNG 缓存不提交。
+- 历史美术截图在忽略目录 `output/sar-art-qa`；个人线截图、原画缓存及展示页在 `output/fishing-qa/npc-lines`。当前 17 张 WebP 已加入生产素材包，原 PNG 缓存不提交。

@@ -1,5 +1,18 @@
 Original prompt: 先继续优化都市人生 simsapp：去掉 pics 里的丑像素家具/房屋贴图，改成自己画的像素图；并把“吃瓜”从单纯调用 API 引导 char 行动，升级为随机触发“角色剧情”或“主线剧情”，主线剧情要有明显标题和附件栏，附件可包含图片、道具、证据、同人文等。
 
+2026-09-12 — SAR NPC opt-out covers dependent features
+- Explicit hide now suppresses room titles, warehouse title editor/keepsakes, collection roster/exclusive tabs and NPC-only egg/chimera entries. Existing unlocks, titles, coins, inventory and chat history are retained for re-enable. Active roster exits immediately, including cross-tab changes; rewind entry is hidden while off.
+- Added shared sarNpcPreference leaf gate and same-page setting event. Normal chat omits NPC public background/title injection; activity title instructions and in-flight title application are gated. Personal-line offers/advancement and undelivered Easter-egg messages pause while disabled.
+- Fishing and garden use neutral facility wording when off; fish sales still settle at market prices without Aiven dialogue/art. Help text follows the same setting. General chips/modules/fish/dinosaurs remain available.
+- New preference unit tests and isolated browser script scripts/test-sar-npc-off.mjs cover opt-out prompts, unchanged collection data, recovery receipts, cross-tab UI transitions and restored progress. Browser run passed; screenshots of off collection, warehouse and official skill room inspected under output/sar-npc-off. No real user storage modified, no commit or push.
+
+2026-09-12 — SAR economy second calibration
+- Paid permanent-chip draws now cost 90 (was 30); UI explanatory text uses the same constant. Kept two free draws/day, 120 starting wallets, 180 personal buyback and 18–34 consumable module prices. No extra fishing delay or existing-asset clawback.
+- Each pool separately persists a duplicate streak: after two owned draws, the next chooses uniformly among unowned chips, resetting on a new chip. Free and paid both count; complete pools remain drawable. Legacy saves start the counter at zero. The counter commits atomically with wallet/inventory/receipt and survives backup/restore.
+- Free claims now require a later local date, preventing backward-clock replenishment. Old 30-coin quotes reject rather than charging 90 silently; receipt retries remain idempotent.
+- 63 tests passed across gacha, commerce, economy, backup, collection, discounts and facility guides. Fixed a date-dependent existing concurrency test by freezing Date.now to its fixture date. Real browser commerce checks passed for 90-coin costs, double clicks, reload, install, zero-balance free draw, cross-tab spending and failed writes. Official skill client ran; inspected its guide screenshot and the paid-draw screenshot. Artifacts: output/sar-economy-audit and output/fishing-qa/sar-commerce.
+- Updated economy/user docs and VRWorld README. Remaining design consideration: more character IDs still expand total startup funds and personal daily buyback supply; independent-wallet rules were not redesigned in this calibration. No changes to other pending personal-line/UI work; no commit or push in this turn.
+
 2026-09-10 — SAR bulletin-board gameplay audit
 - Current request: inspect the remaining SAR bulletin-board gameplay. Baseline: 60 fishing/market/session/real-DB tests pass.
 - Reproduced by inspection: anonymous owners lose their alias when replying; item requests automatically surrender the first matching specimen; model listings omit whether goods are real or textual. Adding focused regressions and explicit specimen selection, with archive details retained.
@@ -943,3 +956,40 @@ TODO — Qixi rewrite
 - 收藏配色验证：隔离浏览器通过系统 updateTheme 切换粉、蓝、绿三套全局配色，收藏/专属纪念/名册即时同步，导航透明继承页底、选中态与返回按钮同色，390 px 无横向溢出；截图已检查。最终发布构建通过（1m16s）。用户授权将当前分支全部改动推送远端，包括已存在的周年赠礼与资源加载恢复修改；顺手补齐资源加载测试里 unknown 的类型收窄。
 
 - 推送前回归：SAR、售鱼、整包备份、周年赠礼、资源加载恢复等 28 个测试文件共 253 项全部通过；已对齐 origin/master（仅本分支新增 13 个提交，无落后），将本地既有提交及本批 67 文件改动一并推送 codex/dino-cafe-art。
+
+2026-09-11 — 临时个人线表情校对
+- 用户要求拉最新远端、临时开放两人全部回忆，并能自己逐句改表情后导出发回。已快进至 34b446b4，保留远端的新演出和配色。
+- 视觉：沿用暖白阅读器，校对工具放可收起的窄侧栏；人物仍为画面主体。内容：当前句、角色表情、台词跳转、统一导出。交互：点选即时换表情、前后句与分支导航、侧栏短过渡并支持减少动态效果。
+- 校对仅开发服务开放，独立草稿不修改原稿、真实星级或奖励；导出带稳定句子地址和原文，方便后续应用。
+- 完成：DEV 名册全 84 段临时开放；回顾逐句表情缩略图、双演员选择、原表情恢复、实际上一句与任意分支跳转。手机选项收入校对栏，不遮脸。
+- 独立按分支草稿持久化与跨标签同步，JSON包含原文、源文件、场景/节点/行/句子/演员地址和改前改后；源文本变化时不误应用旧修改。复制失败可手动复制，名册及侧栏均能导出两人全部修改。
+- 验证：24 项校对存储/导出单测 + 27 项既有对白/个人线回归通过；全部84段实际打开、6星事件完整读完，正式市场JSON保持一致。编辑/撤回/分支/刷新/复制下载真实浏览器回归通过，8张320/390/1100截图已检查，0页面错误。标准游戏客户端校对侧栏截图与状态已检查。
+- 全仓类型检查仍有既有诊断，本次修改文件未见相关诊断。未修改角色原稿数据，未提交或推送临时工具。
+- 最终 Vite 生产构建通过（16.44 s）；实际编译 DEV=false 后全部临时入口关闭。临时校对可在 http://127.0.0.1:5177/ 的正常彼方入口使用。
+
+2026-09-11 — 临时分支返回
+- 用户希望更容易来回看不同选项。DEV 回顾左上常驻返回按钮：优先恢复最近选项前的游标/分支/表情/演出草稿，没有选项则退一步。无需打开表情校对栏。
+- DEV 回顾分支读完保留结束画面，可返回选项继续试，点对白才离开；原表情校对草稿独立保留，正式游玩及生产回顾行为不变。
+- 返回验证通过：艾文三条选择分别读完再返回换选项、校对开/关、初始禁用、凯恩无分支时退上一句；市场及表情草稿原串不变，320/1100截图已检查，0页面错误。标准游戏客户端已运行并检查实际返回按钮截图。
+
+2026-09-11 — 凯恩追加四张表情
+- 按用户链接读取 Enduring Pain / avoidant / normal2 / warm 原图，注册精确表达值及忍痛/回避/平常2/温柔标签；转换器支持文件名空格、大小写和数字。原13张WebP未变化，新4张可本地加载，合计17张3,058,056B。
+- 四张源PNG为2629×2899、RGBA但alpha全255，自带不透明白底；按原图接入，已向用户说明，未重绘或去底。保留既有校对草稿及原稿表达，用户自行选择新表情。
+- 新值选择/HTTP200/Enduring%20Pain编码/刷新恢复/导出/旧草稿保留/市场原串不变验证通过，320/1100布局与标准游戏客户端截图已检查，0页面错误；30项表情/对白单测通过。
+- 新增表情后的最终生产构建通过（42.42 s），四份当前素材说明已同步17张与白底事实；未提交/推送本地校对工具。
+
+2026-09-11 — 同步凯恩四张透明新版
+- 从素材提交 01edb9741e1866d75c377c75dd82138da87a00b3 下载四张同名 PNG，确认 alpha 覆盖 0–255；重新生成本地 WebP，17 张合计 3,190,522 B。四张加载地址加入版本号；保持表达值与用户校对草稿不变。
+
+2026-09-12 — 应用用户个人线校对
+- 288 处提交全部通过原文地址核对；286 处应用，1 处灰色听者遵循沿用前表情的新规则，1 处收尾由最新 happy 台词覆盖。朋友句及三星两句收尾按用户文字修改。
+- 对白与物品共用用户名解析（含默认 User 与美元符号），前置彩蛋校验覆盖旧 offer/queue/pending 与直接开场/结算。星级结算成功后显示结束小字并保留末句表情。
+- 临时收藏解锁默认关闭，移入本地 DEV 扳手「SAR 剧情与表情校对」，实时开关、不写游戏进度；灰色听者编辑只读。
+- 52 项单测、84 段真实名册开关/回顾、六个完整星级回放与结束标记、独立校对保存/导出/刷新、正常三星结算/姓名/happy/320px 均通过。
+
+- 用户追加：正式剧情/初遇隐藏返回箭头，只在回看显示；结束小字单独翻页，末句与结束页分开。实际 320px 结束页、正常升星及出口再次验证通过。
+- 最终独立结束页与正式无返回按钮已通过实际 UI 和标准游戏客户端验证，发布构建通过（16.54s）。全仓 tsc 仍有既存类型错误及历史 output 测试夹具诊断；本次 SAR / 调试相关文件无类型诊断。未提交或推送。
+
+2026-09-12 — 收集图鉴统一标签页
+- 收藏、专属纪念、名册共用父级标题和三项固定导航，移除子组件重复标题/导航；纪念物详情嵌入内容区域，保留独立仓库详情的原行为。根级返回仓库、详情先返回列表，切换收藏主人保持原选择。
+- 实际 320px 三标签来回切换、同一导航 DOM/唯一标题、纪念物查看与返回/分页/备份、名册档案/回顾入口/锁定/320/390/1100px 通过，游戏客户端截图已检查。

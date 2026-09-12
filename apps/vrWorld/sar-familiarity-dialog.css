@@ -103,3 +103,5 @@
 .srf-dialog .srf-prop-membership-card{inset:37% 0 0}
 
 .srf-dialog .srf-prop-membership-card .srf-fx button.srf-object-zoom{margin-left:0}
+
+.srf-line.srf-endpage{display:flex;align-items:center;justify-content:center;min-height:82px;margin-top:0;font-size:12px;line-height:1.8;text-align:center;color:#8b795f}

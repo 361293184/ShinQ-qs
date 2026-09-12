@@ -10,6 +10,7 @@
 import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage } from '../../types';
 import { VRRoomDef, SIGNAL_ACTS } from './constants';
 import { ReadingWindow, groupAnnotationsBySeg } from './novel';
+import { sarNpcContentEnabled } from './sarNpcPreference';
 import { kanataTitleActivityPrompt } from './kanataTitle';
 
 /** 给一条已有批注生成一个稳定的短标签，供"吐槽别人的吐槽"引用。 */
@@ -47,12 +48,12 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActi
 /** 不同房间的"活动姿态"提示。 */
 function roomStanceLines(roomId: string, charName: string, sarActivity?: 'fishing' | 'market' | 'garden'): string[] {
     if(roomId==='sar'&&sarActivity==='garden')return [
-        `你在艾文的恐龙箱庭摆弄橡皮泥模型。按${charName}自己的性格留便签或接续小剧场，不必每次都讲笑话。`,
+        `你在恐龙箱庭摆弄橡皮泥模型。按${charName}自己的性格留便签或接续小剧场，不必每次都讲笑话。`,
         '只能做本轮明确允许的箱庭动作。用户原文、昵称、涂装和收藏归属都要保留；玩具不会受伤或死亡，不涉及人格芯片。',
         '行为成功与否以程序结算为准，小剧场里的欠饼干、吵架等不构成现实债务或现实关系变化。',
     ];
     if (roomId === 'sar' && sarActivity === 'fishing') return [
-        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留、放生或在允许时卖给艾文，以及可选的私聊分享。`,
+        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留、放生或在允许时${sarNpcContentEnabled() ? '卖给艾文' : '交给回收站'}，以及可选的私聊分享。`,
         '反应和分享可以有个性，但必须与本次去向一致，不得把玩笑写成赠送、交易或额外鱼获。首次图鉴解锁由程序自动播报，不用你另写公开发帖。',
     ];
     if (roomId === 'sar' && sarActivity) return [

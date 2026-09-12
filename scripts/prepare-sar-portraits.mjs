@@ -8,7 +8,7 @@ const source=process.argv[2]||'output/fishing-qa/npc-lines/original-portraits',t
 const manifest={source:'https://github.com/qegj567-cloud/SullyOS-assets/tree/main/SAR',files:[]};
 for(const npc of ['Caian','Aiven']){
     mkdirSync(path.join(target,npc),{recursive:true});
-    for(const filename of readdirSync(path.join(source,npc)).filter(f=>/^[a-z]+\.png$/.test(f))){
+    for(const filename of readdirSync(path.join(source,npc)).filter(f=>/^[A-Za-z][A-Za-z0-9 _-]*\.png$/.test(f))){
         const relative=`${npc}/${filename.replace('.png','.webp')}`,output=path.join(target,relative);
         await sharp(path.join(source,npc,filename)).resize({width:1500,height:1500,fit:'inside',withoutEnlargement:true}).webp({quality:90,alphaQuality:100,effort:6}).toFile(output);
         const {width,height}=await sharp(output).metadata();

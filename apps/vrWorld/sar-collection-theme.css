@@ -33,3 +33,4 @@
 .sar-collection .sar-collection-footnote{border-color:var(--sar-ui-line)}
 .sar-collection .sar-collection-item.is-missing .sar-hub-item-art{background:var(--sar-ui-surface);border-color:var(--sar-ui-line)}
 .sar-hub-panel.is-collection .sar-hub-empty{color:var(--sar-ui-muted)}
+.sar-hub-panel.is-collection .sar-keepsake.is-embedded{position:relative;inset:auto;flex:1;min-height:0;z-index:auto;background:var(--sar-ui-bg);color:var(--sar-ui-ink)}

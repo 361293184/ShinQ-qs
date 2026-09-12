@@ -1,7 +1,7 @@
 import type {SARDialogueSpeaker} from './sarClub';
 
 export const SAR_EXPRESSIONS = {
-    caian:['normal','happy','curious','embarrassed','serious','shy','aboutaster'],
+    caian:['normal','happy','curious','embarrassed','serious','shy','aboutaster','Enduring Pain','avoidant','normal2','warm'],
     aiven:['normal','happy','interested','sad','shy','sleeping'],
 } as const;
 export type CaianExpression = typeof SAR_EXPRESSIONS.caian[number];

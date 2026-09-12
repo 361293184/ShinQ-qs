@@ -1,3 +1,4 @@
+import { SAR_NPC_PREFERENCE_EVENT } from '../utils/vrWorld/sarNpcPreference';
 import { closeSARFacilityGuide } from '../utils/vrWorld/sarFacilityGuides';
 import { sarLaunch } from '../utils/sarUpdate';
 import { trackSARFeature } from '../utils/sarAnalytics';
@@ -185,6 +186,12 @@ const VRWorldApp: React.FC = () => {
     const [chibiEditUser, setChibiEditUser] = useState(false); // 用户本人捏 chibi
     const [showHelp, setShowHelp] = useState(false);
     const [sarState, setSarState] = useState<SARClubState>(() => readSARClubState());
+    useEffect(() => {
+        const sync = () => { const next = readSARClubState(); setSarState(next); if (next.npcPreference === 'hide') { setFamiliarity(null); setShowSarDialogue(false); setShowSarRewindConfirm(false); } };
+        const storage = (event: StorageEvent) => { if (!event.key || event.key === 'vr_sar_club_state_v1') sync(); };
+        window.addEventListener(SAR_NPC_PREFERENCE_EVENT, sync); window.addEventListener('storage', storage);
+        return () => { window.removeEventListener(SAR_NPC_PREFERENCE_EVENT, sync); window.removeEventListener('storage', storage); };
+    }, []);
     const [sarPromptStep, setSarPromptStep] = useState<'update' | 'preference' | null>(() =>
         readSARClubState().npcPreference ? null : 'update');
     const [worldPage, setWorldPage] = useState<0 | 1>(0);
@@ -260,7 +267,7 @@ const VRWorldApp: React.FC = () => {
             addToast?.('凯恩与艾文已来到活动室', 'success');
         } else {
             setShowSarDialogue(false);
-            addToast?.('活动室 NPC 已隐藏，功能不受影响', 'success');
+            addToast?.('NPC 与相关内容已关闭，进度已保留', 'success');
         }
     }, [addToast]);
 
@@ -592,7 +599,7 @@ const VRWorldApp: React.FC = () => {
             </div>
 
             {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} caianMet={sarState.caianMet} onRequestRewind={()=>setShowSarRewindConfirm(true)} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
-            {familiarity && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)}/>}
+            {familiarity && sarState.npcPreference === 'show' && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)}/>}
             {/* 进入房间场景 */}
             {enterRoom && (
                 <RoomScene roomId={enterRoom} occupants={occupantsByRoom[enterRoom] || []}

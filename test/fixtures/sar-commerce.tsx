@@ -7,7 +7,7 @@ import { SARModuleShopOverlay } from '../../apps/vrWorld/SARModuleShop';
 import { createFishingMarketState, FISHING_MARKET_STORAGE_KEY } from '../../utils/vrWorld/fishingMarket';
 import { createSARModuleShopState, SAR_MODULE_SHOP_STORAGE_KEY } from '../../utils/vrWorld/sarModuleShop';
 if (!localStorage.getItem(FISHING_MARKET_STORAGE_KEY)) {
-    localStorage.setItem(FISHING_MARKET_STORAGE_KEY, JSON.stringify({ ...createFishingMarketState(42), accounts: { user: 100, friend: 500 } }));
+    localStorage.setItem(FISHING_MARKET_STORAGE_KEY, JSON.stringify({ ...createFishingMarketState(42), accounts: { user: 200, friend: 500 } }));
     localStorage.setItem(SAR_MODULE_SHOP_STORAGE_KEY, JSON.stringify(createSARModuleShopState(new Date(), () => .2)));
 }
 function Fixture() {

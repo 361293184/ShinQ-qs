@@ -17,14 +17,14 @@ try{
     assert(!(await page.locator('body').innerText()).includes('无限抽取'));
     await shot('01-free');
     await page.locator('.sarg-draw-button').evaluate(el=>{el.click();el.click();});
-    await btn('打开扭蛋').waitFor();assert.equal((await read()).ledger.length,1);assert.equal((await read()).accounts.user,100);
+    await btn('打开扭蛋').waitFor();assert.equal((await read()).ledger.length,1);assert.equal((await read()).accounts.user,200);
     await backToIdle();await shot('02-paid');
-    assert((await page.locator('.sarg-draw-button').innerText()).includes('30 鳞币'));
-    await page.locator('.sarg-draw-button').click();await btn('打开扭蛋').waitFor();assert.equal((await read()).accounts.user,70);
+    assert((await page.locator('.sarg-draw-button').innerText()).includes('90 鳞币'));
+    await page.locator('.sarg-draw-button').click();await btn('打开扭蛋').waitFor();assert.equal((await read()).accounts.user,110);
     // Closing before reveal must not discard an already granted item.
     await btn('离开扭蛋机').click();await page.reload();await btn('打开扭蛋').waitFor({state:'hidden'});
     assert.equal(Object.values((await read()).sarCommerce.gacha.collection).reduce((a,b)=>a+b,0),2);
-    await btn('离开扭蛋机').click();await btn('打开商店').click();await page.waitForFunction(()=>document.querySelector('.sar-module-shop__currency')?.textContent.includes('70'));
+    await btn('离开扭蛋机').click();await btn('打开商店').click();await page.waitForFunction(()=>document.querySelector('.sar-module-shop__currency')?.textContent.includes('110'));
     await shot('03-shop');
     const id=(await read()).sarCommerce.moduleShop.market.offerIds[0];
     const price=await page.evaluate(async id=>(await import('/utils/vrWorld/sarModuleShop.ts')).getSARModuleById(id).price,id);
@@ -32,7 +32,7 @@ try{
     assert((await page.locator('.sar-module-buy').innerText()).includes('鳞币'));
     await page.locator('.sar-module-buy').evaluate(el=>{el.click();el.click();});
     await page.waitForFunction(id=>JSON.parse(localStorage.getItem('vr_fishing_market_v1')).sarCommerce.moduleShop.inventory[id]===1,id);
-    assert.equal((await read()).accounts.user,70-price);await shot('05-receipt');
+    assert.equal((await read()).accounts.user,110-price);await shot('05-receipt');
     await page.reload();await btn('离开扭蛋机').click();await btn('打开商店').click();
     await page.waitForFunction(()=>document.querySelector('.sar-module-card'));
     assert.equal((await read()).sarCommerce.moduleShop.inventory[id],1);
@@ -74,10 +74,10 @@ try{
     await page.locator('.sarg-draw-button').click();await page.getByRole('alert').waitFor();assert.deepEqual(await read(),before);
     await shot('08-save-failure');await page.evaluate(()=>{Storage.prototype.setItem=window.qaSetItem;});
     await page.setViewportSize({width:320,height:740});await shot('09-small');
-    await page.locator('.sarg-draw-button').click();await btn('打开扭蛋').waitFor();assert.equal((await read()).accounts.user,70);
-    await other.evaluate(async()=>{const m=await import('/utils/vrWorld/fishingMarket.ts');await m.mutateFishingMarket(s=>({...s,accounts:{...s.accounts,user:30}}));});
-    const concurrent=await Promise.all([page,other].map((tab,i)=>tab.evaluate(async id=>{const m=await import('/utils/vrWorld/sarCommerce.ts');try{await m.drawSARModuleWithPayment('story',{requestId:id,maxCost:30});return true;}catch{return false;}},`two-tabs-${i}`)));
-    assert.equal(concurrent.filter(Boolean).length,1,'two pages cannot spend the same final 30 coins');assert.equal((await read()).accounts.user,0);
+    await page.locator('.sarg-draw-button').click();await btn('打开扭蛋').waitFor();assert.equal((await read()).accounts.user,10);
+    await other.evaluate(async()=>{const m=await import('/utils/vrWorld/fishingMarket.ts');await m.mutateFishingMarket(s=>({...s,accounts:{...s.accounts,user:90}}));});
+    const concurrent=await Promise.all([page,other].map((tab,i)=>tab.evaluate(async id=>{const m=await import('/utils/vrWorld/sarCommerce.ts');try{await m.drawSARModuleWithPayment('story',{requestId:id,maxCost:90});return true;}catch{return false;}},`two-tabs-${i}`)));
+    assert.equal(concurrent.filter(Boolean).length,1,'two pages cannot spend the same final 90 coins');assert.equal((await read()).accounts.user,0);
     assert.deepEqual(errors,[]);writeFileSync(`${out}/result.json`,JSON.stringify({errors,checks:['free and paid draws','double click','close before reveal','module purchase','reload','cross-tab balance','insufficient balance','zero-balance free pool','atomic storage failure','320px']},null,2));
     console.log('SAR commerce UI passed: costs, grants, duplicate clicks, reload, shared wallet and storage failure.');
 }finally{await browser.close();}

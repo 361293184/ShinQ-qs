@@ -1,4 +1,5 @@
 import type { FamiliarityLine } from './types';
+import type { SARCastExpressions } from '../sarArt';
 
 /** Spoken SAR prose ends consistently; UI labels and parenthesized stage directions stay separate. */
 export function formatSARDialogue(text: string): string {
@@ -16,4 +17,10 @@ export function dialogueSentences(text: string): string[] {
 /** A completed authored line carries the expression from its final displayed sentence. */
 export function familiarityLineExpression(line: FamiliarityLine, sentence = Math.max(0, dialogueSentences(line.text).length - 1)) {
     return line.sentenceExpressions?.[sentence] || line.expression || 'normal';
+}
+
+/** Only the person speaking changes expression; listeners and narration carry the previous pose. */
+export function familiarityCast(previous: Partial<SARCastExpressions> = {}, line?: FamiliarityLine, sentence?: number): Partial<SARCastExpressions> {
+    if (!line || (line.speaker !== 'caian' && line.speaker !== 'aiven')) return { ...previous };
+    return { ...previous, [line.speaker]: familiarityLineExpression(line, sentence) };
 }

@@ -1,4 +1,5 @@
 import { validateFamiliarity } from './sarFamiliarity/storageTypes';
+import { sarNpcContentEnabled } from './sarNpcPreference';
 import { SAR_STARTING_BALANCE, SAR_WANDERER_BALANCE, SAR_DAILY_BUYBACK, SAR_ECONOMY_VERSION, sarEconomyDay, remainingSARBuyback, creditSARWallet, type SARBuybackBudget } from './sarEconomy';
 import type { CharacterProfile, RealtimeConfig, UserProfile } from '../../types';
 import type { DinosaurGarden, DinoOrigin } from './dinosaurTypes';
@@ -384,8 +385,8 @@ export function sellFishToAiven(state: FishingMarketState, actor: MarketActor, c
     const reply = AIVEN_FISH_SALE_REPLIES[sale.replyIndex];
     const receipt = next.ledger[next.ledger.length - 1];
     receipt.id = 'aiven_fish_sale_' + catchId;
-    receipt.text = `${actor.name}把${speciesById(caught.speciesId)!.name}卖给艾文，按当日行情与品质结算，获得 ${sale.amount} 鳞币。图鉴记录保留。`;
-    receipt.quotes = [...(words.trim() ? [{ name: actor.name, content: words.trim().slice(0, 600) }] : []), { name: '艾文', content: reply.text }];
+    receipt.text = `${actor.name}把${speciesById(caught.speciesId)!.name}${sarNpcContentEnabled() ? '卖给艾文' : '交给回收站'}，按当日行情与品质结算，获得 ${sale.amount} 鳞币。图鉴记录保留。`;
+    receipt.quotes = sarNpcContentEnabled() ? [...(words.trim() ? [{ name: actor.name, content: words.trim().slice(0, 600) }] : []), { name: '艾文', content: reply.text }] : [];
     receipt.aivenSale = sale;
     return { state: next, sale };
 }

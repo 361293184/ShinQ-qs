@@ -7,11 +7,13 @@ import { SARNpcChibi } from './SARNpcArt';
 import './sar-facility-guide.css';
 
 export function SARFacilityGuide({ facility, auto = true, onOpenChange }: { facility: SARFacilityId; auto?: boolean; onOpenChange?: (open: boolean) => void }) {
-    const guide = SAR_FACILITY_GUIDES[facility];
+    const npcVisible = readSARClubState().npcPreference !== 'hide';
+    const original = SAR_FACILITY_GUIDES[facility];
+    const guide = npcVisible ? original : { ...original, title: original.title.replace('艾文的', ''), steps: original.steps.map(step =>
+        facility === 'warehouse' && step.title === '图鉴与名册' ? { title: '收集图鉴', text: '右上角「图鉴」可查看鱼类、恐龙、芯片和模块的收集进度。余额、物品和进度都随设置里的导出 / 导入保存。' } : { ...step, text: step.text.replaceAll('卖给艾文', '交给回收站') }) };
     const [open, setOpen] = useState(() => { try { return auto && localStorage.getItem(sarFacilityGuideKey(facility)) !== 'done'; } catch { return auto; } });
     useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
     const trigger = useRef<HTMLButtonElement>(null), sheet = useRef<HTMLElement>(null);
-    const npcVisible = readSARClubState().npcPreference !== 'hide';
     const close = useCallback(() => {
         try { localStorage.setItem(sarFacilityGuideKey(facility), 'done'); } catch { /* Help remains available if persistence is unavailable. */ }
         setOpen(false); trigger.current?.focus({ preventScroll: true });

@@ -6,7 +6,7 @@ import type { FamiliarityNpc } from '../../utils/vrWorld/sarFamiliarity/types';
 /** Conversation context belongs with the speaker, leaving the stage unobstructed. */
 export function SARDialogueMeta({ speaker, npc, stars, replayTitle, onClose, closeLabel = '离开对话' }: {
     speaker: string; npc: FamiliarityNpc; stars?: number; replayTitle?: string;
-    onClose: () => void; closeLabel?: string;
+    onClose?: () => void; closeLabel?: string;
 }) {
     return <div className="srf-meta">
         <div className="srf-meta-content">
@@ -18,6 +18,6 @@ export function SARDialogueMeta({ speaker, npc, stars, replayTitle, onClose, clo
             </div>
             {replayTitle && <span className="srf-replay-title" title={replayTitle}>{replayTitle}<small>回顾中</small></span>}
         </div>
-        <button className="srf-close" type="button" onClick={onClose} aria-label={closeLabel}><ArrowLeft size={20}/></button>
+        {onClose && <button className="srf-close" type="button" onClick={onClose} aria-label={closeLabel}><ArrowLeft size={20}/></button>}
     </div>;
 }

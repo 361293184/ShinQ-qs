@@ -13,7 +13,16 @@ const shot = name => page.screenshot({ path: `${out}/${name}.png`, animations: '
 try {
     await page.goto(`${process.env.SAR_QA_URL || 'http://127.0.0.1:5173'}/test/fixtures/sar-facilities.html?facility=warehouse`);
     await page.waitForFunction(() => window.facilityQA?.os.characters.length >= 60);
-    await button('打开收集图鉴').click(); await button('专属纪念').click();
+    await button('打开收集图鉴').click();
+    await page.evaluate(()=>window.originalCollectionTabs=document.querySelector('.sar-collection-sections'));
+    const checkTabs=async selected=>{
+        const nav=page.getByRole('navigation',{name:'图鉴页面'});
+        assert.deepEqual(await nav.getByRole('button').allTextContents(),['收藏','专属纪念','名册']);
+        assert.equal(await nav.locator('[aria-current="page"]').textContent(),selected);
+        assert.equal(await page.evaluate(()=>window.originalCollectionTabs===document.querySelector('.sar-collection-sections')),true);
+        assert.equal(await page.locator('.sar-hub-panel header').count(),1);
+    };
+    for(const tab of ['名册','收藏','专属纪念']){await button(tab).click();await checkTabs(tab);}
     await page.getByText('这一页，先为你留着', { exact: true }).waitFor();
     assert.equal(await page.locator('.sar-exclusive-item').count(), 0);
     await page.evaluate(async () => {
@@ -28,7 +37,7 @@ try {
     const before = await page.evaluate(() => localStorage.getItem('vr_fishing_market_v1'));
     await page.locator('.sar-exclusive-item').filter({ hasText: '第一次 SAR 会议' }).click();
     await button('看看背面').click(); await page.getByText('写在照片背面', { exact: true }).waitFor();
-    await shot('saved-photo'); await page.keyboard.press('Escape');
+    await checkTabs('专属纪念');await shot('saved-photo'); await page.keyboard.press('Escape');
     await button('艾文').click();
     assert.equal(await page.locator('.sar-exclusive-item').filter({ hasText: '凯恩 · 专属赠礼' }).count(), 0);
     await page.locator('.sar-exclusive-item').filter({ hasText: '？？？' }).click();
@@ -50,7 +59,8 @@ try {
     });
     await button('凯恩').click(); await page.setViewportSize({ width: 320, height: 640 });
     await shot('shelf-320'); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    await page.keyboard.press('Escape'); await button('专属纪念').waitFor(); await shot('collection-tabs-320');
+    for(const tab of ['名册','收藏','专属纪念']){await button(tab).click();await checkTabs(tab);await shot('tabs-'+tab+'-320');}
+    await page.keyboard.press('Escape');await button('打开收集图鉴').waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     writeFileSync(`${out}/report.json`, JSON.stringify({ earnedOnly: true, photoReplay: true, exclusiveDinosaur: true, noRewardReplay: true, npcFilter: true, pagination: true, backupRestore: true, mobile320: true, errors }, null, 2));

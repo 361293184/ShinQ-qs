@@ -2,8 +2,8 @@ import { formatSARDialogue } from './dialogueText';
 import type { AivenExpression, CaianExpression } from '../sarArt';
 import type { FamiliarityDailyLines, FamiliarityLine, FamiliarityNode, FamiliarityRank, FamiliarityReward, FamiliarityScene } from './types';
 
-const a = (text: string, expression: AivenExpression = 'normal'): FamiliarityLine => ({ speaker: 'aiven', text: formatSARDialogue(text), expression });
-const c = (text: string, expression: CaianExpression = 'normal'): FamiliarityLine => ({ speaker: 'caian', text: formatSARDialogue(text), expression });
+const a = (text: string, expression: AivenExpression = 'normal', sentenceExpressions?: AivenExpression[]): FamiliarityLine => ({ speaker: 'aiven', text: formatSARDialogue(text), expression, ...(sentenceExpressions ? { sentenceExpressions } : {}) });
+const c = (text: string, expression: CaianExpression = 'normal', sentenceExpressions?: CaianExpression[]): FamiliarityLine => ({ speaker: 'caian', text: formatSARDialogue(text), expression, ...(sentenceExpressions ? { sentenceExpressions } : {}) });
 const n = (text: string): FamiliarityLine => ({ speaker: 'narrator', text });
 type Reply = [label: string, lines: FamiliarityLine[], rewards?: FamiliarityReward[]];
 
@@ -30,7 +30,7 @@ const topics: FamiliarityScene[] = [
     topic('A1-03', 1, '鱼没有七秒记忆', [a('鱼不是只有七秒记忆。', 'interested'), a('有些鱼能记住路线、食物的位置，也能分辨其他个体。', 'interested')], [
         ['你怎么突然说这个', [a('刚想到。')]],
         ['原来如此', [a('嗯。七秒那个说法对鱼不太公平。', 'interested')]],
-        ['你是谁哟', [a('也的确有一些鱼记忆力不太行。'), a('你学得很像。')]],
+        ['你是谁哟', [a('也的确有一些鱼记忆力不太行。', "interested"), a('你学得很像。', "happy")]],
     ]),
     topic('A1-04', 1, '鱼会睡觉', [a('鱼也会睡。只是大部分鱼没有眼皮。', 'interested')], [
         ['那怎么看它睡没睡', [a('活动减少，对刺激反应变慢。', 'interested'), a('现在这只睡着了……别吵它。', 'interested')]],
@@ -40,12 +40,12 @@ const topics: FamiliarityScene[] = [
     topic('A1-05', 1, '霸王龙的手', [a('霸王龙前肢很短，但肌肉其实很发达。', 'interested')], [
         ['那这只呢', [a('它的手只是两块胶泥。')]],
         ['你喜欢霸王龙？', [a('还行。很经典。', 'interested')]],
-        ['它正在炒外汇', [a('嗯。难怪一直不动。')]],
+        ['它正在炒外汇', [a('嗯。难怪一直不动。', "normal", ["normal","happy"])]],
     ]),
     topic('A1-06', 1, '三角龙的角', [a('三角龙的角可能不只是用来打架，也可能用于展示或者识别同类。', 'interested')], [
         ['你确定？', [a('不能完全确定。恐龙没有留下说明书。', 'interested')]],
         ['恐龙也看脸？', [a('可能也看角。')]],
-        ['也可以用来挂衣服！', [a('看来它拥有了良好的职业规划。')]],
+        ['也可以用来挂衣服！', [a('看来它拥有了良好的职业规划。', "happy")]],
     ]),
     topic('A1-07', 1, '下雨', [a('你那里在下雨吗。')], [
         ['你喜欢下雨？', [a('嗯。雨在的时候，不说话也不会太安静。', 'happy')]],
@@ -190,33 +190,33 @@ const events: FamiliarityScene[] = [
             ] },
             fish: { lines: [a('不是。')], next: 'show' },
             dinosaur: { lines: [a('不是。')], next: 'show' },
-            body: { lines: [a('鱼不喜欢尸体', 'interested')], next: 'show' },
-            show: { lines: [a('这个。', 'normal'), n('艾文拿出：猫科语法模块')], effectLine: 1, effect: { kind: 'notice', title: '猫科语法模块', text: '艾文从水里钓上来的模块。' }, choices: [
+            body: { lines: [a('鱼不喜欢尸体', "sleeping")], next: 'show' },
+            show: { lines: [a('这个。', "interested"), n('艾文拿出：猫科语法模块')], effectLine: 1, effect: { kind: 'notice', title: '猫科语法模块', text: '艾文从水里钓上来的模块。' }, choices: [
                 { label: '为什么模块会在水里？', next: 'water' }, { label: '还能用吗？', next: 'working' }, { label: '你钓鱼还能钓这个？！', next: 'catch' },
             ] },
-            water: { lines: [a('不知道。')], next: 'give' },
+            water: { lines: [a('不知道。', "sad")], next: 'give' },
             working: { lines: [a('凯恩试过了。', 'normal'), c('为什么是我试啊喵？！', 'embarrassed'), a('能用。', 'happy')], next: 'give' },
             catch: { lines: [a('现在看来可以。', 'interested')], next: 'give' },
-            give: { lines: [a('给你。', 'normal')], choices: [
+            give: { lines: [a('给你。', "happy")], choices: [
                 { label: '真的给我？', next: 'really' }, { label: '不会进水坏了吗？', next: 'wet' }, { label: '你不要？', next: 'want' },
             ] },
             really: { lines: [a('嗯。', 'happy')], next: 'reward' },
             wet: { lines: [a('防水。大概。', 'normal')], next: 'reward' },
-            want: { lines: [a('我不需要说喵。', 'normal')], next: 'reward' },
+            want: { lines: [a('我不需要说喵。', "shy")], next: 'reward' },
             reward: { lines: [c('我本来也不需要啊喵！！', 'embarrassed'), n('获得：猫科语法包 ×1')], rewards: [{ kind: 'module', title: '猫科语法包', count: 1 }, { kind: 'unlock', feature: 'abnormal-catch' }], next: 'end' },
-            end: { lines: [n('解锁彩蛋类型：异常钓获'), a('……下一个应该是鱼。', 'interested')] },
+            end: { lines: [n('解锁彩蛋类型：异常钓获'), a('……下一个应该是鱼。', "normal")] },
         },
     },
     {
         id: 'A2-SPECIAL', npc: 'aiven', rank: 2, kind: 'event', title: '今天的风儿很喧嚣啊', start: 'start',
         nodes: {
-            start: { lines: [a('今天的风儿很喧嚣啊。', 'interested')], choices: [
+            start: { lines: [a('今天的风儿很喧嚣啊。', "sleeping")], choices: [
                 { label: '你被文艺少年模块污染了吗', next: 'ordinary' }, { label: '活动室哪来的风', next: 'ordinary' }, { label: '可是风儿似乎又在哭泣啊', next: 'understood', flags: { 'aiven-understood-wind': true } },
             ] },
-            ordinary: { lines: [a('……', 'normal')], next: 'discount' },
+            ordinary: { lines: [a('……', "shy")], next: 'discount' },
             understood: { lines: [a('……', 'happy')], next: 'discount' },
             discount: { lines: [c('诶诶！！', 'curious'), c('今天模块商店怎么突然打八折了？！', 'curious'), n('模块商店限时折扣 80%，剩余时间：？？？')], effectLine: 1, effect: { kind: 'discount', title: '模块商店限时折扣 80%', text: '剩余时间：？？？' }, rewards: [{ kind: 'discount', percent: 20, scope: 'all', minutes: 30 }], next: 'wind' },
-            wind: { lines: [c('为什么？！', 'curious'), a('风。', 'normal'), c('什么风？！', 'curious'), a('喧嚣的风。', 'interested')], choices: [
+            wind: { lines: [c('为什么？！', 'curious'), a('风。', "happy"), c('什么风？！', 'curious'), a('喧嚣的风。', 'interested')], choices: [
                 { label: '你干的？', next: 'you' }, { label: '这是什么神秘仪式？', next: 'ritual' }, { label: '快！趁现在买！', next: 'buy' },
             ] },
             you: { lines: [a('谁知道呢。')], next: 'teacher' },
@@ -224,9 +224,9 @@ const events: FamiliarityScene[] = [
             buy: { lines: [a('嗯。', 'normal'), a('你成长了。', 'happy')], next: 'teacher' },
             teacher: { lines: [c('为什么这种时候突然像老师一样？！', 'embarrassed')], next: 'confetti' },
             confetti: { lines: [n('砰！'), n('砰！砰！')], effect: { kind: 'confetti', title: '活动室礼炮突然启动' }, next: 'button' },
-            button: { lines: [c('谁装的礼炮？！', 'curious'), a('……', 'normal'), c('艾文，你手里那个按钮是什么？', 'curious'), c('那就是你干的吧？！', 'embarrassed'), a('是吗。', 'interested')], next: 'title' },
+            button: { lines: [c('谁装的礼炮？！', "embarrassed"), a('……', "happy"), c('艾文，你手里那个按钮是什么？', 'curious'), c('那就是你干的吧？！', 'embarrassed'), a('是吗。', "sleeping")], next: 'title' },
             title: { lines: [n('获得隐藏称号：听懂风的人'), n('曾经与艾文完成过一次意义不明的交流。没有任何属性加成。')], effect: { kind: 'notice', title: '听懂风的人', text: '曾经与艾文完成过一次意义不明的交流。没有任何属性加成。' }, rewards: [{ kind: 'title', title: '听懂风的人' }, { kind: 'unlock', feature: 'titles' }, { kind: 'unlock', feature: 'environment' }], next: 'end' },
-            end: { lines: [n('解锁彩蛋类型：环境异常'), a('……风停了。', 'normal'), c('商店折扣怎么还没停？！', 'curious'), a('可能有延迟。', 'interested')] },
+            end: { lines: [n('解锁彩蛋类型：环境异常'), a('……风停了。', "happy"), c('商店折扣怎么还没停？！', 'curious'), a('可能有延迟。', 'interested')] },
         },
     },
     {
@@ -236,7 +236,7 @@ const events: FamiliarityScene[] = [
                 { label: '怎么了？', next: 'what' }, { label: '你居然会主动叫我帮忙', next: 'help' }, { label: '鱼把你钓走了？', next: 'fished' },
             ] },
             what: { lines: [a('今天有点多。', 'interested')], next: 'loot' },
-            help: { lines: [a('嗯。所以帮忙。', 'normal')], next: 'loot' },
+            help: { lines: [a('嗯。所以帮忙。', "normal", ["normal","shy"])], next: 'loot' },
             fished: { lines: [a('还没有。', 'normal')], next: 'loot' },
             // This heap is stage scenery. Only the explicitly gifted card and chimera are rewards.
             loot: { lines: [], effect: { kind: 'loot-burst', title: '今天有点多', items: ['猫科语法包 ×1', '恶役大小姐协议 ×1', '一只雨靴', '三条鱼', '凯恩的管理员胸牌', '艾文的备用存档卡 ×1', '模块商店九折券 ×3'] }, choices: [
@@ -245,10 +245,10 @@ const events: FamiliarityScene[] = [
             fishing: { lines: [a('鱼。', 'interested')], next: 'caian' },
             warehouse: { lines: [a('不知道。可能。', 'normal')], next: 'caian' },
             badge: { lines: [a('它渴望自由。', 'happy')], next: 'caian' },
-            caian: { lines: [c('艾文！！我管理员胸牌呢？！', 'embarrassed'), a('找到了。', 'normal'), c('为什么会在那里？！', 'curious'), a('这个是……', 'interested'), c('啊，这不是你的备用存档卡嘛！', 'curious'), c('你根本没有爱惜啊！早知道不帮你做了！', 'embarrassed'), a('（user名），这个给你。', 'shy')], choices: [
+            caian: { lines: [c('艾文！！我管理员胸牌呢？！', 'embarrassed'), a('找到了。', "happy"), c('为什么会在那里？！', 'curious'), a('这个是……', 'interested'), c('啊，这不是你的备用存档卡嘛！', 'curious'), c('你根本没有爱惜啊！早知道不帮你做了！', 'embarrassed'), a('（user名），这个给你。', 'shy')], choices: [
                 { label: '为什么给我？', next: 'why-card' }, { label: '你自己不用？', next: 'your-card' }, { label: '这是三星奖励？', next: 'three-stars' },
             ] },
-            'why-card': { lines: [a('是你钓上来的。', 'normal')], next: 'card' },
+            'why-card': { lines: [a('是你钓上来的。', "happy")], next: 'card' },
             'your-card': { lines: [a('或许你能用到。', 'shy')], next: 'card' },
             'three-stars': { lines: [a('或许放在五星事件比较合适。', 'normal'), a('开玩笑的，这是你的了。', 'happy')], next: 'card' },
             card: { lines: [n('获得：艾文的备用存档卡 ×1'), a('还有一个。', 'interested')], effect: { kind: 'memory-card', title: '艾文的备用存档卡', text: '凯恩为艾文制作的备用存档卡。' }, rewards: [{ kind: 'souvenir', id: 'aiven-backup-card', title: '艾文的备用存档卡', description: '凯恩为艾文制作的备用存档卡。艾文说：「或许你能用到。」' }], next: 'chimera' },
@@ -256,9 +256,9 @@ const events: FamiliarityScene[] = [
                 { label: '这是什么恐龙？', next: 'species' }, { label: '好丑', next: 'ugly' }, { label: '好可爱', next: 'cute' }, { label: '这是生物学犯罪', next: 'crime' },
             ] },
             species: { lines: [a('不知道。', 'interested')], next: 'give-chimera' },
-            ugly: { lines: [a('嗯。留着吧。', 'normal')], next: 'give-chimera' },
+            ugly: { lines: [a('嗯。留着吧。', "shy", ["shy","normal"])], next: 'give-chimera' },
             cute: { lines: [a('嗯。我也觉得。', 'happy')], next: 'give-chimera' },
-            crime: { lines: [a('已经发生了。', 'normal')], next: 'give-chimera' },
+            crime: { lines: [a('已经发生了。', "sleeping")], next: 'give-chimera' },
             'give-chimera': { lines: [a('给你。', 'shy'), n('获得特殊恐龙：？？？')], rewards: [{ kind: 'dinosaur', speciesId: 'aiven-chimera' }, { kind: 'unlock', feature: 'cross-system' }], next: 'record' },
             record: { lines: [n('名称：？？？\n分类：橡皮泥恐龙\n发现地点：SAR 活动室水域\n发现者：Aiven / （User名）\n艾文备注：「不知道是什么。」「所以不用纠正。」'), n('解锁彩蛋类型：跨系统串线'), a('……', 'normal'), a('好了。', 'happy')], choices: [
                 { label: '今天到底怎么回事', next: 'today' }, { label: '下次还叫我', next: 'next-time' }, { label: '累死了', next: 'tired' },
@@ -266,7 +266,7 @@ const events: FamiliarityScene[] = [
             today: { lines: [a('不知道。但是挺好。', 'happy')], next: 'end' },
             'next-time': { lines: [a('嗯。本来就打算。', 'shy')], next: 'end' },
             tired: { lines: [a('辛苦了。', 'normal')], next: 'end' },
-            end: { lines: [a('……', 'normal'), a('明天应该会正常一点。', 'normal'), c('你最好是！！', 'embarrassed')] },
+            end: { lines: [a('……', 'normal'), a('明天应该会正常一点。', "happy"), c('你最好是！！', 'embarrassed')] },
         },
     },
 ];
@@ -278,11 +278,11 @@ const easterEggs: FamiliarityScene[] = [
     },
     {
         id: 'A1-E02', npc: 'aiven', rank: 1, kind: 'easter', title: '关键词消音器', start: 'start',
-        nodes: { start: { lines: [a('钓到模块了。'), a('关键词消音器。上面写着■■。')], rewards: [{ kind: 'module', title: '关键词消音器', count: 1 }] } },
+        nodes: { start: { lines: [a('钓到模块了。'), a('关键词消音器。上面写着■■。', "normal", ["normal","interested"])], rewards: [{ kind: 'module', title: '关键词消音器', count: 1 }] } },
     },
     {
         id: 'A1-E03', npc: 'aiven', rank: 1, kind: 'easter', title: '另一只鞋', start: 'start',
-        nodes: { start: { lines: [a('钓到一只鞋。'), a('另一只可能还在下面。')] } },
+        nodes: { start: { lines: [a('钓到一只鞋。'), a('另一只可能还在下面。', "sleeping")] } },
     },
     {
         id: 'A1-E04', npc: 'aiven', rank: 1, kind: 'easter', title: '鱼给的九折券', start: 'start',
@@ -298,8 +298,8 @@ const easterEggs: FamiliarityScene[] = [
         id: 'A1-E06', npc: 'aiven', rank: 1, kind: 'easter', title: '不要再钓了', start: 'start',
         nodes: {
             start: { lines: [a('钓到一张纸。'), n('「不要再钓了。」')], choices: [{ label: '那别钓了', next: 'stop' }, { label: '继续钓', next: 'continue' }] },
-            stop: { lines: [a('好。……明天继续。')] },
-            continue: { lines: [a('嗯。')] },
+            stop: { lines: [a('好。……明天继续。', "sad", ["sad","normal"])] },
+            continue: { lines: [a('嗯。', "happy")] },
         },
     },
     {
@@ -311,7 +311,7 @@ const easterEggs: FamiliarityScene[] = [
         nodes: {
             start: { lines: [a('今天鱼很安静。')], next: 'confetti' },
             confetti: { lines: [n('砰！')], effect: { kind: 'confetti' }, next: 'end' },
-            end: { lines: [a('……除了这个。')] },
+            end: { lines: [a('……除了这个。', "sleeping")] },
         },
     },
     {
@@ -319,15 +319,15 @@ const easterEggs: FamiliarityScene[] = [
         nodes: {
             start: { lines: [a('你今天想买模块吗？')], next: 'discount' },
             discount: { lines: [n('随机商品 -20%')], effect: { kind: 'discount', title: '随机商品 -20%' }, rewards: [{ kind: 'discount', percent: 20, scope: 'random-module', minutes: 30 }], next: 'end' },
-            end: { lines: [a('现在可以买了。')] },
+            end: { lines: [a('现在可以买了。', "happy")] },
         },
     },
     {
         id: 'A2-E03', npc: 'aiven', rank: 2, kind: 'easter', title: '优惠券雨', start: 'start',
         nodes: {
-            start: { lines: [a('下雨了。')], next: 'rain' },
+            start: { lines: [a('下雨了。', "interested")], next: 'rain' },
             rain: { lines: [], effect: { kind: 'coupon-rain', title: '模块优惠券', items: ['模块商店九折券', '模块商店九折券', '模块商店九折券'] }, rewards: [{ kind: 'coupon', percent: 10, count: 3 }], next: 'end' },
-            end: { lines: [a('这个。')] },
+            end: { lines: [a('这个。', "shy")] },
         },
     },
     // Cross-system catches below are visual jokes, never actual modules, titles or discounts.
@@ -369,7 +369,7 @@ const easterEggs: FamiliarityScene[] = [
     {
         id: 'A3-E06', npc: 'aiven', rank: 3, kind: 'easter', title: '像素猫的归途', start: 'start',
         nodes: {
-            start: { lines: [a('刚才钓到一只像素猫。'), { speaker: 'sully', text: '你有病吧！！！放我回去！！！' }, a('它踏上了回家的旅程。')], rewards: [{ kind: 'sully-message', text: '艾文：刚才钓到一只像素猫。\nSully：你有病吧！！！放我回去！！！\n艾文：它踏上了回家的旅程。' }] },
+            start: { lines: [a('刚才钓到一只像素猫。'), { speaker: 'sully', text: '你有病吧！！！放我回去！！！' }, a('它踏上了回家的旅程。', "sleeping")], rewards: [{ kind: 'sully-message', text: '艾文：刚才钓到一只像素猫。\nSully：你有病吧！！！放我回去！！！\n艾文：它踏上了回家的旅程。' }] },
         },
     },
 ];
@@ -380,12 +380,12 @@ const sullyEncounter: FamiliarityScene = {
         start: { lines: [a('……'), a('Sully。'), a('不对。')], choices: [
             { label: '你认识我的猫？', next: 'your-cat' }, { label: '哪里不对？', next: 'wrong' }, { label: '你们怎么都认识 Sully？', next: 'support' },
         ] },
-        'your-cat': { lines: [a('你的？'), a('我们那里也有一只。')], choices: [
+        'your-cat': { lines: [a('你的？', "interested"), a('我们那里也有一只。')], choices: [
             { label: '也长这样？', next: 'same-look' }, { label: '什么叫“一只”？', next: 'one-cat' }, { label: '原来 Sully 是猫的品种', next: 'breed' },
         ] },
         'same-look': { lines: [a('嗯。'), a('像素猫。'), a('说话也差不多。')], next: 'common' },
         'one-cat': { lines: [a('……'), a('一个。'), a('但是长得像猫。')], next: 'common' },
-        breed: { lines: [a('可能。'), a('现在有两只了。')], next: 'common' },
+        breed: { lines: [a('可能。'), a('现在有两只了。', "happy")], next: 'common' },
         wrong: { lines: [a('它刚才看了我一眼。'), a('没反应。'), a('我们那里的 Sully 认识我。')], choices: [
             { label: '可能忘了', next: 'forgot' }, { label: '因为不是同一个', next: 'different' }, { label: '你被猫无视了', next: 'ignored' },
         ] },
@@ -398,7 +398,7 @@ const sullyEncounter: FamiliarityScene = {
         strange: { lines: [a('嗯。'), a('有时候比这个怪。')], next: 'common' },
         account: { lines: [a('有一次账号登不上去。'), a('它让我“把登录状态摇匀一点”。'), a('……'), a('后来好了。')], next: 'common' },
         useful: { lines: [a('能解决问题。'), a('过程不一定能理解。')], next: 'common' },
-        common: { lines: [a('我们那里那个 Sully，也是像素猫。'), a('也是 AI。'), a('说话的时候偶尔会混进一些奇怪的东西。'), a('……'), a('所以刚才看到的时候，我以为它也来了。')], choices: [
+        common: { lines: [a('我们那里那个 Sully，也是像素猫。'), a('也是 AI。'), a('说话的时候偶尔会混进一些奇怪的东西。', "sleeping"), a('……'), a('所以刚才看到的时候，我以为它也来了。')], choices: [
             { label: '你不觉得很奇怪吗？', next: 'odd' }, { label: '所以是平行世界 Sully？', next: 'parallel' }, { label: '说不定就是同一个', next: 'same' },
         ] },
         odd: { lines: [a('有一点。'), a('不过彼方本来就很奇怪。')] },

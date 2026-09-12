@@ -29,24 +29,24 @@ export const SARUpdateModal: React.FC<{
             <div className="relative px-6 pt-6 pb-5">
                 {step === 'update' ? (
                     <>
-                        <div className="text-[9px] tracking-[0.36em] text-indigo-200/55">UPDATE</div>
+                        <div className="text-[9px] tracking-[0.36em] text-white">UPDATE</div>
                         <h2 id="sar-update-title" className="mt-2 text-[24px] tracking-[0.16em] text-white" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>彼方活动室</h2>
                         <div className="mt-5 h-px" style={{ background: 'linear-gradient(90deg,rgba(196,190,255,.45),transparent)' }} />
-                        <p className="mt-4 text-[12.5px] leading-7 text-white/68">彼方新增了独立的 SAR 活动空间。<br />里面似乎已经有人先到了。</p>
+                        <p className="mt-4 text-[12.5px] leading-7 text-white">彼方新增了独立的 SAR 活动空间。<br />里面似乎已经有人先到了。</p>
                         <button type="button" onClick={onContinue} className="mt-6 flex w-full items-center justify-center gap-1.5 rounded-full py-3 text-[13px] font-semibold text-[#171326] active:scale-[0.985] transition-transform" style={{ background: 'linear-gradient(120deg,#e8e4ff,#beb7ee)' }}>
                             查看更新 <CaretRight size={14} weight="bold" />
                         </button>
                     </>
                 ) : (
                     <>
-                        <div className="text-[9px] tracking-[0.32em] text-indigo-200/55">SAR CLUB ROOM</div>
+                        <div className="text-[9px] tracking-[0.32em] text-white">SAR CLUB ROOM</div>
                         <h2 id="sar-update-title" className="mt-2 text-[20px] tracking-[0.08em] text-white" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>彼方迎来两名 NPC</h2>
-                        <p className="mt-3 text-[12px] leading-6 text-white/58">凯恩与艾文会出现在活动室中，并提供固定剧情与功能引导。</p>
+                        <p className="mt-3 text-[12px] leading-6 text-white">凯恩与艾文会出现在活动室中，并提供固定剧情与功能引导。</p>
                         <div className="mt-5 space-y-2.5">
                             <button type="button" onClick={() => onChoose('show')} className="w-full rounded-full py-3 text-[13px] font-semibold text-[#171326] active:scale-[0.985] transition-transform" style={{ background: 'linear-gradient(120deg,#eeeaff,#c9c2f6)' }}>我很欢迎</button>
-                            <button type="button" onClick={() => onChoose('hide')} className="w-full rounded-full py-3 text-[13px] text-white/72 active:bg-white/10" style={{ border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.035)' }}>我不想要 NPC</button>
+                            <button type="button" onClick={() => onChoose('hide')} className="w-full rounded-full py-3 text-[13px] text-white active:bg-white/10" style={{ border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.035)' }}>我不想要 NPC</button>
                         </div>
-                        <p className="mt-4 text-[10px] leading-5 text-white/38">不会影响活动室及其功能，只决定两名 NPC 和相关对白是否出现。之后可在「接入」中更改。</p>
+                        <p className="mt-4 text-[10px] leading-5 text-white">不会影响活动室及其功能，只决定两名 NPC 和相关对白是否出现。之后可在「接入」中更改。</p>
                     </>
                 )}
             </div>
@@ -119,10 +119,10 @@ export const SARCaianDialogue: React.FC<{
             <SARDialogueBackdrop/>
             <div className="srf-body">
                 <div className="sar-dialogue-portraits srf-stage">
-                    <SARDialogueCast lead="caian" speaker={line.speaker} expression={line.expression} castExpressions={line.castExpressions} keepGuest={keepGuest}/>
+                    <SARDialogueCast lead="caian" speaker={line.speaker} expression={line.expression} keepGuest={keepGuest}/>
                 </div>
                 <div className="sar-dialogue-panel srf-script">
-                    <SARDialogueMeta npc="caian" speaker={speakerName} onClose={onClose} closeLabel="暂时离开对话"/>
+                    <SARDialogueMeta npc="caian" speaker={speakerName}/>
                     <button ref={panel} type="button" onClick={advance} className="srf-bubble" disabled={choices.length>0}
                         aria-label={node.completes && isLastLine ? '结束对话' : '继续对话'}>
                         <p className="srf-line">{line.text}</p>

@@ -35,6 +35,7 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [collection, setCollection] = useState(false);
     const collectionBack = useRef<(() => boolean) | null>(null);
+    useEffect(() => { if (!npcEnabled) { setFilter('all'); setSelectedId(null); } }, [npcEnabled]);
     const goBack = () => {
         if (collection) { if (!collectionBack.current?.()) setCollection(false); return true; }
         if (selectedId) { setSelectedId(null); return true; }
@@ -43,12 +44,12 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
     useEffect(() => { backRef.current = goBack; return () => { backRef.current = null; }; }, [collection, selectedId]);
     const actors = useMemo(() => listMarketActors(userProfile, characters), [userProfile.name, characters]);
     const owner = actors.find(a => a.id === ownerId) || actors[0];
-    const items = market ? sarWarehouseItems(market, owner.id) : [];
+    const items = (market ? sarWarehouseItems(market, owner.id) : []).filter(item => npcEnabled || (item.kind !== 'souvenir' && !['aiven-chimera','dinosaur-egg'].includes(item.speciesId || '')));
     const shown = items.filter(item => filter === 'all' || item.kind === filter);
     const itemPages = Math.max(1, Math.ceil(shown.length / WAREHOUSE_PAGE_SIZE)), page = Math.min(itemPage, itemPages - 1);
     const visibleItems = shown.slice(page * WAREHOUSE_PAGE_SIZE, (page + 1) * WAREHOUSE_PAGE_SIZE);
     const selected = items.find(item => item.id === selectedId);
-    const keepsake = owner.id === 'user' ? market?.sarFamiliarity?.souvenirs.find(s=>s.id===selectedId) : undefined;
+    const keepsake = npcEnabled && owner.id === 'user' ? market?.sarFamiliarity?.souvenirs.find(s=>s.id===selectedId) : undefined;
     const runtime = owner.id === 'user' ? userProfile.vrState?.sarModule : characters.find(c => c.id === owner.id)?.vrState?.sarModule;
     useEffect(() => { setSelectedId(null); setFilter('all'); setItemPage(0); }, [owner.id]);
     useEffect(() => {
@@ -97,24 +98,24 @@ export function SARHubPanels({ panel, onClose, npcEnabled, onChangeNpc, caianMet
     };
     return <div className="sar-hub-backdrop">
         <section ref={root} className={`sar-hub-panel${collection ? ' is-collection' : ''}`} role="dialog" aria-modal="true" aria-label={panel === 'settings' ? '活动室设置' : collection ? '收集图鉴' : '随身仓库'} onKeyDown={keyDown}>
-            {collection && market ? <SARCollectionView market={market} owner={owner} actors={actors} onOwnerChange={setOwnerId} onClose={() => setCollection(false)} backRef={collectionBack} onOpenFamiliarity={onOpenFamiliarity}/> : <>
+            {collection && market ? <SARCollectionView npcEnabled={npcEnabled} market={market} owner={owner} actors={actors} onOwnerChange={setOwnerId} onClose={() => setCollection(false)} backRef={collectionBack} onOpenFamiliarity={onOpenFamiliarity}/> : <>
             <header className="sar-hub-header"><button type="button" onClick={onClose} aria-label="返回活动室"><ArrowLeft size={21}/></button><div><small>SAR · ACTIVITY ROOM</small><h2>{panel === 'settings' ? '活动室设置' : '随身仓库'}</h2></div>{panel === 'warehouse' && <button className="sar-hub-collection-link" type="button" aria-label="打开收集图鉴" disabled={!market || !!error} onClick={() => { setSelectedId(null); setCollection(true); }}><BookOpen size={20}/><span>图鉴</span></button>}{panel === 'warehouse' && <SARFacilityGuide facility="warehouse"/>}</header>
             {panel === 'settings' ? <main className="sar-hub-settings">
                 <div className="sar-hub-residents" aria-hidden="true"><SARNpcChibi who="caian"/><SARNpcChibi who="aiven"/></div>
                 <div className="sar-hub-setting-row"><div><h3>常驻 NPC</h3><p>让凯恩与艾文出现在活动室里。</p></div>
                     <button className="sar-hub-toggle" type="button" role="switch" aria-label="显示常驻 NPC" aria-checked={npcEnabled} onClick={() => onChangeNpc(npcEnabled ? 'hide' : 'show')}><span/></button>
                 </div>
-                <p className="sar-hub-muted">{npcEnabled ? '点击房间里的他们，就能聊聊天。' : '两位常驻 NPC 已隐藏。'}<br/>扭蛋、模块、布告板和水域始终开放。</p>
-                <div className="sar-hub-setting-row"><div><h3>初见回档</h3><p>重新遇见凯恩，用其他选择再走一遍初见。</p></div>
+                <p className="sar-hub-muted">{npcEnabled ? '点击房间里的他们，就能聊聊天。' : 'NPC、称号、名册与专属纪念已关闭，进度会保留。'}<br/>扭蛋、模块、布告板和水域始终开放。</p>
+                {npcEnabled && <div className="sar-hub-setting-row"><div><h3>初见回档</h3><p>重新遇见凯恩，用其他选择再走一遍初见。</p></div>
                     <button className="sar-hub-setting-action" type="button" onClick={onRequestRewind} disabled={!caianMet}>{caianMet?'回到初见前':'剧情未完成'}</button>
-                </div>
+                </div>}
             </main> : <main ref={warehouseRef} className="sar-hub-warehouse">
                 <div className="sar-hub-owner"><span>正在查看</span><label><select aria-label="仓库主人" value={owner.id} onChange={event => setOwnerId(event.target.value)}>{actors.map(actor => <option key={actor.id} value={actor.id}>{actor.id === 'user' ? '我' : actor.name}</option>)}</select><CaretDown size={16}/></label></div>
-                <KanataTitleEditor key={owner.id} ownerId={owner.id} unlocked={!!market?.sarFamiliarity?.unlocks.includes('titles') || !!userProfile.vrState?.title || characters.some(c=>!!c.vrState?.title)} earnedTitles={market?.sarFamiliarity?.titles}/>
+                {npcEnabled && <KanataTitleEditor key={owner.id} ownerId={owner.id} unlocked={!!market?.sarFamiliarity?.unlocks.includes('titles') || !!userProfile.vrState?.title || characters.some(c=>!!c.vrState?.title)} earnedTitles={market?.sarFamiliarity?.titles}/>}
                 {error ? <p role="alert" className="sar-hub-error">{error}</p> : !market ? <p role="status" className="sar-hub-muted">正在打开仓库…</p> : <>
                     <div className="sar-hub-wallet"><div><span><Coins size={17}/>钱包余额</span><p><strong data-testid="sar-wallet-balance">{market.accounts[owner.id].toLocaleString()}</strong><small>鳞币</small></p></div><Package size={48} weight="light" aria-hidden="true"/></div>
                     <p className="sar-hub-allowance">今日还可回收 {remainingSARBuyback(market.buybackBudgets, owner.id)} / {SAR_DAILY_BUYBACK} 鳞币</p>
-                    <nav className="sar-hub-filters" aria-label="物品分类">{([['all', '全部'], ['chip', '芯片'], ['module', '模块'], ['catch', '收藏'], ['souvenir', '纪念'], ['coupon','优惠券']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setFilter(value); setSelectedId(null); setItemPage(0); }}>{label}</button>)}</nav>
+                    <nav className="sar-hub-filters" aria-label="物品分类">{([['all', '全部'], ['chip', '芯片'], ['module', '模块'], ['catch', '收藏'], ['souvenir', '纪念'], ['coupon','优惠券']] as const).filter(([value])=>npcEnabled || value !== 'souvenir').map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setFilter(value); setSelectedId(null); setItemPage(0); }}>{label}</button>)}</nav>
                     <div className="sar-hub-inventory-bar">
                         <div className="sar-hub-inventory-count" role="status"><strong>共 {shown.length} 条</strong><span>每页 {WAREHOUSE_PAGE_SIZE} 条</span></div>
                         {shown.length > 0 && <SARPageNav page={page} pages={itemPages} showSinglePage onChange={next => { setItemPage(next); setSelectedId(null); warehouseRef.current?.scrollTo({ top: 0 }); }} label="仓库物品"/>}

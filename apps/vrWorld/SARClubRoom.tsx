@@ -34,7 +34,7 @@ export default function SARClubRoom({onOpenGacha,onOpenCabinet,onOpenModuleShop,
         const actors:SARRoomActor[]=occupants.map(char=>{
             const chibi=getChibi(char),scale=Math.min(1.5,Math.max(.6,chibi.scale));
             const headOffset=chibi.isFallback?0:Math.max(0,size.width*.125*(.90466*(scale-1)-.09534)-scale*chibi.offsetY*size.width/SAR_ROOM_SIZE.width);
-            return {id:char.id,name:char.name,title:normalizeKanataTitle(char.vrState?.title),headOffset,zone:char.vrState?.sarActivity==='fishing'?'fishing':'common'};
+            return {id:char.id,name:char.name,title:npcEnabled?normalizeKanataTitle(char.vrState?.title):'',headOffset,zone:char.vrState?.sarActivity==='fishing'?'fishing':'common'};
         });
         if(npcEnabled)actors.unshift({id:'sar-npc-caian',name:'凯恩',zone:'common',anchor:{x:740,y:945}},{id:'sar-npc-aiven',name:'艾文',zone:'fishing',anchor:{x:880,y:1745}});
         return arrangeSARRoomActors(actors,size.width/SAR_ROOM_SIZE.width);

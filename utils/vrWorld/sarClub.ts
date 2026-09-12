@@ -1,4 +1,5 @@
 import { formatSARDialogue } from './sarFamiliarity/dialogueText';
+import { SAR_NPC_PREFERENCE_EVENT } from './sarNpcPreference';
 import type {CaianExpression,AivenExpression,SARCastExpressions} from './sarArt';
 
 export const SAR_CLUB_UPDATE_VERSION = 1;
@@ -66,6 +67,7 @@ export function writeSARClubState(state: SARClubState, storage: StorageLike | un
     const normalized: SARClubState = { ...DEFAULT_SAR_CLUB_STATE, ...state, version: 1 };
     try { storage?.setItem(SAR_CLUB_STORAGE_KEY, JSON.stringify(normalized)); }
     catch { /* 本地存储不可用时仍允许本次会话继续 */ }
+    if (typeof window !== 'undefined' && storage === browserStorage()) window.dispatchEvent(new Event(SAR_NPC_PREFERENCE_EVENT));
     return normalized;
 }
 

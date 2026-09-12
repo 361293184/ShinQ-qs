@@ -48,22 +48,41 @@ it('formats spoken prose consistently and preserves stage directions and pauses'
     expect(familiarityLineExpression(authored)).toBe('normal');
 });
 
-it('star-event portraits change with authored sentence beats for both NPCs', async () => {
+it('user-authored sentence portraits remain valid for each speaker', async () => {
     const { FAMILIARITY_SCENES } = await import('./vrWorld/sarFamiliarity/catalog');
     const { familiarityLineExpression } = await import('./vrWorld/sarFamiliarity/dialogueText');
     const { SAR_EXPRESSIONS } = await import('./vrWorld/sarArt');
     for (const scene of FAMILIARITY_SCENES.filter(scene => scene.kind === 'event')) {
         for (const [id, node] of Object.entries(scene.nodes)) {
-            let previous = '', consecutive = 0;
             for (const line of node.lines) {
-                if (line.speaker !== 'caian' && line.speaker !== 'aiven') { previous = ''; consecutive = 0; continue; }
+                if (line.speaker !== 'caian' && line.speaker !== 'aiven') continue;
                 for (const [page] of dialogueSentences(line.text).entries()) {
-                    const expression = familiarityLineExpression(line, page), key = line.speaker + expression;
+                    const expression = familiarityLineExpression(line, page);
                     expect(SAR_EXPRESSIONS[line.speaker]).toContain(expression);
-                    consecutive = previous === key ? consecutive + 1 : 1; previous = key;
-                    expect(consecutive, scene.id + '/' + id + ': ' + line.text).toBeLessThanOrEqual(3);
                 }
             }
         }
     }
+});
+
+it('keeps listeners on their last spoken expression through narration and the other actor\'s lines', async () => {
+    const { familiarityCast } = await import('./vrWorld/sarFamiliarity/dialogueText');
+    let cast = familiarityCast({}, {speaker:'caian',text:'第一句。第二句。',expression:'normal',sentenceExpressions:['normal','warm']});
+    expect(cast.caian).toBe('warm');
+    cast = familiarityCast(cast, {speaker:'aiven',text:'嗯。',expression:'happy',castExpressions:{caian:'embarrassed'}});
+    expect(cast).toEqual({caian:'warm',aiven:'happy'});
+    cast = familiarityCast(cast, {speaker:'narrator',text:'风吹过。',castExpressions:{caian:'sad' as never}});
+    expect(cast).toEqual({caian:'warm',aiven:'happy'});
+});
+
+it('resolves dialogue, dinosaur discoverer and gift name placeholders without replacement-string expansion', async () => {
+    const { familiarityText, familiarityScene } = await import('./vrWorld/sarFamiliarity/catalog');
+    const name = '小雨$&';
+    expect(familiarityText('（User名） / (user名) / {{user}} / user',name)).toBe(Array(4).fill(name).join(' / '));
+    const record = familiarityScene('A3-SPECIAL')!.nodes.record.lines[0].text;
+    expect(familiarityText(record,name)).toContain('发现者：Aiven / '+name);
+    expect(familiarityText('（User名），你好！','User')).toBe('你，你好！');
+    const ending=familiarityScene('C3-SPECIAL')!.nodes.ending.lines;
+    expect(ending.every(line=>line.expression==='happy')).toBe(true);
+    expect(familiarityText(ending[1].text,name)).toContain(name+'！');
 });

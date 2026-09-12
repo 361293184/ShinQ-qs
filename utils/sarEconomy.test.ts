@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as M from './vrWorld/fishingMarket';
 import { SAR_DAILY_BUYBACK, SAR_WALLET_LIMIT, remainingSARBuyback, sarEconomyDay } from './vrWorld/sarEconomy';
 import { acquireCharacterModule, consumeCharacterModule, characterModuleAllowance } from './vrWorld/sarCharacterCommerce';
@@ -45,12 +45,15 @@ describe('SAR economy boundaries',()=>{
         expect(remainingSARBuyback(traded.buybackBudgets,char.id,now)).toBe(180);
     });
     it('concurrent sales cannot exceed the remaining system allowance',async()=>{
+        const clock=vi.spyOn(Date,'now').mockReturnValue(now);
+        try {
         let state=init();state.buybackBudgets={user:{day:sarEconomyDay(now),earned:172}};
         state=M.addCatchToState(M.addCatchToState(state,caught('a')),caught('b'));state.prices['glass-minnow']=8;
         const storage=memory(state);
         const results=await Promise.allSettled(['a','b'].map(id=>M.mutateFishingMarket(s=>M.handleCollection(s,user,id,'sell',now),storage)));
         expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(M.readFishingMarketState(storage).inventory).toHaveLength(1);
         expect(M.readFishingMarketState(storage).accounts.user).toBe(128);
+        } finally { clock.mockRestore(); }
     });
     it('wallet limit blocks the entire incoming transfer, while old large balances remain spendable',()=>{
         let state=init();state.accounts.aran=SAR_WALLET_LIMIT;

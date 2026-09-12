@@ -5,7 +5,7 @@ import type { SARStorage } from './sarCommerceStorage';
 import { rememberSARCollections } from './sarCollectionJournal';
 import { quoteSARModulePrice } from './sarFamiliarity/discounts';
 
-export const SAR_EXTRA_DRAW_PRICE = 30;
+export const SAR_EXTRA_DRAW_PRICE = 90;
 const user = { id: 'user', name: '我', kind: 'user' as const };
 export const newSARPurchaseId = () => marketId('sar_purchase');
 

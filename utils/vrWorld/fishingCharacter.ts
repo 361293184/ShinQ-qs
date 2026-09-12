@@ -1,3 +1,4 @@
+import { sarNpcContentEnabled } from './sarNpcPreference';
 import type { CharacterProfile } from '../../types';
 import { DB } from '../db';
 import { remainingSARBuyback, SAR_WALLET_LIMIT } from './sarEconomy';
@@ -25,16 +26,17 @@ export const buildFishingTurn = (actor: MarketActor, caught: FishingCatch, state
     const entry = personalFishingCollection(state, actor.id).find(e => e.speciesId === caught.speciesId);
     const previousOwned = state.inventory.filter(c => c.ownerId === actor.id && c.speciesId === caught.speciesId && c.id !== caught.id).length;
     const price = catchValue(state, caught), remaining = remainingSARBuyback(state.buybackBudgets, actor.id);
+    const npcEnabled = sarNpcContentEnabled(), receiver = npcEnabled ? '艾文' : '回收站';
     const canSell = species.category === 'fish' && price <= remaining && (state.accounts[actor.id] || 0) + price <= SAR_WALLET_LIMIT;
     return `你现在在彼方的水域钓鱼。这是游戏内实际结算，不是临时芯片事故。
 程序判定的唯一鱼获（已经暂存，不可改写物种、大小或星级）：
 ${JSON.stringify({ species: species.name, material: species.category === 'fish' ? '鱼' : '橡皮泥模型', sizeCm: caught.sizeCm, quality: caught.quality, description: species.blurb, weather: caught.weatherLabel, weatherSource: caught.weatherSource === 'real' ? '同步用户真实天气' : '彼方模拟天气，不代表现实' })}
 你自己的相关收藏：${JSON.stringify({ previouslyOwned: previousOwned, obtainedIncludingThisCatch: entry?.acquisitionIds.length || 1, firstDiscovery: !entry?.historicalIncomplete && entry?.acquisitionIds.length === 1, historicalCountIncomplete: !!entry?.historicalIncomplete })}。这不是其他角色的库存。
-按 ${actor.name} 的性格完成这一竿：反应、保留、放生或卖给艾文，以及是否私聊分享给 ${userName}。不需要每次都分享；首次发现、特别喜欢或与最近聊天有关时，可以自然地想起对方。是否分享与鱼获去向独立。
-${species.category === 'fish' ? `disposition 可选 keep（保留）、release（放生）${canSell ? '、sell（钓完后把这条鱼卖给艾文）' : '；当前不可售卖，不能选 sell'}，只处理这一件鱼获。` : '这是橡皮泥模型，不是活物；disposition 只能 keep（收藏），不能放生，也不能卖给艾文。'}
-艾文按当天鱼类行情收鱼：这一条含品质加价 ${price} 鳞币，你今日还可回收 ${remaining} 鳞币，当前是否可卖：${canSell ? '是' : '否'}。金额由程序结算，不可自己定价；不处理其他库存。选 sell 时可在 saleWords 里写一句交鱼时对艾文说的话，也可以不说。艾文的回应由程序选取，不要替他编台词。售鱼属于本次钓鱼收尾，无需再逛布告板。
+按 ${actor.name} 的性格完成这一竿：反应、保留、放生或卖给${receiver}，以及是否私聊分享给 ${userName}。不需要每次都分享；首次发现、特别喜欢或与最近聊天有关时，可以自然地想起对方。是否分享与鱼获去向独立。
+${species.category === 'fish' ? `disposition 可选 keep（保留）、release（放生）${canSell ? '、sell（钓完后把这条鱼卖给${receiver}）' : '；当前不可售卖，不能选 sell'}，只处理这一件鱼获。` : '这是橡皮泥模型，不是活物；disposition 只能 keep（收藏），不能放生，也不能出售。'}
+${receiver}按当天鱼类行情收鱼：这一条含品质加价 ${price} 鳞币，你今日还可回收 ${remaining} 鳞币，当前是否可卖：${canSell ? '是' : '否'}。金额由程序结算，不可自己定价；不处理其他库存。选 sell 时可在 saleWords 里${npcEnabled ? '写一句交鱼时对艾文说的话，也可以不说。艾文的回应由程序选取，不要替他编台词。' : '留空；本次为系统回收，不与其他人对话。'}售鱼属于本次钓鱼收尾，无需再逛布告板。
 分享只是发消息，不是赠送。个人图鉴首次解锁由程序自动在彼方公共留言簿播报，不需要你另外发帖。售鱼失败不会发送成交分享，也不会收走鱼。
-只输出一个 JSON 对象，不附加说明；不分享时 shareToUser 为 null，不售鱼或没有对艾文说话时 saleWords 为 null。语言遵循你原有设定，反应和分享必须与所选去向一致，不能捏造额外赠送、挂单或金额。
+只输出一个 JSON 对象，不附加说明；不分享时 shareToUser 为 null，不售鱼或没有交鱼台词时 saleWords 为 null。语言遵循你原有设定，反应和分享必须与所选去向一致，不能捏造额外赠送、挂单或金额。
 {"disposition":"keep","reaction":"你对这次鱼获的真实反应","saleWords":null,"shareToUser":{"text":"直接发给用户的原话"}}`;
 };
 

@@ -16,7 +16,7 @@ export const SAR_COLLECTION_CATEGORIES = [
 ] as const;
 
 /** Distinct historical collection and current quantity deliberately remain separate. */
-export const sarCollectionEntries = (input: FishingMarketState, actorId: string): SARCollectionEntry[] => {
+export const sarCollectionEntries = (input: FishingMarketState, actorId: string, npcEnabled = true): SARCollectionEntry[] => {
     const state = rememberSARCollections(migrateFishingCollection(input));
     const journal = state.sarCollection?.actors[actorId];
     const fishRecords = new Set((state.collectionEntries || []).filter(entry => entry.actorId === actorId).map(entry => entry.speciesId));
@@ -43,7 +43,9 @@ export const sarCollectionEntries = (input: FishingMarketState, actorId: string)
             source: actorId === 'user' ? '模块商店 · 留意每日货架。买下后收录，装载用掉也会保留记录。' : '角色自己购买的模块会收录。被别人装载的效果不等于拥有这枚模块。',
         });
     }
-    return entries;
+    return npcEnabled ? entries : entries.filter(entry => !['aiven-chimera', 'dinosaur-egg'].includes(entry.id)).map(entry => ({
+        ...entry, description: entry.description.replace('艾文捏的小霸王龙', '橡皮泥小霸王龙').replace('——艾文坚持这么说。', '。'),
+    }));
 };
 export const sarCollectionProgress = (entries: SARCollectionEntry[]) => SAR_COLLECTION_CATEGORIES.map(category => {
     const items = entries.filter(entry => entry.category === category.id);

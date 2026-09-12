@@ -27,6 +27,8 @@ export type SARGachaState = {
     freeDrawDate: Partial<Record<SARModulePool, string>>;
     collection: Record<string, number>;
     history: SARGachaHistoryEntry[];
+    /** Consecutive owned draws per pool; legacy saves start at zero. */
+    duplicateStreak?: Partial<Record<SARModulePool, number>>;
 };
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
@@ -154,6 +156,10 @@ export const readSARGachaState = (storage?: StorageLike): SARGachaState => {
             history: Array.isArray(parsed.history)
                 ? parsed.history.filter(entry => entry && typeof entry.moduleId === 'string' && (entry.pool === 'variant' || entry.pool === 'story')).slice(0, 60)
                 : [],
+            duplicateStreak: Object.fromEntries((['variant', 'story'] as const).map(pool => {
+                const count = parsed.duplicateStreak?.[pool];
+                return [pool, typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? Math.min(2, count) : 0];
+            })),
         };
     } catch {
         return { ...DEFAULT_SAR_GACHA_STATE, freeDrawDate: {}, collection: {}, history: [] };
@@ -166,7 +172,7 @@ export const writeSARGachaState = (state: SARGachaState, storage?: StorageLike) 
 };
 
 export const isSARFreeDrawAvailable = (pool: SARModulePool, state: SARGachaState, date = new Date()) =>
-    state.freeDrawDate[pool] !== getSARLocalDayKey(date);
+    !state.freeDrawDate[pool] || state.freeDrawDate[pool]! < getSARLocalDayKey(date);
 
 export type SARGachaDrawResult =
     | { ok: true; module: SARModuleDefinition; state: SARGachaState; firstCopy: boolean }
@@ -183,8 +189,10 @@ export const drawSARModule = (
     if (!bypassDailyLimit && !isSARFreeDrawAvailable(pool, current, date)) return { ok: false, reason: 'daily-used', state: current };
 
     const modules = getSARModules(pool);
+    const unowned = modules.filter(module => !(current.collection[module.id] > 0));
+    const candidates = (current.duplicateStreak?.[pool] || 0) >= 2 && unowned.length ? unowned : modules;
     const roll = Math.min(Math.max(random(), 0), 0.999999999);
-    const module = modules[Math.floor(roll * modules.length)];
+    const module = candidates[Math.floor(roll * candidates.length)];
     const previousCount = current.collection[module.id] || 0;
     const next: SARGachaState = {
         version: 1,
@@ -192,6 +200,7 @@ export const drawSARModule = (
             ? current.freeDrawDate
             : { ...current.freeDrawDate, [pool]: getSARLocalDayKey(date) },
         collection: { ...current.collection, [module.id]: previousCount + 1 },
+        duplicateStreak: { ...current.duplicateStreak, [pool]: previousCount > 0 ? Math.min(2, (current.duplicateStreak?.[pool] || 0) + 1) : 0 },
         history: [{
             id: `draw_${date.getTime().toString(36)}_${module.id}`,
             moduleId: module.id,

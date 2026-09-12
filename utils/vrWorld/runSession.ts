@@ -466,7 +466,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                 const market=readFishingMarketState();
                 if(!market.dinosaurGarden?.visitsEnabled)return {ok:false,room:'sar',reason:'共同摆弄还没有开启'};
                 gardenSnapshot=prepareGardenVisit(market,fishingActor);roomTurn=gardenSnapshot.prompt;
-                room={...room,name:'艾文的恐龙箱庭',blurb:'水域旁的一桌橡皮泥恐龙。用户和角色共同摆弄、留便签、续写小剧场。',affordance:'留便签、移动一只未固定的恐龙，或续写它的状态。'};
+                room={...room,name:'恐龙箱庭',blurb:'水域旁的一桌橡皮泥恐龙。用户和角色共同摆弄、留便签、续写小剧场。',affordance:'留便签、移动一只未固定的恐龙，或续写它的状态。'};
                 market.dinosaurGarden?.events.slice(-6).forEach(e=>recallExtra.push(e.summary+(e.words||'')));
             } else if (sarMode === 'fishing' || sarMode === 'market') {
                 const actors = listMarketActors(userProfile, characters);
@@ -774,7 +774,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             try{const next=await mutateFishingMarket(s=>applyGardenVisit(s,fishingActor,plan,gardenSnapshot!));activity=next.dinosaurGarden!.events.at(-1)!.summary;}
             catch(e){return {ok:false,room:'sar',reason:e instanceof Error?e.message:'箱庭改动未能保存'};}
             await updateCharacter(char.id,{vrState:{...prevState,currentRoom:'sar',sarActivity:'garden',lastActiveAt:Date.now()}});
-            cardLines=['「彼方 · 艾文的橡皮泥恐龙箱庭」','程序事实：'+activity,'角色当时的便签（小剧场里的表达，不是现实债务或关系事实）：'+JSON.stringify(plan.words)];
+            cardLines=['「彼方 · 恐龙箱庭」','程序事实：'+activity,'角色当时的便签（小剧场里的表达，不是现实债务或关系事实）：'+JSON.stringify(plan.words)];
             meta={vrCard:true,room:'sar',activity,behavior:plan.words};
             try{await flushMarketReceipts(characters);}catch{cardLines.push('箱庭已保存，事件回执下次进入时继续同步。');}
         } else if (room.id === 'sar' && sarMode === 'fishing' && fishingCatch) {

@@ -72,4 +72,41 @@ describe('SAR 异世界双卡池', () => {
         storage.setItem('vr_sar_gacha_state_v1', '{broken');
         expect(readSARGachaState(storage)).toMatchObject({ version: 1, collection: {}, history: [] });
     });
+
+    it('回拨日期不恢复已领取的免费机会，两池仍各自记录', () => {
+        const storage = memoryStorage();
+        drawSARModule('story', storage, new Date(2026, 8, 12), () => 0);
+        const state = readSARGachaState(storage);
+        expect(isSARFreeDrawAvailable('story', state, new Date(2026, 8, 11))).toBe(false);
+        expect(isSARFreeDrawAvailable('story', state, new Date(2026, 8, 12))).toBe(false);
+        expect(isSARFreeDrawAvailable('story', state, new Date(2026, 8, 13))).toBe(true);
+        expect(isSARFreeDrawAvailable('variant', state, new Date(2026, 8, 12))).toBe(true);
+    });
+
+    it('同池连续两次抽到已有芯片后给未收录芯片，另一池和刷新不清空记录', () => {
+        const storage = memoryStorage(), today = new Date(2026, 8, 12);
+        for (let i = 0; i < 3; i++) drawSARModule('story', storage, today, () => 0, true);
+        expect(readSARGachaState(storage).duplicateStreak?.story).toBe(2);
+        drawSARModule('variant', storage, today, () => 0, true);
+        // Every call reloads serialized state; use a fresh storage wrapper too.
+        const protectedDraw = drawSARModule('story', {...storage}, today, () => 0, true);
+        expect(protectedDraw.ok && protectedDraw.firstCopy).toBe(true);
+        expect(protectedDraw.ok && protectedDraw.module.id).toBe('story-02');
+        expect(readSARGachaState(storage).duplicateStreak).toEqual({story:0,variant:0});
+    });
+
+    it('自然抽到新芯片重置计数；收齐之后保持可抽且不制造无效物品', () => {
+        const storage = memoryStorage(), today = new Date(2026, 8, 12);
+        drawSARModule('story', storage, today, () => 0, true);
+        drawSARModule('story', storage, today, () => 0, true);
+        drawSARModule('story', storage, today, () => .99, true);
+        expect(readSARGachaState(storage).duplicateStreak?.story).toBe(0);
+        const state = readSARGachaState(storage);
+        storage.setItem('vr_sar_gacha_state_v1', JSON.stringify({...state,
+            collection:Object.fromEntries(SAR_STORY_MODULES.map(m=>[m.id,1])), duplicateStreak:{story:2}}));
+        const complete = drawSARModule('story', storage, today, () => .99, true);
+        expect(complete.ok && complete.firstCopy).toBe(false);
+        expect(complete.ok && complete.module.id).toBe('story-24');
+        expect(Object.keys(readSARGachaState(storage).collection)).toHaveLength(24);
+    });
 });

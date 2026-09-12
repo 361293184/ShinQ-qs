@@ -1,4 +1,4 @@
-import { familiarityLineExpression } from './dialogueText';
+import { familiarityCast } from './dialogueText';
 import { keepDialogueGuest } from '../sarDialogueStaging';
 import { addCatchToState, FISH_CATALOG, marketHash, marketRandom, mutateFishingMarket, readFishingMarketState, simulatedFishingWeather, type FishingMarketState, type FishingWeatherKind } from '../fishingMarket';
 import { ensureSARCommerce } from '../sarCommerce';
@@ -9,6 +9,7 @@ import { FAMILIARITY_DAILY, familiarityScene, familiarityScenes, familiarityText
 import { freshFamiliarity, type FamiliarityCursor, type FamiliarityState } from './storageTypes';
 import type { FamiliarityNpc, FamiliarityReward } from './types';
 
+import { sarNpcContentEnabled } from '../sarNpcPreference';
 export const FAMILIARITY_TOPIC_CHANCE = .8;
 export const FAMILIARITY_EASTER_CHANCE = .2;
 export const familiarityDay = (at = Date.now()) => { const d = new Date(at); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -31,9 +32,18 @@ const prepare = (market: FishingMarketState, legacyTitles = false) => {
 /** Rolls survive refresh; revisiting an interrupted scene starts a fresh attempt. */
 export const visitFamiliarity = async (npc: FamiliarityNpc, options: VisitOptions) => {
     const storage = options.storage || localStorage, now = options.now ?? Date.now();
+    if (!sarNpcContentEnabled(storage)) return readFishingMarketState(storage);
     await ensureSARCommerce(storage, new Date(now));
     return mutateFishingMarket(current => {
+        if (!sarNpcContentEnabled(storage)) return current;
         const next = prepare(current, options.legacyTitles), state = next.sarFamiliarity!, p = state.npcs[npc];
+        const prerequisitesMet = (id: string) => !!familiarityScene(id) && (familiarityScene(id)!.requires || []).every(required => p.completed[required]);
+        const canOffer = (id: string) => prerequisitesMet(id) && (!familiarityScene(id)?.condition || options.sullyInSar);
+        // Old queued/offered/interrupted saves must obey the same story order as a fresh roll.
+        if (p.pending && !prerequisitesMet(p.pending.sceneId)) {
+            p.queuedSceneIds = [...new Set([...(p.queuedSceneIds || []), p.pending.sceneId])];
+            delete p.pending;
+        }
         if (p.pending) {
             const previous=p.pending,scene=familiarityScene(previous.sceneId),node=scene?.nodes[previous.nodeId];
             if(!scene||scene.npc!==npc||!node||previous.line>=Math.max(1,node.lines.length))throw new Error('这段对话暂时无法继续，进度已保留');
@@ -46,12 +56,12 @@ export const visitFamiliarity = async (npc: FamiliarityNpc, options: VisitOption
         // The next visit offers the milestone; finishing topic ten does not chain into it.
         if (event) { p.offerId = event.id; return next; }
         if(p.offerId&&!p.completed[p.offerId]){
-            if(!familiarityScene(p.offerId)?.condition||options.sullyInSar)return next;
+            if(canOffer(p.offerId))return next;
             p.queuedSceneIds=[...new Set([...(p.queuedSceneIds||[]),p.offerId])];
         }
         p.offerId=null;
         p.queuedSceneIds=(p.queuedSceneIds||[]).filter(id=>!p.completed[id]);
-        if(!p.queuedSceneIds.some(id=>!familiarityScene(id)?.condition||options.sullyInSar)&&(!p.day || familiarityDay(now) > p.day)) {
+        if(!p.queuedSceneIds.some(canOffer)&&(!p.day || familiarityDay(now) > p.day)) {
             p.day = familiarityDay(now); p.offerId = null;
             const scenes = familiarityScenes(npc).filter(s => !p.completed[s.id] && !p.queuedSceneIds!.includes(s.id) && (s.requires || []).every(id => p.completed[id]));
             const roll=(kind:string,pool:typeof scenes,chance:number)=>{
@@ -63,16 +73,18 @@ export const visitFamiliarity = async (npc: FamiliarityNpc, options: VisitOption
             roll('encounter',scenes.filter(s=>s.kind==='encounter'&&options.sullyInSar),FAMILIARITY_TOPIC_CHANCE);
         }
         // A conditional encounter can wait for Sully to return without blocking other scenes.
-        const available=p.queuedSceneIds.findIndex(id=>!familiarityScene(id)?.condition||options.sullyInSar);
+        const available=p.queuedSceneIds.findIndex(canOffer);
         if(available>=0)p.offerId=p.queuedSceneIds.splice(available,1)[0];
         return next;
     }, storage);
 };
 export const startFamiliarity = (npc: FamiliarityNpc, sceneId: string, options: VisitOptions) => mutateFishingMarket(current => {
+    if (!sarNpcContentEnabled(options.storage)) return current;
     const next = prepare(current, options.legacyTitles), state = next.sarFamiliarity!, p = state.npcs[npc];
     if (p.pending) return next;
     const scene = familiarityScene(sceneId);
     if (!scene || scene.npc !== npc || p.completed[scene.id] || p.offerId !== scene.id) throw new Error('这段回忆还没有发生');
+    if (!(scene.requires || []).every(id => p.completed[id])) throw new Error('先经历前一段故事，再来看看吧');
     if (scene.condition && !options.sullyInSar) throw new Error('等 Sully 回到活动室后，再来聊这件事吧');
     const now = options.now ?? Date.now();
     p.pending = { runId: `${scene.id}:${now}`, sceneId, nodeId: scene.start, line: 0, revision: 0, startedAt: now, flags: {}, drafts: {}, visitedNodes: [], userName: options.userName, sullyId: options.sullyId };
@@ -115,13 +127,16 @@ const grant = (market: FishingMarketState, npc: FamiliarityNpc, cursor: Familiar
 export const advanceFamiliarity = async (npc: FamiliarityNpc, expected: Pick<FamiliarityCursor,'runId'|'revision'>, options: {choice?:number;draft?:Record<string,unknown>;now?:number;storage?:SARStorage} = {}) => {
     const now=options.now??Date.now();
     return mutateFishingMarket(current => {
+        if (!sarNpcContentEnabled(options.storage)) return current;
         let next=prepare(current); const state=next.sarFamiliarity!,p=state.npcs[npc],cursor=p.pending;
         if (!cursor || cursor.runId!==expected.runId || cursor.revision!==expected.revision) return next;
         const scene=familiarityScene(cursor.sceneId),node=scene?.nodes[cursor.nodeId];
         if (!scene || !node) throw new Error('这段对话暂时无法继续，进度已保留');
+        if (!(scene.requires || []).every(id => p.completed[id])) throw new Error('先经历前一段故事，再来看看吧');
         cursor.guestPresent=keepDialogueGuest(scene.nodes,cursor.nodeId,cursor.line,npc,cursor.guestPresent??!!cursor.cast?.[npc==='caian'?'aiven':'caian']);
         const spoken=node.lines[cursor.line];
-        if(spoken?.speaker==='caian'||spoken?.speaker==='aiven'){cursor.cast={...cursor.cast,...spoken.castExpressions,[spoken.speaker]:familiarityLineExpression(spoken)};cursor.speaker=spoken.speaker;}
+        cursor.cast=familiarityCast(cursor.cast,spoken);
+        if(spoken?.speaker==='caian'||spoken?.speaker==='aiven')cursor.speaker=spoken.speaker;
         if (options.draft) cursor.drafts[cursor.nodeId]=structuredClone(options.draft);
         if (cursor.line < node.lines.length-1) { cursor.line++;cursor.revision++;return next; }
         const choice = options.choice === undefined ? undefined : node.choices?.[options.choice];
@@ -164,10 +179,12 @@ export const familiarityGreeting = (npc:FamiliarityNpc,market:FishingMarketState
 };
 /** Outbox retries after a crash; DB's delivery key makes the local Easter-egg message idempotent. */
 export const deliverFamiliarityMessages = async (storage:SARStorage=localStorage) => {
+    if (!sarNpcContentEnabled(storage)) return;
     const pending=readFishingMarketState(storage).sarFamiliarity?.outbox.filter(o=>!o.delivered)||[];
     if(!pending.length)return;
     const {DB}=await import('../../db');
     for(const item of pending){
+        if (!sarNpcContentEnabled(storage)) return;
         await DB.saveMessageOnce(item.id,{charId:item.charId,role:'assistant',type:'text',content:`【SAR 回忆】\n${item.text}`,timestamp:item.at,metadata:{isSystem:true,sarFamiliarity:true}});
         await mutateFishingMarket(current=>{const next=prepare(current);const saved=next.sarFamiliarity!.outbox.find(o=>o.id===item.id);if(saved)saved.delivered=true;return next;},storage);
     }

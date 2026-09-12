@@ -16,7 +16,7 @@ const seed = (balance=1000) => {
     storage.setItem(SAR_MODULE_SHOP_STORAGE_KEY,JSON.stringify(createSARModuleShopState(now,()=>.2)));
     return storage;
 };
-const quote = (storage:ReturnType<typeof memory>,requestId:string,maxCost=30,date=now)=>({storage,requestId,maxCost,now:date,random:()=>0});
+const quote = (storage:ReturnType<typeof memory>,requestId:string,maxCost=90,date=now)=>({storage,requestId,maxCost,now:date,random:()=>0});
 
 describe('SAR 鳞币结算',()=>{
     it('migrates old collections once without resetting or charging existing assets',async()=>{
@@ -29,11 +29,11 @@ describe('SAR 鳞币结算',()=>{
         storage.setItem(SAR_MODULE_SHOP_STORAGE_KEY,JSON.stringify({...shop,inventory:{[id]:9999}}));
         expect(readSARModuleShopState(storage,now).inventory[id]).toBe(1500);
     });
-    it('each pool is free once, then charges 30, and resets locally the next day',async()=>{
+    it('each pool is free once, then charges 90, and resets locally the next day',async()=>{
         const storage=seed();
         expect((await drawSARModuleWithPayment('story',quote(storage,'s1',0))).paid).toBe(0);
         expect((await drawSARModuleWithPayment('variant',quote(storage,'v1',0))).paid).toBe(0);
-        expect((await drawSARModuleWithPayment('story',quote(storage,'s2'))).balance).toBe(970);
+        expect((await drawSARModuleWithPayment('story',quote(storage,'s2'))).balance).toBe(910);
         const tomorrow=new Date(2026,8,11,0,1);
         expect((await drawSARModuleWithPayment('story',quote(storage,'s3',30,tomorrow))).paid).toBe(0);
         expect(readSARGachaState(storage).collection['story-01']).toBe(3);
@@ -45,6 +45,29 @@ describe('SAR 鳞币结算',()=>{
         await expect(drawSARModuleWithPayment('story',quote(storage,'stale',0))).rejects.toThrow('免费次数');
         expect(storage.getItem(FISHING_MARKET_STORAGE_KEY)).toBe(before);
     });
+    it('rejects old 30-coin quotes without charging or advancing duplicate protection',async()=>{
+        const storage=seed();await drawSARModuleWithPayment('story',quote(storage,'first',0));
+        const before=storage.getItem(FISHING_MARKET_STORAGE_KEY);
+        await expect(drawSARModuleWithPayment('story',quote(storage,'old-price',30))).rejects.toThrow('价格');
+        expect(storage.getItem(FISHING_MARKET_STORAGE_KEY)).toBe(before);
+    });
+    it('duplicate protection survives retries, backup and restore; failed protected draws do not consume it',async()=>{
+        const storage=seed();
+        await drawSARModuleWithPayment('story',quote(storage,'first',0));
+        await drawSARModuleWithPayment('story',quote(storage,'second'));
+        await drawSARModuleWithPayment('story',quote(storage,'third'));
+        await drawSARModuleWithPayment('story',quote(storage,'third'));
+        const restored=memory();restoreSARLocalBackup(collectSARLocalBackup(storage),{replaceMissing:true},restored);
+        expect(readSARCommerce(restored,now)).toMatchObject({balance:820,gacha:{duplicateStreak:{story:2}}});
+        const before=restored.getItem(FISHING_MARKET_STORAGE_KEY);
+        const broken={getItem:restored.getItem,setItem:()=>{throw new Error('quota');}};
+        await expect(drawSARModuleWithPayment('story',{...quote(restored,'protected'),storage:broken})).rejects.toThrow('quota');
+        expect(restored.getItem(FISHING_MARKET_STORAGE_KEY)).toBe(before);
+        const protectedDraw=await drawSARModuleWithPayment('story',quote(restored,'protected'));
+        expect(protectedDraw).toMatchObject({balance:730,firstCopy:true,paid:90,module:{id:'story-02'},gacha:{duplicateStreak:{story:0}}});
+        await drawSARModuleWithPayment('story',quote(restored,'protected'));
+        expect(readSARCommerce(restored,now)).toMatchObject({balance:730,gacha:{duplicateStreak:{story:0}}});
+    });
     it('zero balance still gets a daily free draw but cannot spend',async()=>{
         const storage=seed(0);await drawSARModuleWithPayment('story',quote(storage,'free',0));
         await expect(drawSARModuleWithPayment('story',quote(storage,'paid'))).rejects.toThrow('不足');
@@ -55,8 +78,8 @@ describe('SAR 鳞币结算',()=>{
     it('serializes simultaneous spending and prevents negative balances',async()=>{
         const storage=seed(90);await drawSARModuleWithPayment('story',quote(storage,'free',0));
         const results=await Promise.allSettled(Array.from({length:10},(_,i)=>drawSARModuleWithPayment('story',quote(storage,`paid-${i}`))));
-        expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(3);
-        expect(readSARCommerce(storage,now)).toMatchObject({balance:0,gacha:{collection:{'story-01':4}}});
+        expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+        expect(readSARCommerce(storage,now)).toMatchObject({balance:0,gacha:{collection:{'story-01':2}}});
     });
     it('replaying an order grants and charges only once',async()=>{
         const storage=seed();await ensureSARCommerce(storage,now);

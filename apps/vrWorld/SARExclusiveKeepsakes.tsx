@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BookmarkSimple } from '@phosphor-icons/react';
+import { BookmarkSimple } from '@phosphor-icons/react';
 import type { FishingMarketState } from '../../utils/vrWorld/fishingMarket';
 import { sarExclusiveKeepsakes } from '../../utils/vrWorld/sarKeepsakes';
 import { SAR_NPC_NAMES } from '../../utils/vrWorld/sarArt';
@@ -9,16 +9,16 @@ import { FishArt } from './FishArt';
 import { SARArtifactPreview } from './SARArtifactArt';
 import './sar-exclusive-keepsakes.css';
 
-export function SARExclusiveKeepsakes({ market, onBack, backRef }: { market: FishingMarketState; onBack: () => void; backRef: React.MutableRefObject<(() => boolean) | null> }) {
+export function SARExclusiveKeepsakes({ market, backRef, onDetailChange }: { market: FishingMarketState; onDetailChange: (title:string|null)=>void; backRef: React.MutableRefObject<(() => boolean) | null> }) {
     const entries = useMemo(() => sarExclusiveKeepsakes(market), [market]);
-    const scroll = useRef<HTMLElement>(null), backButton = useRef<HTMLButtonElement>(null);
+    const scroll = useRef<HTMLElement>(null);
     const [filter, setFilter] = useState<'all' | 'caian' | 'aiven'>('all');
     const [selectedId, setSelectedId] = useState<string | null>(null), [page, setPage] = useState(0);
     const selected = entries.find(item => item.id === selectedId);
     const matches = entries.filter(item => filter === 'all' || item.npc === filter);
     const pages = Math.max(1, Math.ceil(matches.length / 12)), currentPage = Math.min(page, pages - 1);
     useEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [filter, currentPage, selectedId]);
-    useEffect(() => { backButton.current?.focus({ preventScroll: true }); }, [selectedId]);
+    useEffect(() => { onDetailChange(selected?.title||null); return ()=>onDetailChange(null); }, [selected?.title,onDetailChange]);
     useEffect(() => { backRef.current = () => { if (!selectedId) return false; setSelectedId(null); return true; }; return () => { backRef.current = null; }; }, [selectedId]);
     useEffect(() => {
         const host = window as Window & { render_game_to_text?: () => string };
@@ -26,9 +26,8 @@ export function SARExclusiveKeepsakes({ market, onBack, backRef }: { market: Fis
         host.render_game_to_text = render;
         return () => { if (host.render_game_to_text === render) delete host.render_game_to_text; };
     }, [entries, filter, selectedId, currentPage]);
-    if (selected?.souvenir) return <SARFamiliarityKeepsake item={selected.souvenir} onClose={() => setSelectedId(null)}/>;
+    if (selected?.souvenir) return <SARFamiliarityKeepsake embedded item={selected.souvenir} onClose={() => setSelectedId(null)}/>;
     return <>
-        <header className="sar-hub-header"><button ref={backButton} type="button" autoFocus aria-label={selected ? '返回专属纪念' : '返回收藏册'} onClick={() => selected ? setSelectedId(null) : onBack()}><ArrowLeft size={21}/></button><div><small>SAR · KEEPSAKES</small><h2>{selected ? selected.title : '专属纪念'}</h2></div></header>
         <main ref={scroll} className="sar-hub-warehouse sar-exclusive-shelf">
             {selected ? <article className="sar-collection-entry">
                 {selected.speciesId && <div className="sar-collection-large-art is-collected"><FishArt speciesId={selected.speciesId} size={165}/></div>}

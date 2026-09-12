@@ -215,3 +215,20 @@ describe('SAR personal line production paths and boundaries', () => {
         expect(progress(storage).offerId).not.toBe('A3-E06');
     });
 });
+
+it('requires the first paper story before the changed paper, including old queued/offered/pending saves', async () => {
+    for (const mode of ['offer','queue','pending'] as const) {
+        const storage=setup();await visit(storage,origin,()=>.99);
+        const market=read(storage),p=market.sarFamiliarity!.npcs.aiven;p.stars=1;
+        if(mode==='offer')p.offerId='A1-E07';
+        if(mode==='queue')p.queuedSceneIds=['A1-E07'];
+        if(mode==='pending')p.pending={sceneId:'A1-E07',nodeId:'start',line:0,runId:'old',revision:0,startedAt:origin,flags:{},drafts:{},userName:'小雨'};
+        storage.setItem(FISHING_MARKET_STORAGE_KEY,JSON.stringify(market));
+        if(mode==='offer')await expect(startFamiliarity('aiven','A1-E07',{storage,now:origin,userName:'小雨'})).rejects.toThrow('前一段');
+        await visit(storage,origin,()=>.99);
+        expect(progress(storage).offerId).not.toBe('A1-E07');expect(progress(storage).pending).toBeUndefined();
+        const ready=read(storage);ready.sarFamiliarity!.npcs.aiven.completed['A1-E06']={at:origin,flags:{}};storage.setItem(FISHING_MARKET_STORAGE_KEY,JSON.stringify(ready));
+        await visit(storage,origin,()=>.99);expect(progress(storage).offerId).toBe('A1-E07');
+        await startOffer(storage,origin);await finish(storage,origin);expect(progress(storage).completed['A1-E07']).toBeDefined();
+    }
+});

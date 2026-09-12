@@ -354,7 +354,7 @@ export const SARGachaOverlay: React.FC<{
                                         <button type="button" className="sarg-draw-button" disabled={!available||paying} onClick={()=>void startDraw()}>
                                             <span>{paying?'正在保存…':!ready?'正在读取…':available?(free?'今日免费抽取':`支付 ${SAR_EXTRA_DRAW_PRICE} 鳞币抽取`):'鳞币不足'}</span><small>{poolCopy(pool).cn}</small>
                                         </button>
-                                        <p>{available?'两池每天各免费一次，其后每次 30 鳞币。':'可以去钓鱼、逛布告板赚取鳞币，也可以明天再免费抽取。'}</p>
+                                        <p>{available?`两池每天各免费一次，其后每次 ${SAR_EXTRA_DRAW_PRICE} 鳞币。`:'可以去钓鱼、逛布告板赚取鳞币，也可以明天再免费抽取。'}</p>
                                         {error&&<p role="alert" style={{color:'#bd795e'}}>{error}</p>}
                                     </>
                                 )}

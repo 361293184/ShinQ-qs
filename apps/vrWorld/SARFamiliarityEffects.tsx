@@ -1,3 +1,4 @@
+import { familiarityText } from '../../utils/vrWorld/sarFamiliarity/catalog';
 import { createPortal } from 'react-dom';
 import { SARObjectInspector } from './SARObjectInspector';
 import React, { useEffect, useRef, useState } from 'react';
@@ -42,7 +43,7 @@ function discountLabel(effect: FamiliarityEffect) {
     return rate ? String(Number(rate[1]) / 10) : '9';
 }
 function copy(text: string | undefined, props: SARFamiliarityEffectsProps) {
-    return (text || '').replace(/[（(]user名[）)]/gi, props.userName).replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(props.flags[key] ?? (key === 'meetingConclusion' ? '未得出结论' : '')));
+    return familiarityText(text || '', props.userName, props.flags);
 }
 function Person({ actor }: { actor: Pick<PhotoActor, 'npc' | 'chibi' | 'name'> }) {
     return actor.npc ? <SARNpcChibi who={actor.npc} /> : actor.chibi ? <TokenImg value={actor.chibi} alt={`${actor.name}的 Q 版形象`} draggable={false} /> : <span className="srf-fx-silhouette"><User size={60} weight="duotone" aria-hidden="true" /><small>{actor.name}</small></span>;

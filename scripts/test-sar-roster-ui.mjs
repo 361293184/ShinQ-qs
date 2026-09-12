@@ -44,8 +44,8 @@ try{
     await page.evaluate(async()=>{const {readFishingMarketState,saveFishingMarketState}=await import('/utils/vrWorld/fishingMarket.ts');const state=readFishingMarketState();state.sarFamiliarity.npcs.aiven.completed['A3-01']={at:Date.now(),flags:{}};saveFishingMarketState(state);});
     assert.equal((await page.evaluate(()=>JSON.parse(window.render_game_to_text()))).npc,'aiven');
     await page.waitForFunction(()=>JSON.parse(window.render_game_to_text()).completed.includes('A3-01'));
-    await button('返回收藏图鉴').click();await page.getByRole('heading',{name:'收集图鉴',exact:true}).waitFor();assert.equal(await page.getByRole('combobox',{name:'图鉴主人'}).inputValue(),'qa-visitor');
-    await button('名册').click();await portraitReady('凯恩');await page.keyboard.press('Escape');await page.getByRole('heading',{name:'收集图鉴',exact:true}).waitFor();await page.keyboard.press('Escape');await page.getByText('已返回随身仓库',{exact:true}).waitFor();
+    await page.getByRole('navigation',{name:'图鉴页面'}).getByRole('button',{name:'收藏',exact:true}).click();await page.getByRole('heading',{name:'收集图鉴',exact:true}).waitFor();assert.equal(await page.getByRole('combobox',{name:'图鉴主人'}).inputValue(),'qa-visitor');
+    await button('名册').click();await portraitReady('凯恩');await page.keyboard.press('Escape');await page.getByText('已返回随身仓库',{exact:true}).waitFor();
     for(const width of [320,1100]){
         await page.setViewportSize({width,height:width===320?740:900});await page.reload();await button('名册').click();await portraitReady('凯恩');await shot(`05-profile-${width}`);
         assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

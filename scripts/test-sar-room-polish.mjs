@@ -39,7 +39,7 @@ try{
     await button('打开仓库').click();await button('打开收集图鉴').click();await button('名册').click();
     await page.waitForFunction(()=>document.querySelector('.sar-roster-portrait img:not(.sar-npc-portrait__pending)')?.getAttribute('src')?.endsWith('/normal.webp'));
     assert.equal(await page.locator('.sar-roster-portrait .sar-npc-portrait').getAttribute('data-expression'),'normal');await shot('caian-normal-roster');
-    await button('返回收藏图鉴').click();await page.keyboard.press('Escape');await button('返回活动室').click();await button('返回彼方').click();await button('接入').click();
+    await page.getByRole('navigation',{name:'图鉴页面'}).getByRole('button',{name:'收藏',exact:true}).click();await page.keyboard.press('Escape');await button('返回活动室').click();await button('返回彼方').click();await button('接入').click();
     assert.equal(await page.getByRole('switch',{name:'显示常驻 NPC'}).count(),0);assert.equal(await button('回到初见前').count(),0);assert(!(await page.locator('body').innerText()).includes('活动空间 NPC'));await shot('participation');
     assert.deepEqual(errors,[]);writeFileSync(`${out}/result.json`,JSON.stringify({frames,errors,checks:['unchanged background framing in four viewports and initial meeting','NPC preference stored','rewind focus and Escape','rewind only clears intro','roster normal portrait','SAR controls removed from participation']},null,2));console.log('SAR room polish passed: background, settings, rewind and roster.');
 }catch(error){await shot('failure');console.error((await page.locator('body').innerText()).slice(-2500));throw error;}finally{await browser.close();}

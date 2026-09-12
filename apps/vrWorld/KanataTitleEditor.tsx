@@ -1,3 +1,4 @@
+import { sarNpcContentEnabled } from '../../utils/vrWorld/sarNpcPreference';
 import React, { useEffect, useRef, useState } from 'react';
 import { PencilSimple } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
@@ -12,7 +13,7 @@ export function KanataTitleEditor({ ownerId, unlocked = true, earnedTitles = [] 
     useEffect(() => { if (wasEditing.current && !editing) root.current?.querySelector('button')?.focus(); wasEditing.current = editing; }, [editing]);
     const length = Array.from(draft.trim()).length;
     const save = async (event: React.FormEvent) => {
-        event.preventDefault(); if (saving || length > KANATA_TITLE_LIMIT) return;
+        event.preventDefault(); if (!sarNpcContentEnabled() || saving || length > KANATA_TITLE_LIMIT) return;
         setSaving(true); setError('');
         const change = { title: normalizeKanataTitle(draft), titleRevision: kanataTitleRevision() };
         try {
@@ -22,6 +23,7 @@ export function KanataTitleEditor({ ownerId, unlocked = true, earnedTitles = [] 
         } catch { setError('称号没有保存成功，请重试。'); }
         finally { setSaving(false); }
     };
+    if (!sarNpcContentEnabled()) return null;
     if (!unlocked) return <div className="sar-title-editor"><p>彼方称号 · 与艾文的二星回忆后开放</p></div>;
     return <div ref={root} className="sar-title-editor">
         {!editing ? <button type="button" aria-label="修改彼方称号" onClick={() => { setDraft(title); setError(''); setEditing(true); }}><span>彼方称号<strong>{title || '还没有称号'}</strong></span><PencilSimple size={16}/></button>
