@@ -1,4 +1,6 @@
 import { acquireCharacterModule, consumeCharacterModule, characterModuleAllowance, characterModuleCount } from './sarCharacterCommerce';
+import { rollSARActivity, sarActivityPool } from './activityChoices';
+import type { VRSARActivity } from '../../types';
 import { newSARPurchaseId } from './sarCommerce';
 import { applyKanataTitle, extractKanataTitle } from './kanataTitle';
 import { loadCharacterContextMessages } from '../chatContextRange';
@@ -6,7 +8,7 @@ import { loadCharacterContextMessages } from '../chatContextRange';
  * 「彼方」会话运行器 —— 一次自主登入的完整闭环。
  *
  * 触发某角色后：
- *   1. 在"有意义的已实装房间"里随机 roll 一个（图书馆永远可选；听歌房当角色
+ *   1. 在"有意义的已实装房间"里过滤自动排除项，再随机 roll 一个（图书馆需有可读书；听歌房当角色
  *      有音乐人格、或房里正放着歌时可选）—— 每次只进一个房间、只做一件事，
  *      天然避免不同玩法的提示词互相打架。
  *   2. 取角色既有人设/向量记忆/最近 contextLimit 上下文（buildChatRequestPayload），
@@ -85,10 +87,10 @@ export interface VRSessionDeps {
     updateCharacter: (id: string, updates: Partial<CharacterProfile> | ((current: CharacterProfile) => Partial<CharacterProfile>)) => Promise<void> | void;
     /** 角色在 SAR 商店对用户装载模块时写回用户状态；旧调用方可省略。 */
     updateUserProfile?: (updates: Partial<UserProfile> | ((prev: UserProfile) => Partial<UserProfile>)) => Promise<void> | void;
-    /** 用户手动触发时指定的房间；省略 = 随机。不可用（如指定图书馆但无书）时自动回退随机。 */
+    /** 用户手动触发时指定的房间；省略 = 随机。不可用时跳过，不暗中换房间。 */
     forcedRoom?: VRRoomId;
-    /** 手动从水域入口出发时明确活动，不改变其它房间的随机规则。 */
-    forcedSARActivity?: 'fishing' | 'market' | 'garden';
+    /** 指定 SAR 子活动；手动邀请可绕过自动活动排除项，仍检查玩法本身的条件。 */
+    forcedSARActivity?: VRSARActivity;
     /** 用户在邮局指定要让该角色回复的来信 id（forcedRoom 应为 postoffice）。 */
     forcedLetterId?: string;
     /** 用户亲手点的（「让 ta 现在去逛一次」这类），不受自动登入的最小间隔闸限制。 */
@@ -239,21 +241,26 @@ export function rollRoom(
     musicState: VRMusicRoomState | null,
     prefer?: VRRoomId,
     random: () => number = Math.random,
+    options: { manual?: boolean; sarAvailable?: boolean } = {},
 ): VRRoomId | null {
+    const manual = options.manual ?? !!prefer;
     // 信号坠落处【不进随机池】——它是用户自发参与的特殊活动，只在用户点「参与→指定角色」
     // 时以 forcedRoom='signal' 进入，角色不会自己随机逛过去。
-    if (prefer === 'signal') return 'signal';
+    if (manual && prefer === 'signal') return 'signal';
     // 用户手动点“听歌房”时必须尊重选择。即使当前没有歌，听歌房提示词也支持
     // 角色戴着耳机放空；不能因为没有歌单就悄悄随机跳去剧院等其他房间。
-    if (prefer === 'music') return 'music';
-    if (prefer === 'library') return readableNovels(novels, char).length ? 'library' : null;
-    const pool: VRRoomId[] = ['guestbook', 'gym', 'postoffice', 'theater', 'sar'];
+    if (manual && prefer === 'music') return 'music';
+    const pool: VRRoomId[] = ['guestbook', 'gym', 'postoffice', 'theater'];
+    const sarAvailable = options.sarAvailable ?? sarActivityPool(char,false,manual).length > 0;
+    if (sarAvailable) pool.push('sar');
     if (readableNovels(novels, char).length > 0) pool.push('library');
     if (gatherCharSongs(char).length > 0 || musicState?.nowPlaying) pool.push('music');
-    if (prefer && pool.includes(prefer)) return prefer; // 指定的房间可用则去，否则回退随机
+    const allowed = manual ? pool : pool.filter(id => !char.vrState?.excludedAutoRooms?.includes(id));
+    if (prefer) return allowed.includes(prefer) ? prefer : null;
+    if (!allowed.length) return null;
     const rolled = Number(random());
     const normalized = Number.isFinite(rolled) ? Math.max(0, Math.min(0.999999999, rolled)) : 0;
-    return pool[Math.floor(normalized * pool.length)];
+    return allowed[Math.floor(normalized * allowed.length)];
 }
 
 export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult> {
@@ -299,7 +306,9 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
 
     const novels = await DB.getVRNovels();
     const musicState = await DB.getVRMusicRoom();
-    let roomId = rollRoom(char, novels, musicState, forcedRoom);
+    const gardenAvailable = gardenVisitAvailable(readFishingMarketState(), char.id);
+    const sarAvailable = sarActivityPool(char, gardenAvailable, !!manual).length > 0;
+    let roomId = rollRoom(char, novels, musicState, forcedRoom, Math.random, {manual:!!manual,sarAvailable});
     if (!roomId) return { ok: false, reason: 'no-content' };
     let room = getRoom(roomId);
 
@@ -349,7 +358,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         let signalRolledLines = 0;
         let signalWhisper = '';
         let sarScenario: SARCharacterCabinetScenario | null = null;
-        let sarMode: 'cabinet' | 'module-shop' | 'fishing' | 'market' | 'garden' | null = null;
+        let sarMode: VRSARActivity | null = null;
         let gardenSnapshot: GardenVisitSnapshot | null = null;
         let fishingCatch: FishingCatch | null = null;
         const fishingActor: MarketActor = { id: char.id, name: char.name, kind: 'character' };
@@ -462,9 +471,8 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
             roomTurn = buildTheaterRoomTurn(occupantsOf('theater'), char.name);
         } else if (room.id === 'sar') {
             // 水域和布告板与既有设施同属 SAR，每次仍只调用一轮模型。
-            const activityRoll = Math.random();
-            sarMode = forcedSARActivity || (activityRoll < .3 ? 'fishing' : activityRoll < .5 ? 'market' : activityRoll < .71 ? 'module-shop' : 'cabinet');
-            if(!forcedSARActivity&&activityRoll>=.5&&activityRoll<.7&&gardenVisitAvailable(readFishingMarketState(),char.id))sarMode='garden';
+            sarMode = rollSARActivity(char, gardenAvailable, !!manual, forcedSARActivity);
+            if (!sarMode) return {ok:false,room:'sar',reason:'no-content'};
             if(sarMode==='garden'){
                 const market=readFishingMarketState();
                 if(!market.dinosaurGarden?.visitsEnabled)return {ok:false,room:'sar',reason:'共同摆弄还没有开启'};
@@ -495,6 +503,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
                     market.ledger.filter(e => e.participants.includes(char.id)).slice(-8).forEach(e => recallExtra.push(e.text));
                 }
             } else if (sarMode === 'module-shop') {
+                room = {...room,name:'SAR 模块商店',blurb:'活动室里的临时表达模块柜台。',affordance:'你可以研究本轮展示的模块，决定是否用自己的余额购买，或在获准时装载。'};
                 // 自主活动没有用户填写参数的交互，不抽取需要字面配置的模块。
                 const compatible = SAR_MODULE_CATALOG.filter(module => module.supportsUserTarget && !module.configuration);
                 const wallet = readFishingMarketState();
@@ -587,7 +596,7 @@ async function runVRSessionUnlocked(deps: VRSessionDeps): Promise<VRSessionResul
         let titleUnlocked = !!userProfile?.vrState?.title || characters.some(c=>!!c.vrState?.title);
         try { titleUnlocked ||= !!readFishingMarketState().sarFamiliarity?.unlocks.includes('titles'); } catch { /* preserve unreadable progress, no unlock */ }
         const systemPrompt = payload.systemPrompt + buildVRSystemAddendum(room, char.name,
-            sarMode === 'fishing' || sarMode === 'market' || sarMode === 'garden' ? sarMode : undefined, char.vrState?.title, titleUnlocked);
+            sarMode || undefined, char.vrState?.title, titleUnlocked);
 
         // 调 LLM（记录一次调用，供"调用记录"对账）
         const baseUrl = vrApi.baseUrl.replace(/\/+$/, '');

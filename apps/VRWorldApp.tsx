@@ -26,6 +26,10 @@ import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
 import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
 import { LibraryView, NovelPreferenceModal } from './vrWorld/VRLibrary';
+import { VRActivityPicker, VRActivityRestrictions } from './vrWorld/VRActivityPicker';
+import type { VRSARActivity } from '../types';
+import { gardenResidents } from '../utils/vrWorld/dinosaurGarden';
+import { readFishingMarketState } from '../utils/vrWorld/fishingMarket';
 import { readableNovels, readingPreferenceLabel } from '../utils/vrWorld/library';
 import type { VRLibraryCategory } from '../types';
 import { useResilientAssetUrl, attachAudioMirrorFallback } from '../utils/assetUrl';
@@ -3746,7 +3750,7 @@ const INTERVAL_OPTIONS = [60, 120, 180, 360, 720];
 
 const SettingsView: React.FC<{
     characters: CharacterProfile[];
-    updateCharacter: (id: string, updates: Partial<CharacterProfile>) => void;
+    updateCharacter: ReturnType<typeof useOS>['updateCharacter'];
     addToast?: (msg: string, type?: any) => void;
     novels: VRWorldNovel[]; onReload: () => void;
     onRequestEnable: (char: CharacterProfile) => void;
@@ -3765,13 +3769,20 @@ const SettingsView: React.FC<{
     useEffect(() => { setSettingsPage(0); }, [settingsGroupId]);
     const novelCount = novels.length;
 
-    const go = (room?: VRRoomId) => {
+    const go = (room?: VRRoomId, sarActivity?: VRSARActivity) => {
         if (!pickFor) return;
         if (room === 'library' && !readableNovels(novels, pickFor).length) {
             addToast?.('当前阅读范围内还没有书，请先归入书籍或调整阅读偏好。', 'info');
             return;
         }
-        VRScheduler.triggerNow(pickFor.id, room);
+        if (sarActivity === 'garden') {
+            const market = readFishingMarketState();
+            if (!market.dinosaurGarden?.visitsEnabled || !gardenResidents(market).length) {
+                addToast?.('先在恐龙箱庭开启共同摆弄，并在桌上放一只恐龙。', 'info');
+                return;
+            }
+        }
+        VRScheduler.triggerNow(pickFor.id, room, undefined, sarActivity);
         addToast?.(`${pickFor.name} 正在登入彼方…`, 'info');
         setTimeout(onReload, 4000);
         setPickFor(null);
@@ -3869,6 +3880,9 @@ const SettingsView: React.FC<{
                                 </button>
                             </>
                         )}
+                        <VRActivityRestrictions char={char} onChange={change => {
+                            updateCharacter(char.id, latest => ({vrState:change(latest.vrState || {enabled:false,intervalMinutes:VR_DEFAULT_INTERVAL_MIN})}));
+                        }}/>
                         {novelCount > 0 && (
                             <button onClick={() => onEditReadingPreference(char)}
                                 className="mt-2.5 flex w-full items-center gap-2 border-t border-white/[0.07] pt-2.5 text-left active:opacity-70">
@@ -3882,18 +3896,9 @@ const SettingsView: React.FC<{
                 );
             })}
             {pageNavigation}
-            <ActionSheet open={!!pickFor} title={pickFor ? `让 ${pickFor.name} 现在去哪个房间？` : ''}
-                actions={[
-                    { label: '随机一个房间', onClick: () => go() },
-                    ...(novelCount > 0 ? [{ label: '图书馆 · 读书写批注', onClick: () => go('library') }] : []),
-                    { label: '剧院 · 写剧本投稿', onClick: () => go('theater') },
-                    { label: '听歌房 · 点歌锐评', onClick: () => go('music') },
-                    { label: '留言簿 · 发帖版聊', onClick: () => go('guestbook') },
-                    { label: '娱乐室 · 放开玩', onClick: () => go('gym') },
-                    { label: '邮局 · 写漂流信', onClick: () => go('postoffice') },
-                    { label: 'SAR 活动空间 · 抽芯片写随笔', onClick: () => go('sar') },
-                    // 信号坠落处不放这里：参与统一走活动 banner → 面板「✍ 参与」，那条路才有「耳语」
-                ]} onClose={() => setPickFor(null)} />
+            {pickFor && <VRActivityPicker char={pickFor} libraryAvailable={readableNovels(novels,pickFor).length > 0}
+                gardenReason={(() => {const market=readFishingMarketState();return !market.dinosaurGarden?.visitsEnabled ? '先在箱庭开启共同摆弄' : !gardenResidents(market).length ? '先在桌上放一只恐龙' : undefined;})()}
+                onGo={go} onClose={() => setPickFor(null)}/>}
         </div>
     );
 };

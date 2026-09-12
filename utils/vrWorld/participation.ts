@@ -31,6 +31,8 @@ export const withLatestVRParticipation = (current: CharacterProfile, patch: Part
             novelReadingMode: current.vrState?.novelReadingMode,
             preferredNovelIds: current.vrState?.preferredNovelIds,
             preferredNovelCategoryIds: current.vrState?.preferredNovelCategoryIds,
+            excludedAutoRooms: current.vrState?.excludedAutoRooms,
+            excludedAutoSARActivities: current.vrState?.excludedAutoSARActivities,
             enabled: current.vrState?.enabled ?? false,
             activityMode: current.vrState?.activityMode,
             intervalMinutes: current.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN,
