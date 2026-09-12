@@ -30,11 +30,11 @@ function PortraitImage({who,expression}:{who:SARDialogueSpeaker;expression:SAREx
     const waiting=!broken&&!cached;
     return <div className="sar-npc-portrait" data-speaker={who} data-expression={expression} aria-busy={waiting}>
         {shown&&<img src={shown.src} className="sar-npc-portrait__image" alt={`${SAR_NPC_NAMES[who]}立绘`} draggable={false}/>}
-        {waiting&&!localFailed.includes(path)&&<img src={'/sar-portraits/'+path.replace(/^SAR\//,'').replace(/\.png$/,'.webp')+(refreshedPortraits.has(path)?'?v=01edb974':'')} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async" onLoad={event=>{const src=event.currentTarget.currentSrc;loadedPortraits.set(path,src);setLastReady({path,src});}} onError={()=>setLocalFailed(prev=>[...prev,path])}/>}
+        {waiting&&!localFailed.includes(path)&&<img src={import.meta.env.BASE_URL+'sar-portraits/'+path.replace(/^SAR\//,'').replace(/\.png$/,'.webp')+(refreshedPortraits.has(path)?'?v=01edb974':'')} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async" onLoad={event=>{const src=event.currentTarget.currentSrc;loadedPortraits.set(path,src);setLastReady({path,src});}} onError={()=>setLocalFailed(prev=>[...prev,path])}/>}
         {waiting&&localFailed.includes(path)&&<CdnImg key={`loading:${path}`} path={path} className="sar-npc-portrait__image sar-npc-portrait__pending" alt="" aria-hidden="true" decoding="async"
             onLoad={event=>{const src=event.currentTarget.currentSrc;loadedPortraits.set(path,src);setLastReady({path,src});}} onError={()=>setFailed(prev=>[...prev,path])}/>}
         {!shown&&<div className="sar-npc-portrait__placeholder" role="status">{broken?'立绘暂时未加载':SAR_NPC_NAMES[who]}
-            {broken&&<button type="button" onClick={()=>setFailed([])}>重新加载</button>}</div>}
+            {broken&&<button type="button" onClick={()=>{setFailed([]);setLocalFailed([]);}}>重新加载</button>}</div>}
     </div>;
 }
 export function SARPortrait({who,expression='normal'}:{who:SARDialogueSpeaker;expression?:SARExpression}){
