@@ -32,6 +32,13 @@ import NovelReaderPanel from '../components/chat/NovelReaderPanel';
 import FanwaiGeneratePage from '../components/fanwai/FanwaiGeneratePage';
 import VoiceFavoritesPortal from '../components/chat/VoiceFavoritesPortal';
 import { listVoiceFavorites, saveVoiceFavorite, removeVoiceFavorite, getVoiceFavorite } from '../utils/voiceFavorites';
+import {
+    CONTENT_FAVORITES_CHANGED_EVENT,
+    contentFavoriteIdForMessage,
+    listContentFavorites,
+    removeContentFavoriteById,
+    saveMessageContentFavorite,
+} from '../utils/contentFavorites';
 import { CollaborationStore } from '../features/collaboration/store';
 import type { CollaborationTransferMessage } from '../features/collaboration/types';
 const CollaborationWindow = React.lazy(() => import('../features/collaboration/CollaborationWindow'));
@@ -190,6 +197,8 @@ const Chat: React.FC = () => {
     const scrollThrottleRef = useRef(0);
     const visibleCountRef = useRef(30);
     const activeCharIdRef = useRef(activeCharacterId);
+    // 收藏面板里点一条「聊天」收藏：跨角色时先切角色，等新角色渲染完再跳消息
+    const pendingFavoriteJumpRef = useRef<{ charId: string; messageId: number } | null>(null);
     // 流式预览接棒过的正式消息在当前会话内始终跳过入场动画，避免后续 DB 刷新时动画类又被加回来。
     const streamPreviewHandoverIdsRef = useRef<Set<number>>(new Set());
     const registerStreamPreviewHandover = useCallback((charId: string, messageIds: number[]) => {
@@ -425,7 +434,13 @@ const Chat: React.FC = () => {
     // `remoteUrl` is the fallback when fetching the MiniMax CDN blob was blocked by CORS.
     interface StoredVoice { blob?: Blob; remoteUrl?: string; originalText: string; spokenText?: string; lang?: string; }
     const voiceAssetKey = (msgId: number) => `voice_msg_${msgId}`;
+    /** 语音收藏的来源键：聊天里一条消息对应一个（与收藏面板 sourceKey 同构）。 */
+    const chatFavoriteSourceKey = (msg: Pick<Message, 'charId' | 'id'>) => `${msg.charId}:${msg.id}`;
     const [voiceDataMap, setVoiceDataMap] = useState<Record<number, VoiceData>>({});
+    /** 已收藏的聊天语音来源键（长按菜单据此显示「收藏/取消收藏」）。 */
+    const [chatFavoriteKeys, setChatFavoriteKeys] = useState<Set<string>>(new Set());
+    /** 已收藏的聊天内容 id（文字/图片；长按菜单据此显示「收藏/取消收藏」）。 */
+    const [contentFavoriteIds, setContentFavoriteIds] = useState<Set<string>>(new Set());
     const [voiceLoading, setVoiceLoading] = useState<Set<number>>(new Set());
     const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
     const chatAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -658,6 +673,9 @@ const Chat: React.FC = () => {
                 chatAudioRef.current.play().catch(() => {});
                 setPlayingMsgId(msg.id);
             }
+            // 长按收藏语音需要刚合成的音频本身（blob 要写进收藏库），所以这里回传一份。
+            // 所有既有调用方都忽略返回值，纯增量，不影响现行为。
+            return { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang, blob };
         } catch (err: any) {
             // 记一笔失败：自动那条路下次扫到就跳过（见 voiceFailedRef 的说明）。
             voiceFailedRef.current.add(msg.id);
@@ -687,6 +705,52 @@ const Chat: React.FC = () => {
             trackEvent('下载语音条');
         } catch {
             addToast('语音下载失败', 'error');
+        }
+    };
+
+    // 长按语音菜单里的「收藏」：把这条语音的音频收进收藏夹（通话/见面共用同一个收藏库）。
+    const handleToggleVoiceFavorite = async (msg: Message) => {
+        if (!msg?.id) return;
+        try {
+            const sourceKey = chatFavoriteSourceKey(msg);
+            if (await getVoiceFavorite('chat', sourceKey)) {
+                await removeVoiceFavorite('chat', sourceKey);
+                setChatFavoriteKeys(prev => { const next = new Set(prev); next.delete(sourceKey); return next; });
+                addToast('已取消收藏语音', 'info');
+                return;
+            }
+            let current: { url: string; originalText: string; spokenText?: string; lang?: string; blob?: Blob | null } | undefined = voiceDataMap[msg.id];
+            if (!current) current = await handleManualTts(msg, false) || undefined;
+            if (!current) return;
+            const stored = await DB.getAssetRaw(voiceAssetKey(msg.id)) as StoredVoice | null;
+
+            let blob: Blob | null = current.blob instanceof Blob
+                ? current.blob
+                : stored?.blob instanceof Blob ? stored.blob : null;
+            if (!blob && current.url) {
+                try { blob = await fetchBlobForShare(current.url, 'audio/mpeg'); } catch { /* 下面给出明确提示 */ }
+            }
+            if (!blob) {
+                addToast('暂时拿不到这条语音的音频文件，无法收藏', 'error');
+                return;
+            }
+            await saveVoiceFavorite({
+                source: 'chat',
+                sourceKey,
+                charId: msg.charId,
+                charName: char?.name || '未知角色',
+                sourceTimestamp: msg.timestamp,
+                originalText: current.originalText,
+                spokenText: current.spokenText,
+                language: current.lang,
+                blob,
+            });
+            setChatFavoriteKeys(prev => new Set(prev).add(sourceKey));
+            addToast('已收藏语音，可在“收藏”里查看', 'success');
+            trackEvent('收藏语音条');
+        } catch (e) {
+            console.warn('[Chat] favorite voice failed', e);
+            addToast('收藏失败，请检查浏览器存储空间', 'error');
         }
     };
 
@@ -782,6 +846,13 @@ const Chat: React.FC = () => {
         let cancelled = false;
         (async () => {
             const updates: Record<number, VoiceData> = {};
+            // 顺手同步一次「哪些聊天语音已被收藏」，长按菜单的收藏态才不会在重进会话后丢失。
+            const favoriteKeys = new Set(
+                (await listVoiceFavorites().catch(() => []))
+                    .filter(item => item.source === 'chat')
+                    .map(item => item.sourceKey),
+            );
+            if (!cancelled) setChatFavoriteKeys(favoriteKeys);
             for (const m of toFetch) {
                 try {
                     const stored = await DB.getAssetRaw(voiceAssetKey(m.id)) as StoredVoice | null;
@@ -2866,6 +2937,65 @@ const Chat: React.FC = () => {
         window.setTimeout(() => setFlashMsgId(null), 2200);
     };
 
+    // ---- 聊天内容收藏（文字 / 图片）：长按气泡 →「消息操作」里的收藏项 ----
+    const refreshContentFavoriteIds = useCallback(async () => {
+        const items = await listContentFavorites().catch(() => []);
+        setContentFavoriteIds(new Set(items.map(item => item.id)));
+    }, []);
+
+    // 面板里删掉一条收藏、或别的入口（相册）收藏了同一张图，都靠这个事件同步菜单文案。
+    useEffect(() => {
+        void refreshContentFavoriteIds();
+        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+    }, [refreshContentFavoriteIds]);
+
+    const handleToggleContentFavorite = async (msg: Message) => {
+        if (!msg?.id) return;
+        const favoriteId = contentFavoriteIdForMessage(msg);
+        try {
+            if (contentFavoriteIds.has(favoriteId)) {
+                await removeContentFavoriteById(favoriteId);
+                setContentFavoriteIds(previous => {
+                    const next = new Set(previous);
+                    next.delete(favoriteId);
+                    return next;
+                });
+                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
+                return;
+            }
+            await saveMessageContentFavorite(msg, char?.name || '未知角色');
+            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
+            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
+            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
+        } catch (error) {
+            console.warn('[Chat] favorite content failed', error);
+            addToast('收藏失败，请稍后重试', 'error');
+        }
+    };
+
+    // 收藏面板点一条聊天收藏：同角色直接跳；跨角色先切过去，等新角色渲染完再跳
+    const handleOpenFavoriteMessage = (charId: string, messageId: number) => {
+        setFavoritesOpen(false);
+        if (activeCharIdRef.current === charId) {
+            void handleJumpToMessageInChat(messageId);
+            return;
+        }
+        pendingFavoriteJumpRef.current = { charId, messageId };
+        setView('chat');
+        setActiveCharacterId(charId);
+    };
+
+    useEffect(() => {
+        const pending = pendingFavoriteJumpRef.current;
+        if (!pending || pending.charId !== activeCharacterId) return;
+        pendingFavoriteJumpRef.current = null;
+        const timer = window.setTimeout(() => void handleJumpToMessageInChat(pending.messageId), 0);
+        return () => window.clearTimeout(timer);
+    // handleJumpToMessageInChat intentionally uses the freshly rendered character state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeCharacterId]);
+
     const handleBackToCurrent = async () => {
         setWindowedFocusMsgId(null);
         setFlashMsgId(null);
@@ -3753,6 +3883,8 @@ const Chat: React.FC = () => {
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onRecallMessage={handleRecallMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
+                messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
+                onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}
@@ -3775,6 +3907,9 @@ const Chat: React.FC = () => {
                 voiceAvailable={characterHasVoice(char, apiConfig)}
                 onGenerateVoice={selectedMessage ? () => handleManualTts(selectedMessage) : undefined}
                 voiceDownloadable={!!(selectedMessage?.id && voiceDataMap[selectedMessage.id])}
+                voiceCollectable={!!(selectedMessage?.id && (voiceDataMap[selectedMessage.id] || parseVoiceOutput(selectedMessage.content || '').hasVoiceTag))}
+                voiceFavorited={!!(selectedMessage?.id && chatFavoriteKeys.has(chatFavoriteSourceKey(selectedMessage)))}
+                onToggleVoiceFavorite={selectedMessage ? () => handleToggleVoiceFavorite(selectedMessage) : undefined}
                 onDownloadVoice={selectedMessage ? () => handleDownloadVoice(selectedMessage) : undefined}
                 recallCaughtChance={char.recallCaughtChance}
                 onSetRecallCaughtChance={(v) => updateCharacter(char.id, { recallCaughtChance: v })}
@@ -4674,17 +4809,7 @@ const Chat: React.FC = () => {
             {favoritesOpen && (
                 <VoiceFavoritesPortal
                     onClose={() => setFavoritesOpen(false)}
-                    onJumpToMessage={(jumpCharId, messageId) => {
-                        // 切到该角色并定位到对应消息
-                        setActiveCharacterId(jumpCharId);
-                        if (jumpCharId !== char?.id) {
-                            setView('chat');
-                        }
-                        setTimeout(() => {
-                            const el = document.getElementById(`msg-${messageId}`);
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }, 120);
-                    }}
+                    onJumpToMessage={handleOpenFavoriteMessage}
                 />
             )}
 
