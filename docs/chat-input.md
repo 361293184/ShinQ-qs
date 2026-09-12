@@ -13,6 +13,12 @@
 
 `utils/chatInputPreferences.ts` 的 `emojiSuggestions` 与其他输入偏好一起存到 `sully-chat-input-preferences-v1`，沿用现有完整备份的输入偏好字段。匹配逻辑在 `utils/emojiSuggestions.ts`，候选显示在 `ChatInputArea`；私聊传入已有的角色可见表情列表，群聊复用输入组件时默认不开启。
 
+### 与社区美化兼容
+
+表情联想和自动回复倒计时位于 `.sully-chat-inputbar` 外侧的同级区域，不插入输入栏内部。显示、收起辅助提示不会改变原有 `> div:first-child` / `:nth-child(1)` 的输入行目标，也不会重建输入框、丢失草稿或光标。
+
+新美化建议使用固定钩子：`.sully-chat-composer`（输入行）、`.sully-chat-input-wrap`（输入框外壳）、`.sully-chat-textarea`、`.sully-chat-actions-button`、`.sully-chat-send-button`。联想区可单独用 `.sully-chat-emoji-suggestions` 定制（旧 `.sully-emoji-suggestions` 仍保留），倒计时用 `.sully-chat-auto-reply`。不改写用户保存的 CSS。
+
 ## 折叠设置
 
 聊天设置分为六组，默认全部收起：输入与发送、聊天外观、上下文与记忆、翻译与语音、扩展功能、聊天记录。标题行常显，点击或键盘操作可展开；折叠不会丢失未保存的修改。各项原有的保存方式和执行行为不变。

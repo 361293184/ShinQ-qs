@@ -179,6 +179,29 @@ describe('private chat input controls', () => {
         expect(container.querySelector('[aria-label="表情包联想"]')).toBeNull();
     });
 
+    it('preserves community composer selectors and input identity when auxiliary rows appear', () => {
+        renderInput({ input: '抱', emojis: [{ name: '抱抱', url: 'hug.png' }] });
+        const original = textarea();
+        const composer = container.querySelector('.sully-chat-inputbar > div:first-child');
+        const wrap = container.querySelector('.sully-chat-inputbar > div:nth-child(1) > div');
+        act(() => original.focus());
+        original.setSelectionRange(1, 1);
+        for (const patch of [
+            { emojiSuggestionsEnabled: true },
+            { autoReplySeconds: 5 },
+            { emojiSuggestionsEnabled: false },
+            { autoReplySeconds: null },
+        ]) {
+            renderInput(patch);
+            expect(container.querySelector('.sully-chat-inputbar > div:first-child')).toBe(composer);
+            expect(container.querySelector('.sully-chat-inputbar > div:nth-child(1) > div')).toBe(wrap);
+            expect(wrap?.contains(original)).toBe(true);
+            expect(textarea()).toBe(original);
+            expect(document.activeElement).toBe(original);
+            expect(original.selectionStart).toBe(1);
+        }
+    });
+
     it('hides suggestions during IME composition and never sends the confirmation key', () => {
         renderInput({ input: '抱', emojiSuggestionsEnabled: true, emojis: [{ name: '抱抱', url: 'hug.png' }] });
         act(() => textarea().dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })));
