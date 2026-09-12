@@ -21,8 +21,8 @@ import { expressionOverrides, readExpressionEdits, subscribeExpressionEdits, typ
 import { SARExpressionReview } from './SARExpressionReview';
 import './sar-familiarity-dialog.css';
 
-export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }: {
-    npc: FamiliarityNpc; sceneId?: string; onClose: () => void; onEditUserChibi: () => void;
+export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi, onSellFish }: {
+    npc: FamiliarityNpc; sceneId?: string; onClose: () => void; onEditUserChibi: () => void; onSellFish?: () => void;
 }) {
     const reviewEnabled=useSARExpressionReviewEnabled();
     const { userProfile, characters } = useOS();
@@ -31,6 +31,8 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
     const [page,setPage]=useState({key:'',index:0});
     const [dismissedProp,setDismissedProp]=useState('');
     const [preview,setPreview]=useState(false);
+    const [serviceText,setServiceText]=useState<string|null>(null);
+    const canSellFish=npc==='aiven'&&!sceneId&&!!onSellFish;
     const [reviewOpen,setReviewOpen]=useState(false),[edits,setEdits]=useState<ExpressionEdit[]>([]),[reviewError,setReviewError]=useState('');
     const reviewHistory=useRef<Array<{cursor:FamiliarityCursor;sentence:number;draft:Record<string,unknown>;dismissedProp:string;choice?:boolean}>>([]);
     const root=useRef<HTMLElement>(null),lock=useRef(false),mounted=useRef(true),opened=useRef(false);
@@ -107,7 +109,7 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
             else{setReplay(null);setFinished(true);onClose();}return;
         }
         const next=await advanceFamiliarity(npc,cursor,{choice,draft:committedDraft});setMarket(next);
-        if(!next.sarFamiliarity?.npcs[npc].pending){setFinished(true);if(scene.kind==='event')setEndingCursor({...cursor,cast});else onClose();}
+        if(!next.sarFamiliarity?.npcs[npc].pending){setFinished(true);if(scene.kind==='event'||canSellFish)setEndingCursor({...cursor,cast});if(scene.kind!=='event'){if(canSellFish)setServiceText(text);else onClose();}}
         void deliverFamiliarityMessages().catch(()=>setError('回忆已保存，私聊彩蛋待重试'));
     });
     // Props belong to one authored reveal, never the entire conversation branch.
@@ -122,21 +124,21 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
     const lastSentence=pageIndex>=sentences.length-1;
     const waitingForEffect=!!node&&(!sceneId||preview)&&!!visual?.interactive&&!draft.confirmed;
     const showChoices=!finished&&!!market&&lastSentence&&!visual&&!waitingForEffect&&!!node&&lastLine&&!!node.choices?.length;
-    const text=sentences[pageIndex]||(market?' ':'正在走进活动室…');
+    const text=serviceText??(sentences[pageIndex]||(market?' ':'正在走进活动室…'));
     const continueDialogue=()=>{
-        if(busy||showChoices)return;
-        if(finished){onClose();return;}
+        if(busy||showChoices||serviceText!==null)return;
+        if(finished){if(canSellFish)setServiceText(text);else onClose();return;}
         if(!lastSentence){rememberReview();setPage({key:pageKey,index:pageIndex+1});}
         else if(visual&&lastLine&&node?.choices?.length&&!waitingForEffect){rememberReview();setDismissedProp(propKey);}
         else if(node&&!waitingForEffect)advance();
-        else if(!node)onClose();
+        else if(!node){if(canSellFish)setServiceText(text);else onClose();}
     };
-    const nextHint=busy?'保存中…':finished?(sceneId?'点击返回名册':'点击返回活动室'):waitingForEffect&&lastSentence?'先完成上方操作':node&&lastLine&&lastSentence&&!node.next&&!node.choices?.length?'点击收好这段回忆':visual&&visual.kind!=='confetti'&&lastSentence?'点击收起，继续对话':'点击继续';
+    const nextHint=serviceText!==null?'请选择回应':busy?'保存中…':finished?(sceneId?'点击返回名册':canSellFish?'点击继续':'点击返回活动室'):waitingForEffect&&lastSentence?'先完成上方操作':node&&lastLine&&lastSentence&&!node.next&&!node.choices?.length?'点击收好这段回忆':visual&&visual.kind!=='confetti'&&lastSentence?'点击收起，继续对话':'点击继续';
     useEffect(()=>{
         const target=window as Window&{render_game_to_text?:()=>string;advanceTime?:(ms:number)=>void};
-        const render=()=>JSON.stringify({mode:'sar-familiarity',npc,replay:!!sceneId,preview,stars:progress?.stars,scene:scene?.id,node:cursor?.nodeId,line:cursor?.line,sentence:pageIndex,text,choices:showChoices?node?.choices?.map(c=>familiarityText(c.label,userName,cursor?.flags)):[],effect:visual?.kind,confirmed:!!draft.confirmed,busy,error,finished,...(reviewEnabled&&sceneId?{reviewOpen,expressionEdits:edits.length,expressions:cast}:{})});
+        const render=()=>JSON.stringify({mode:'sar-familiarity',npc,replay:!!sceneId,preview,stars:progress?.stars,scene:scene?.id,node:cursor?.nodeId,line:cursor?.line,sentence:pageIndex,text,choices:serviceText!==null?['卖鱼','离开']:showChoices?node?.choices?.map(c=>familiarityText(c.label,userName,cursor?.flags)):[],effect:visual?.kind,confirmed:!!draft.confirmed,busy,error,finished,...(reviewEnabled&&sceneId?{reviewOpen,expressionEdits:edits.length,expressions:cast}:{})});
         target.render_game_to_text=render;return()=>{if(target.render_game_to_text===render)delete target.render_game_to_text;};
-    },[npc,sceneId,progress?.stars,scene,cursor,pageIndex,text,showChoices,node,draft,busy,error,finished,visual,userName,preview,edits,reviewOpen]);
+    },[npc,sceneId,progress?.stars,scene,cursor,pageIndex,text,showChoices,node,draft,busy,error,finished,visual,userName,preview,edits,reviewOpen,serviceText]);
     const keepGuest=!!scene&&!!cursor&&keepDialogueGuest(scene.nodes,cursor.nodeId,cursor.line,npc,cursor.guestPresent??!!cursor.cast?.[npc==='caian'?'aiven':'caian']);
     const castSpeaker=line?.speaker==='caian'||line?.speaker==='aiven'?line.speaker:keepGuest?cursor?.speaker||npc:npc;
     const originalCast=finished?cursor?.cast||{}:familiarityCast(cursor?.cast,line,pageIndex);
@@ -189,13 +191,14 @@ export function SARFamiliarityDialog({ npc, sceneId, onClose, onEditUserChibi }:
             <div className="srf-script">
                 <SARDialogueMeta npc={npc} speaker={line?.speaker==='narrator'?'旁白':line?.speaker==='sully'?'Sully':line?.speaker==='caian'?'凯恩':line?.speaker==='aiven'?'艾文':name}
                     stars={progress?.stars||0} replayTitle={sceneId?scene?.title:undefined} onClose={sceneId?onClose:undefined}/>
-                <button className="srf-bubble" type="button" aria-label="继续对话" disabled={busy||!market||showChoices||(lastSentence&&waitingForEffect)} onClick={continueDialogue}>
+                <button className="srf-bubble" type="button" aria-label="继续对话" disabled={busy||!market||showChoices||serviceText!==null||(lastSentence&&waitingForEffect)} onClick={continueDialogue}>
                     <span className={`srf-line ${finished&&scene?.kind==='event'?'srf-collected srf-endpage':line?.speaker==='narrator'?'is-narration':''}`} role={finished?'status':undefined}>{text}</span>
                     <span className="srf-next">{showChoices?(reviewOpen?'在校对栏选择回应':'请选择回应'):nextHint}<ArrowRight size={16}/></span>
                 </button>
                 {error&&<p className="srf-error" role="alert">{error}{!market&&<button disabled={busy} onClick={()=>void run(open)}>重新打开</button>}</p>}
             </div>
         </div>
+        {serviceText!==null&&canSellFish&&<SARDialogueChoices><button type="button" onClick={onSellFish}>卖鱼</button><button type="button" onClick={onClose}>离开</button></SARDialogueChoices>}
         {showChoices&&!reviewOpen&&<SARDialogueChoices key={pageKey}>
             {node?.choices?.map((choice,i)=><button type="button" key={i} disabled={busy} onClick={()=>advance(i)}>{familiarityText(choice.label,userName,cursor?.flags)}</button>)}
         </SARDialogueChoices>}

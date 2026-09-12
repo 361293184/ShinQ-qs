@@ -993,3 +993,7 @@ TODO — Qixi rewrite
 2026-09-12 — 收集图鉴统一标签页
 - 收藏、专属纪念、名册共用父级标题和三项固定导航，移除子组件重复标题/导航；纪念物详情嵌入内容区域，保留独立仓库详情的原行为。根级返回仓库、详情先返回列表，切换收藏主人保持原选择。
 - 实际 320px 三标签来回切换、同一导航 DOM/唯一标题、纪念物查看与返回/分页/备份、名册档案/回顾入口/锁定/320/390/1100px 通过，游戏客户端截图已检查。
+
+2026-09-12 — Aiven RPG fish-sales entry
+- User correction: clicking Aiven starts normal dialogue immediately. Services appear only after greeting/story; star-event completion keeps a separate end page before services. Replay never offers selling. Weekday greeting comes first for Aiven.
+- Verified browser greeting, after-dialogue sale payout, live star ending, replay, and 37 unit checks. Dinosaur GLB base-path hotfix separately deployed (PR 641).

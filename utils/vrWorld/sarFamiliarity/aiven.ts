@@ -410,7 +410,7 @@ const sullyEncounter: FamiliarityScene = {
 /** Each named topic, event, easter egg and encounter has a stable one-time ID. */
 export const AIVEN_SCENES: FamiliarityScene[] = [...topics, ...events, ...easterEggs, sullyEncounter];
 
-/** Pick one time + one weather + one weekday line. Weekday indices match Date.getDay(). */
+/** Pick one weekday + one time + one weather line. Weekday indices match Date.getDay(). */
 export const AIVEN_DAILY: FamiliarityDailyLines = {
     time: {
         morning: ['早。', '你今天来得很早。', '早上水比较安静。'],

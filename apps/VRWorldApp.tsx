@@ -202,7 +202,7 @@ const VRWorldApp: React.FC = () => {
     const [showSarModuleShop, setShowSarModuleShop] = useState(false);
     const [sarHubPanel, setSarHubPanel] = useState<SARHubPanel | null>(null);
     const sarHubBack = useRef<(() => boolean) | null>(null);
-    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | 'garden' | null>(null);
+    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | 'garden' | 'sell' | null>(null);
     const [sarModuleTargetCharId, setSarModuleTargetCharId] = useState<string | null>(null);
     const [showSarRewindConfirm, setShowSarRewindConfirm] = useState(false);
     const [incomingSarModule, setIncomingSarModule] = useState<{ charId: string; charName: string; moduleTitle: string } | null>(null);
@@ -213,7 +213,7 @@ const VRWorldApp: React.FC = () => {
     useEffect(() => { if (showSarCabinet) trackSARFeature('cabinet'); }, [showSarCabinet]);
     useEffect(() => { if (showSarModuleShop) trackSARFeature('modules'); }, [showSarModuleShop]);
     useEffect(() => { if (sarHubPanel) trackSARFeature(sarHubPanel); }, [sarHubPanel]);
-    useEffect(() => { if (showFishingMarket) trackSARFeature(showFishingMarket); }, [showFishingMarket]);
+    useEffect(() => { if (showFishingMarket) trackSARFeature(showFishingMarket === 'sell' ? 'water' : showFishingMarket); }, [showFishingMarket]);
     // 启用流程：设定 chibi 后回调启用
     const [pendingEnable, setPendingEnable] = useState<string | null>(null);
     const [readingPreferenceCharId, setReadingPreferenceCharId] = useState<string | null>(null);
@@ -599,7 +599,7 @@ const VRWorldApp: React.FC = () => {
             </div>
 
             {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} caianMet={sarState.caianMet} onRequestRewind={()=>setShowSarRewindConfirm(true)} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
-            {familiarity && sarState.npcPreference === 'show' && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)}/>}
+            {familiarity && sarState.npcPreference === 'show' && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)} onSellFish={()=>{setFamiliarity(null);setShowFishingMarket('sell');}}/>}
             {/* 进入房间场景 */}
             {enterRoom && (
                 <RoomScene roomId={enterRoom} occupants={occupantsByRoom[enterRoom] || []}

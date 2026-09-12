@@ -37,7 +37,7 @@ const countdown = (deadline:number,now:number) => {
 };
 
 interface Props {
-    initialEntry?:'water'|'board';
+    initialEntry?:'water'|'board'|'sell';
     characters:CharacterProfile[]; userProfile:UserProfile; realtimeConfig?:RealtimeConfig;
     addToast?:(message:string,type?:any)=>void; onClose:()=>void;
     onOpenGarden?:()=>void;
@@ -49,7 +49,8 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
     const [state,setState]=useState<FishingMarketState>(()=>{try{return ensureMarketDay(readFishingMarketState());}catch{return createFishingMarketState();}});
     const [error,setError]=useState('');
     const [weather,setWeather]=useState<FishingWeather|null>(null);
-    const [tab,setTab]=useState<Tab>(initialEntry);
+    const [tab,setTab]=useState<Tab>(initialEntry==='sell'?'catalog':initialEntry);
+    const selling=initialEntry==='sell'&&tab==='catalog';
     const atWater=tab==='water'||tab==='catalog';
     const mainRef=useRef<HTMLElement>(null);
     const scrollPositions=useRef<Partial<Record<Tab,number>>>({});
@@ -81,7 +82,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         let alive=true;
         void mutateFishingMarket(s=>ensureActorAccounts(s,actors)).then(async s=>{
             if(alive)setState(s);
-            if(initialEntry==='water'){
+            if(initialEntry==='water'||initialEntry==='sell'){
                 const value=await resolveFishingWeather(realtimeConfig,s.seed);if(alive)setWeather(value);
             }
             await flushFishingDeliveries(characters);
@@ -161,7 +162,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         const advance=()=>{};target.render_game_to_text=render;target.advanceTime=advance;
         return()=>{if(target.render_game_to_text===render)delete target.render_game_to_text;if(target.advanceTime===advance)delete target.advanceTime;};
     },[tab,viewer,state,compose,weather,selectedPost]);
-    const owned=state.inventory.filter(c=>c.ownerId===actor.id);
+    const owned=state.inventory.filter(c=>c.ownerId===actor.id&&(!selling||speciesById(c.speciesId)?.category==='fish'));
     const discoveries=personalFishingCollection(state,actor.id);
     const pendingTrip=pendingFishingTrip(state,tripChar);
     const latestTrip=(state.fishingTrips||[]).filter(t=>t.catch.ownerId===tripChar).at(-1);
@@ -205,7 +206,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
         <div className="fish-page-underlay flex min-h-0 flex-1 flex-col" hidden={!!compose||!!activePost}>
         {atWater?<header className="flex shrink-0 items-center gap-3 px-4 pb-3" style={{paddingTop:'calc(var(--chrome-top) + .5rem)'}}>
             <button className="fish-action !border-0 !p-2" onClick={onClose} aria-label={atWater?'离开水域':'离开布告板'}><ArrowLeft size={20}/></button>
-            <div className="flex-1"><div className="text-[19px] tracking-[.16em]" style={{fontFamily:"'Noto Serif SC',serif"}}>{atWater?'彼方水域':'彼方布告板'}</div><div className="text-[8px] tracking-[.25em] text-[#8eaaa9]">{atWater?'WATERSIDE':'MARKET'} / SAR</div></div>
+            <div className="flex-1"><div className="text-[19px] tracking-[.16em]" style={{fontFamily:"'Noto Serif SC',serif"}}>{selling?(sarNpcContentEnabled()?'艾文的收鱼摊':'鱼获回收'):atWater?'彼方水域':'彼方布告板'}</div><div className="text-[8px] tracking-[.25em] text-[#8eaaa9]">{atWater?'WATERSIDE':'MARKET'} / SAR</div></div>
             <span className="text-[15px] tabular-nums text-[#d4c4a4]">{state.accounts.user||0}<small className="ml-1 text-[10px]">鳞币</small></span>
             <SARFacilityGuide facility="water"/>
         </header>:<header className="board-header">
@@ -215,7 +216,7 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
             <SARFacilityGuide facility="board"/>
         </header>}
         {atWater&&<nav className="fish-divider grid shrink-0 grid-cols-2 border-b border-[#c8e0ea21] px-3">
-            {([['water','钓鱼',Fish],['catalog','图鉴',BookOpen]] as const).map(([id,label,Icon])=><button key={id} aria-current={tab===id?'page':undefined} className={`flex items-center justify-center gap-1.5 border-b-2 py-3 ${tab===id?'border-[#a7cebd] text-[#dfeee4]':'border-transparent text-[#8a9eab]'}`} onClick={()=>goTo(id)}><Icon size={15}/>{label}</button>)}
+            {([['water','钓鱼',Fish],['catalog',initialEntry==='sell'?'卖鱼':'图鉴',BookOpen]] as const).map(([id,label,Icon])=><button key={id} aria-current={tab===id?'page':undefined} className={`flex items-center justify-center gap-1.5 border-b-2 py-3 ${tab===id?'border-[#a7cebd] text-[#dfeee4]':'border-transparent text-[#8a9eab]'}`} onClick={()=>goTo(id)}><Icon size={15}/>{label}</button>)}
         </nav>}
         <main ref={mainRef} className={`min-h-0 flex-1 overflow-y-auto vr-reader-scroll ${tab==='water'?'fishing-water-main':atWater?'px-4 pt-4':'board-content'}`} style={tab==='water'?undefined:{paddingBottom:'calc(var(--safe-bottom) + 1.5rem)'}}>
             <div className={tab==='water'?'fishing-water-content':'mx-auto w-full max-w-[560px]'}>
@@ -225,13 +226,13 @@ export const FishingMarketOverlay:React.FC<Props> = ({initialEntry='water',chara
                     <details className="fishing-companions"><summary>角色钓鱼<CaretRight size={14}/></summary>{characterTripControls('fishing')}</details>
                 </>}
                 {tab==='catalog'&&<>
-                    {onOpenGarden&&<button className="fish-action primary w-full mb-4" onClick={onOpenGarden}>带橡皮泥恐龙去箱庭 →</button>}
-                    {viewPicker}
+                    {!selling&&onOpenGarden&&<button className="fish-action primary w-full mb-4" onClick={onOpenGarden}>带橡皮泥恐龙去箱庭 →</button>}
+                    {!selling&&viewPicker}
                     <div className="mt-4 flex items-center justify-between"><h2 className="text-[14px]">{actor.name} 的收藏</h2><span className="fish-note">{owned.length} 件 · 研究 {state.research[actor.id]||0}</span></div>
                     {actor.id!=='user'&&<p className="fish-note mt-1">你可以回看 ta 的收藏；鱼获和交易由 ta 在自己的活动中决定。</p>}
                     {actor.id==='user'&&<p className="fish-note mt-1">点一条鱼，可以按今天的行情交给{sarNpcContentEnabled()?'艾文':'回收站'}。</p>}
                     <div className="mt-3 grid grid-cols-2 gap-2">{owned.slice().reverse().slice(inventoryPage*12,inventoryPage*12+12).map(c=><button className="rounded-xl bg-[#c8e0ea08] p-3 text-left" key={c.id} onClick={()=>{setSelectedCatch(c);setError('');}}><div className="flex justify-center"><FishArt speciesId={c.speciesId} size={118}/></div><div className="mt-1 text-[12px]">{speciesById(c.speciesId)?.name}</div><div className="fish-note">{'✦'.repeat(c.quality)} · {c.sizeCm} cm{c.displayed?' · 陈列中':''}{c.incubatingUntil?' · 孵化中':''}</div></button>)}</div>
-                    {!owned.length&&<p className="fish-note py-7 text-center">水箱还空着。收藏从第一竿开始。</p>}
+                    {!owned.length&&<p className="fish-note py-7 text-center">{selling?'现在还没有鱼可以卖，先去钓一会儿吧。':'水箱还空着。收藏从第一竿开始。'}</p>}
                     {owned.length>12&&<div className="mt-3 flex justify-between"><button className="fish-action" disabled={inventoryPage===0} onClick={()=>setInventoryPage(p=>p-1)}>上一页</button><span className="fish-note">{inventoryPage+1} / {Math.ceil(owned.length/12)}</span><button className="fish-action" disabled={(inventoryPage+1)*12>=owned.length} onClick={()=>setInventoryPage(p=>p+1)}>下一页</button></div>}
                     <div className="fish-divider mt-5 flex items-center justify-between pt-4"><h2 className="text-[14px]">{actor.name} 的水域图鉴</h2><span className="fish-note">{discoveries.length} / {FISH_CATALOG.length}</span></div>
                     <p className="fish-note mt-1">亮起的天气是今天；匹配时更容易钓到。恐龙都是橡皮泥模型，可以放进箱庭。</p>

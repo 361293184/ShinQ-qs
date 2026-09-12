@@ -175,7 +175,8 @@ export const familiarityGreeting = (npc:FamiliarityNpc,market:FishingMarketState
     const data=FAMILIARITY_DAILY[npc],w=weather||simulatedFishingWeather(market.seed,now).kind;
     const weatherKey=w==='clear'?'clear':['rain','storm','snow'].includes(w)?'rain':'cloudy';
     const pick=(lines:string[],salt:string)=>lines[marketHash(`${market.seed}:${familiarityDay(now)}:${npc}:${salt}`)%lines.length]||'';
-    return [pick(data.time[time],time),pick(data.weather[weatherKey],weatherKey),pick(data.weekday[d.getDay()],'weekday')].filter(Boolean);
+    const timeLine=pick(data.time[time],time),weatherLine=pick(data.weather[weatherKey],weatherKey),weekdayLine=pick(data.weekday[d.getDay()],'weekday');
+    return (npc==='aiven'?[weekdayLine,timeLine,weatherLine]:[timeLine,weatherLine,weekdayLine]).filter(Boolean);
 };
 /** Outbox retries after a crash; DB's delivery key makes the local Easter-egg message idempotent. */
 export const deliverFamiliarityMessages = async (storage:SARStorage=localStorage) => {
