@@ -42,7 +42,7 @@
 （微信、邮箱发文件都行，大约 50 KB）。拿到后用**记事本**打开它 → **Ctrl+A 全选 → Ctrl+C 复制**，先放着。
 
 > 为什么推荐要文件而不是点链接：这个文件平时放在 GitHub 上
-> （<https://raw.githubusercontent.com/qegj567-cloud/SullyOS/master/public/wechat-bridge-worker.bundle.js>），
+> （<https://raw.githubusercontent.com/361293184/ShinQ-qs/main/public/wechat-bridge-worker.bundle.js>），
 > 但国内直连 GitHub 时常常打不开。链接能打开就点链接（浏览器里会显示一大段代码，全选复制即可），
 > 打不开就用"要文件"这条——**两条路的文件内容完全一样**。
 
@@ -281,7 +281,7 @@ SullyOS 其他后端（主动消息 2.0 等）支持"fork 仓库 → Cloudflare 
 
 ## 把这页发给朋友时，可以连这段一起发
 
-> 微信桥的安装手册在这：<https://github.com/qegj567-cloud/SullyOS/blob/master/docs/wechat-bridge-setup-walkthrough.md>
+> 微信桥的安装手册在这：<https://github.com/361293184/ShinQ-qs/blob/main/docs/wechat-bridge-setup-walkthrough.md>
 > （这个链接在国内有时打不开，打不开的话我直接把手册和代码文件发给你，内容一样。）
 > 你需要三样：① 一个 Cloudflare 账号（免费，不用绑卡）；② 我发你的那个代码文件（`wechat-bridge-worker.bundle.js`）；
 > ③ 一个微信小号（建议）。

@@ -14,7 +14,7 @@
 
 > **微信桥（wechat-bridge）不在这个仓库里。** 它的要求不太一样（要 D1 + 每分钟定时器 + 两个密钥），
 > 所以单独写了一份图文手册，全程浏览器点击、不用命令行：
-> [《微信桥 · 从零开始的部署手册》](https://github.com/qegj567-cloud/SullyOS/blob/master/docs/wechat-bridge-setup-walkthrough.md)。
+> [《微信桥 · 从零开始的部署手册》](https://github.com/361293184/ShinQ-qs/blob/main/docs/wechat-bridge-setup-walkthrough.md)。
 
 > 只部署主动消息（`amsg/`）的话，SullyOS 那边还有一份带截图的完整版：
 > [主动消息 2.0 · 从零开始的部署手册](https://github.com/qegj567-cloud/SullyOS/blob/master/docs/amsg2-setup-walkthrough.md)。

@@ -40,7 +40,8 @@ const labelCls = 'text-[10px] font-bold text-slate-400 uppercase tracking-widest
 
 // 部署教程（写给用户看的图文）。静态部署的站点看不到仓库内文档，所以只能跳 GitHub 的
 // blob 页——与设置页那份 MCP 教程同一套做法（见 apps/Settings.tsx 的 MCP_USER_GUIDE_URL）。
-const SETUP_GUIDE_URL = 'https://github.com/qegj567-cloud/SullyOS/blob/master/docs/wechat-bridge-setup-walkthrough.md';
+// 指本项目的公开仓库（ShinQ-qs）：这是二改版本，指上游作者仓库的话路径/内容都对不上。
+const SETUP_GUIDE_URL = 'https://github.com/361293184/ShinQ-qs/blob/main/docs/wechat-bridge-setup-walkthrough.md';
 
 const ToggleRow: React.FC<{ checked: boolean; onChange: () => void; label: string; desc?: string }> = ({ checked, onChange, label, desc }) => (
     <button onClick={onChange} type="button"
