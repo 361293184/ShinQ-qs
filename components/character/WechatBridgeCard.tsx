@@ -11,11 +11,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatCircleDots, CaretDown, ArrowsClockwise, CheckCircle, WarningCircle, QrCode, ArrowRight } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import type { CharacterProfile } from '../../types';
-import { loadWechatSettings, saveWechatSettings } from '../../utils/wechatBridge/settings';
+import {
+    loadWechatSettings, saveWechatSettings, ensureClientId, saveClientId,
+} from '../../utils/wechatBridge/settings';
 import type { WechatBridgeSettings, WechatStatusInfo } from '../../utils/wechatBridge/types';
 import {
     uploadWechatConfig, uploadWechatPack, wechatStatus, checkBot, bindBot,
-    startQrLogin, pollQrLogin, initWechatSchema,
+    startQrLogin, pollQrLogin, initWechatSchema, claimLegacySpace,
 } from '../../utils/wechatBridge/sync';
 import { buildWechatFirePack } from '../../utils/wechatBridge/pack';
 import QRCode from 'qrcode';
@@ -67,7 +69,9 @@ const WechatBridgeCard: React.FC<Props> = ({ char }) => {
     const [open, setOpen] = useState(false);
     const [showSetup, setShowSetup] = useState(() => !loadWechatSettings().workerUrl);
     const [status, setStatus] = useState<WechatStatusInfo | null>(null);
-    const [busy, setBusy] = useState<'llm' | 'pack' | 'check' | 'status' | 'qr' | 'bind' | 'init' | null>(null);
+    const [busy, setBusy] = useState<'llm' | 'pack' | 'check' | 'status' | 'qr' | 'bind' | 'init' | 'claim' | null>(null);
+    // 这台设备的身份：首屏自动生成（没有就生成并持久化），用户全程无感。
+    const [deviceIdentity, setDeviceIdentity] = useState(() => ensureClientId());
 
     // 扫码登录态：img 展示二维码，qrcode 用来轮询，轮到 confirmed/expired 收尾。
     const [qrImg, setQrImg] = useState<string | null>(null);
@@ -159,6 +163,52 @@ const WechatBridgeCard: React.FC<Props> = ({ char }) => {
         setBusy(null);
         if (!res.ok) { addToast(res.error || '初始化失败', 'error'); return; }
         addToast(res.created?.length ? `数据表已建好（新建 ${res.created.length} 张）` : '数据表已就绪', 'success');
+        void refreshStatus();
+    };
+
+    /**
+     * 复制 / 粘贴这台设备的身份。
+     *
+     * 粘进来的意义：两台设备共用同一份空间（同一份微信绑定与云端上下文）——
+     * 这也是"手机扫的码，电脑上也能看到同一批消息"的解法（服务端的增量队列不再
+     * "谁先拉谁删"，各设备按自己的游标各自补收）。
+     */
+    const handleCopyIdentity = async () => {
+        try {
+            await navigator.clipboard.writeText(deviceIdentity);
+            addToast('已复制这台设备的身份，在另一台设备上点「粘贴」即可共用数据', 'success');
+        } catch {
+            addToast('复制失败：可以长按下面那串身份手动复制', 'error');
+        }
+    };
+
+    const handlePasteIdentity = async () => {
+        let text = '';
+        try {
+            text = (await navigator.clipboard.readText()).trim();
+        } catch {
+            addToast('浏览器不让读剪贴板：请手动把身份填进去（或直接在别处粘贴查看）', 'error');
+            return;
+        }
+        if (!/^[0-9a-f]{16,128}$/i.test(text)) {
+            addToast('剪贴板里不是设备身份（应是一串十六进制字符）', 'error');
+            return;
+        }
+        saveClientId(text);
+        setDeviceIdentity(text);
+        persist(loadWechatSettings());       // 通知轮询器按新身份重开
+        addToast('已切到那枚身份，正在同步它的数据…', 'success');
+        void refreshStatus();
+    };
+
+    /** 认领旧空间：多租户升级前的数据都在默认空间里，点一下并到这台设备名下（服务端幂等）。 */
+    const handleClaimLegacy = async () => {
+        setBusy('claim');
+        const res = await claimLegacySpace();
+        setBusy(null);
+        if (!res.ok) { addToast(res.hint || res.error || '认领失败', 'error'); return; }
+        const moved = res.moved ?? {};
+        addToast(`已把旧数据并到这台设备（上下文 ${moved.packs ?? 0} 份、消息 ${moved.messages ?? 0} 条）`, 'success');
         void refreshStatus();
     };
 
@@ -356,10 +406,44 @@ const WechatBridgeCard: React.FC<Props> = ({ char }) => {
                                     onChange={(e) => persist({ ...settings, workerUrl: e.target.value.trim() })} />
                             </div>
                             <div>
-                                <div className={labelCls}>Worker 密钥（WX_BRIDGE_TOKEN，没配可空）</div>
-                                <input className={inputCls} placeholder="可选"
+                                <div className={labelCls}>Worker 密钥（WX_BRIDGE_TOKEN，老部署才用）</div>
+                                <input className={inputCls} placeholder="一般留空（多人共用一台 worker 时不要填）"
                                     value={settings.token}
                                     onChange={(e) => persist({ ...settings, token: e.target.value.trim() })} />
+                            </div>
+                            {/* ── 这台设备的身份（多租户）──
+                                平时折叠在「连接配置」里、用户看不到；它决定"这台设备读写哪一份空间"。
+                                换设备时把上面那串复制过去粘贴一次，两台设备就共用同一份绑定与上下文。 */}
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className={labelCls}>这台设备的身份</span>
+                                    <span className="flex gap-1.5">
+                                        <button onClick={handleCopyIdentity} type="button"
+                                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-600">复制</button>
+                                        <button onClick={handlePasteIdentity} type="button"
+                                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-600">粘贴</button>
+                                    </span>
+                                </div>
+                                <div className="font-mono text-[9.5px] text-slate-400 break-all leading-snug">
+                                    {deviceIdentity}
+                                </div>
+                                <div className="text-[9px] text-slate-400 leading-snug">
+                                    自动生成、不用注册，也不需要问谁要 token。换设备时把它复制过去粘贴一次，那台设备就能看到同一批微信消息。
+                                    {status?.owner ? `（当前空间 ${status.owner}）` : ''}
+                                    {status?.owners ? `（名额已用 ${status.owners.used}/${status.owners.max}）` : ''}
+                                </div>
+                                {status?.legacySpace?.hasData && (
+                                    <div className="rounded-lg bg-amber-50 px-2.5 py-2 space-y-1.5">
+                                        <div className="text-[10px] text-amber-700 leading-snug">
+                                            检测到一份升级前的旧数据（{status.legacySpace.bots} 个微信 / {status.legacySpace.packs} 份上下文）。
+                                            换成本机身份后不会自动带过来，点一下并到这台设备：
+                                        </div>
+                                        <button onClick={handleClaimLegacy} disabled={busy !== null} type="button"
+                                            className="w-full py-1.5 rounded-lg bg-amber-500 text-white text-[10px] font-bold disabled:opacity-50 flex items-center justify-center gap-1">
+                                            <ArrowsClockwise size={11} className={busy === 'claim' ? 'animate-spin' : ''} /> 并到这台设备
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                             {/* 数据表体检：面板路线装完后端只差这一步——点一下就好，不用去 D1 控制台粘 SQL */}
                             {!!settings.workerUrl && (

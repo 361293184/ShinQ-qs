@@ -25,6 +25,14 @@ export interface WechatBridgeSettings {
   workerUrl: string;
   /** Worker 共享密钥（WX_BRIDGE_TOKEN；没配就是空串）。 */
   token: string;
+  /**
+   * 这台设备的身份（多租户）。
+   *
+   * 首屏自动生成、存 localStorage，**用户全程无感**：不注册、不需要任何人分发 token。
+   * 服务端把它 hash 成 owner，微信绑定与云端上下文都挂在这个身份名下。
+   * 换设备/加设备时把它复制过去粘贴一次，两台设备就共用同一份空间（见卡片里的「这台设备的身份」）。
+   */
+  clientId: string;
   /** 轮询秒数（App 存活期间的增量补收间隔）。 */
   pollSeconds: number;
   /** 自动补收：App 打开/切前台时拉增量并合并进主时间线。 */
@@ -38,6 +46,7 @@ export interface WechatBridgeSettings {
 export const DEFAULT_WECHAT_BRIDGE_SETTINGS: WechatBridgeSettings = {
   workerUrl: '',
   token: '',
+  clientId: '',
   pollSeconds: 20,
   autoSync: true,
   lastSeq: 0,
@@ -59,6 +68,20 @@ export interface WechatBotInfo {
 /** /wx/status 的返回形状（自检面板用）。 */
 export interface WechatStatusInfo {
   version?: string;
+  /** 当前身份折成的空间 id（16 位 hex）。排障时用它确认"这台设备落在哪个空间"。 */
+  owner?: string;
+  /** 请求没带身份头（老客户端/迁移期），落在默认空间。 */
+  anonymous?: boolean;
+  /**
+   * 名额：已用 / 上限。满了新身份会被服务端拒绝（错误码 `OWNERS_FULL`）。
+   * 上限是服务端的环境变量（默认 10），面板改数字即可放宽。
+   */
+  owners?: { used: number; max: number };
+  /**
+   * 旧空间提示（多租户升级用）：升级前的数据都在默认空间里，换成本机身份后就看不见了。
+   * `hasData=true` 时卡片摆一个「并到这台设备」的按钮（对应服务端 `POST /wx/claim`）。
+   */
+  legacySpace?: { hasData: boolean; bots: number; packs: number } | null;
   bots?: WechatBotInfo[];
   llmConfigured?: boolean;
   masterKeyConfigured?: boolean;
@@ -83,6 +106,11 @@ export interface WechatBridgeStorageInfo {
   schemaReady: boolean;
   /** 缺哪几张（齐了就是空数组）。排错时直接显示给用户看，比"连不上"有用得多。 */
   missingTables: string[];
+  /**
+   * 缺哪些列（多租户升级列，形如 `wx_packs.owner`）。
+   * 老库的"表齐但缺列"也计入 schemaReady=false —— 同样点一下「初始化数据表」补齐。
+   */
+  missingColumns?: string[];
   /** 已经建好的表数量。 */
   tableCount: number;
 }

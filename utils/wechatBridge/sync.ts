@@ -12,7 +12,7 @@ import type {
   WechatOutboxEntry,
   WechatStatusInfo,
 } from './types';
-import { loadWechatSettings, saveWechatCursor } from './settings';
+import { loadWechatSettings, saveWechatCursor, requestIdentity } from './settings';
 import { mergeWechatOutboxEntry } from './chat-glue';
 
 function baseUrl(): string {
@@ -21,8 +21,10 @@ function baseUrl(): string {
 
 function headers(token?: string): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  const tk = token ?? loadWechatSettings().token;
-  if (tk) h['X-Client-Token'] = tk;
+  // 身份：显式传入的优先（兼容旧调用），否则用本机身份——老密钥 > 自动生成的设备身份。
+  // 服务端把它 hash 成 owner，决定这次请求读写哪个空间（多租户隔离就靠这一个头）。
+  const identity = token ?? requestIdentity();
+  if (identity) h['X-Client-Token'] = identity;
   return h;
 }
 
@@ -144,6 +146,23 @@ export async function bindBot(payload: { botId?: string; charId: string; autoRep
 export async function checkBot(botId?: string): Promise<{ ok: boolean; error?: string; expired?: boolean }> {
   const res = await post<{ expired?: boolean; botId?: string }>('/wx/bot/check', botId ? { botId } : {});
   return { ok: res.ok, error: res.error, expired: res.data?.expired };
+}
+
+/**
+ * 认领旧空间（多租户升级用）：把默认空间里的历史数据整体改挂到本机身份名下。
+ *
+ * 场景：升级前的数据都挂在默认空间（那时没有"谁"这个维度），换成本机身份之后就看不见了。
+ * 服务端只允许"自己名下什么都没有"的身份调用，所以不会把两份数据搅在一起。
+ */
+export async function claimLegacySpace(): Promise<{
+  ok: boolean;
+  error?: string;
+  hint?: string;
+  moved?: Record<string, number>;
+}> {
+  if (!isConfigured()) return { ok: false, error: '请先填写 Worker 地址' };
+  const res = await post<{ moved?: Record<string, number> }>('/wx/claim');
+  return { ok: res.ok, error: res.error, hint: res.hint, moved: res.data?.moved };
 }
 
 /**

@@ -11,12 +11,19 @@
  *   · 这份常量给运行时用。
  *   两边一旦漂移，就会出现"命令行装的库和面板装的库结构不一样"这种极难排查的问题。
  *   `schema.test.ts` 是漂移守卫；改任意一边都必须同步另一边，否则测试会红。
+ *
+ * 多租户（2026-09-13 起）：owner = sha256(客户端设备身份) 取前 16 位 hex；
+ *   老库里的历史数据 owner 为默认值 'main'（最初的单租户空间），可用 POST /wx/claim 认领。
  */
 
 /**
  * 建表语句，**顺序与 `schema.sql` 完全一致**（先表后索引）。
  *
  * 之所以是数组而不是一整段 SQL：D1 的 `prepare()` 一次只能执行一条语句。
+ *
+ * 全部是 `CREATE ... IF NOT EXISTS`：这既是 `/wx/init` 可重复调用的前提，
+ * 也被 `schema.test.ts` 钉住。**所以"老库补列"不能写成这里的语句**——
+ * 表已存在时 CREATE 是空操作，补列只能走下面的 `SCHEMA_UPGRADE_COLUMNS`。
  */
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS wx_config (
@@ -28,31 +35,36 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   PRIMARY KEY (id)
 )`,
   `CREATE TABLE IF NOT EXISTS wx_packs (
+  owner          TEXT NOT NULL DEFAULT 'main',
   char_id        TEXT NOT NULL,
   pack_json      TEXT NOT NULL,
   template_ver   INTEGER NOT NULL DEFAULT 1,
   chat_built_at  INTEGER NOT NULL DEFAULT 0,
   updated_at     INTEGER NOT NULL,
-  PRIMARY KEY (char_id)
+  PRIMARY KEY (owner, char_id)
 )`,
   `CREATE TABLE IF NOT EXISTS wx_messages (
   msg_id     TEXT NOT NULL,
+  owner      TEXT NOT NULL DEFAULT 'main',
   char_id    TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
   source     TEXT NOT NULL DEFAULT 'wechat',
   created_at INTEGER NOT NULL,
-  PRIMARY KEY (msg_id)
+  PRIMARY KEY (owner, msg_id)
 )`,
   `CREATE INDEX IF NOT EXISTS idx_wx_messages_char ON wx_messages(char_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_wx_messages_owner ON wx_messages(owner, created_at)`,
   `CREATE TABLE IF NOT EXISTS wx_outbox (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner      TEXT NOT NULL DEFAULT 'main',
   char_id    TEXT NOT NULL,
   msg_id     TEXT NOT NULL,
   payload    TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`,
   `CREATE INDEX IF NOT EXISTS idx_wx_outbox_char ON wx_outbox(char_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_wx_outbox_owner ON wx_outbox(owner, seq)`,
   `CREATE TABLE IF NOT EXISTS wx_heartbeat (
   id   TEXT NOT NULL,
   at   INTEGER NOT NULL,
@@ -71,6 +83,29 @@ export const SCHEMA_TABLES: readonly string[] = [
   'wx_messages',
   'wx_outbox',
   'wx_heartbeat',
+];
+
+/** 全局心跳行，与用户无关（多租户后仍只有一个）。 */
+export const HEARTBEAT_ID = 'cron';
+
+/**
+ * 老库补列通道（多租户升级用）。
+ *
+ * 为什么单独一份：`SCHEMA_STATEMENTS` 必须是 `CREATE ... IF NOT EXISTS`（漂移守卫钉住的），
+ * 而补列只能 `ALTER TABLE ADD COLUMN` —— 对已存在的表，CREATE 是空操作，永远不会补上列。
+ * `/wx/init` 会先 `pragma_table_info` 看列在不在，缺了才 ALTER，因此**可重复调用**。
+ *
+ * ⚠️ definition 必须与 `SCHEMA_STATEMENTS` 里那张表的列定义逐字一致
+ * （`schema.test.ts` 会比对，防止"新装的库和老库补出来的库结构不一样"）。
+ */
+export const SCHEMA_UPGRADE_COLUMNS: readonly {
+  table: string;
+  column: string;
+  definition: string;
+}[] = [
+  { table: 'wx_packs', column: 'owner', definition: `TEXT NOT NULL DEFAULT 'main'` },
+  { table: 'wx_messages', column: 'owner', definition: `TEXT NOT NULL DEFAULT 'main'` },
+  { table: 'wx_outbox', column: 'owner', definition: `TEXT NOT NULL DEFAULT 'main'` },
 ];
 
 /**

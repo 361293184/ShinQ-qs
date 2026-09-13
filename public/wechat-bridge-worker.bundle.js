@@ -431,31 +431,36 @@ var SCHEMA_STATEMENTS = [
   PRIMARY KEY (id)
 )`,
   `CREATE TABLE IF NOT EXISTS wx_packs (
+  owner          TEXT NOT NULL DEFAULT 'main',
   char_id        TEXT NOT NULL,
   pack_json      TEXT NOT NULL,
   template_ver   INTEGER NOT NULL DEFAULT 1,
   chat_built_at  INTEGER NOT NULL DEFAULT 0,
   updated_at     INTEGER NOT NULL,
-  PRIMARY KEY (char_id)
+  PRIMARY KEY (owner, char_id)
 )`,
   `CREATE TABLE IF NOT EXISTS wx_messages (
   msg_id     TEXT NOT NULL,
+  owner      TEXT NOT NULL DEFAULT 'main',
   char_id    TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
   source     TEXT NOT NULL DEFAULT 'wechat',
   created_at INTEGER NOT NULL,
-  PRIMARY KEY (msg_id)
+  PRIMARY KEY (owner, msg_id)
 )`,
   `CREATE INDEX IF NOT EXISTS idx_wx_messages_char ON wx_messages(char_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_wx_messages_owner ON wx_messages(owner, created_at)`,
   `CREATE TABLE IF NOT EXISTS wx_outbox (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner      TEXT NOT NULL DEFAULT 'main',
   char_id    TEXT NOT NULL,
   msg_id     TEXT NOT NULL,
   payload    TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`,
   `CREATE INDEX IF NOT EXISTS idx_wx_outbox_char ON wx_outbox(char_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_wx_outbox_owner ON wx_outbox(owner, seq)`,
   `CREATE TABLE IF NOT EXISTS wx_heartbeat (
   id   TEXT NOT NULL,
   at   INTEGER NOT NULL,
@@ -469,6 +474,11 @@ var SCHEMA_TABLES = [
   "wx_messages",
   "wx_outbox",
   "wx_heartbeat"
+];
+var SCHEMA_UPGRADE_COLUMNS = [
+  { table: "wx_packs", column: "owner", definition: `TEXT NOT NULL DEFAULT 'main'` },
+  { table: "wx_messages", column: "owner", definition: `TEXT NOT NULL DEFAULT 'main'` },
+  { table: "wx_outbox", column: "owner", definition: `TEXT NOT NULL DEFAULT 'main'` }
 ];
 
 // worker/wechat-bridge/src/index.ts
@@ -496,12 +506,50 @@ function corsPreflight() {
     }
   });
 }
-function checkToken(req, env) {
-  const expected = (env.WX_BRIDGE_TOKEN || "").trim();
-  if (!expected) return null;
-  const auth = req.headers.get("Authorization") || "";
-  const got = auth.replace(/^Bearer\s+/i, "").trim() || req.headers.get("X-Client-Token") || "";
-  if (got !== expected) return json({ ok: false, error: "unauthorized" }, 401);
+var OWNER_HEADER = "X-Client-Token";
+var DEFAULT_OWNER = "main";
+var DEFAULT_MAX_OWNERS = 10;
+async function sha256Hex(input) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function resolveOwner(req) {
+  const header = (req.headers.get(OWNER_HEADER) || "").trim();
+  const auth = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const raw = header || auth;
+  if (!raw) return { owner: DEFAULT_OWNER, anonymous: true };
+  return { owner: (await sha256Hex(raw)).slice(0, 16), anonymous: false };
+}
+var resolveMaxOwners = (env) => {
+  const parsed = Number((env.WX_MAX_OWNERS || "").trim());
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MAX_OWNERS;
+};
+async function isKnownOwner(env, owner) {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS ok FROM wx_config WHERE id = ?1`
+  ).bind(owner).first();
+  return !!row;
+}
+async function countOwners(env) {
+  const row = await env.DB.prepare(
+    `SELECT count(*) AS n FROM wx_config WHERE id != ?1`
+  ).bind(DEFAULT_OWNER).first();
+  return row?.n ?? 0;
+}
+async function ownerGate(req, env, owner, anonymous) {
+  const sharedToken = (env.WX_BRIDGE_TOKEN || "").trim();
+  if (sharedToken) {
+    const auth = req.headers.get("Authorization") || "";
+    const got = auth.replace(/^Bearer\s+/i, "").trim() || (req.headers.get(OWNER_HEADER) || "").trim();
+    if (got !== sharedToken) return json({ ok: false, error: "unauthorized" }, 401);
+    return null;
+  }
+  if (anonymous) return null;
+  const max = resolveMaxOwners(env);
+  if (await isKnownOwner(env, owner)) return null;
+  if (await countOwners(env) >= max) {
+    return json({ ok: false, error: "OWNERS_FULL", hint: `\u8FD9\u53F0\u670D\u52A1\u53EA\u7559\u4E86 ${max} \u4E2A\u4F4D\u7F6E\uFF0C\u5DF2\u7ECF\u6EE1\u4E86` }, 403);
+  }
   return null;
 }
 async function readJson(req) {
@@ -520,11 +568,24 @@ var logWarn = (tag, message, extra) => {
 var sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
+async function mapWithConcurrency(items, limit, run) {
+  const results = new Array(items.length);
+  const width = Math.max(1, Math.min(limit, items.length));
+  let cursor = 0;
+  await Promise.all(Array.from({ length: width }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(items[index], index);
+    }
+  }));
+  return results;
+}
 var emptyConfig = () => ({ bots: [], llmEnc: null, llmIv: null });
-async function loadConfig(env) {
+async function loadConfig(env, owner) {
   const row = await env.DB.prepare(
-    `SELECT bots_json, llm_enc, llm_iv, updated_at FROM wx_config WHERE id = 'main'`
-  ).first();
+    `SELECT bots_json, llm_enc, llm_iv, updated_at FROM wx_config WHERE id = ?1`
+  ).bind(owner).first();
   if (!row) return emptyConfig();
   let bots = [];
   try {
@@ -538,30 +599,30 @@ async function loadConfig(env) {
     rev: row.updated_at
   };
 }
-async function saveConfig(env, cfg) {
+async function saveConfig(env, owner, cfg) {
   const now = Date.now();
   if (cfg.rev === void 0) {
     const ins = await env.DB.prepare(
       `INSERT OR IGNORE INTO wx_config (id, bots_json, llm_enc, llm_iv, updated_at)
-       VALUES ('main', ?1, ?2, ?3, ?4)`
-    ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now).run();
+       VALUES (?1, ?2, ?3, ?4, ?5)`
+    ).bind(owner, JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now).run();
     if ((ins.meta?.changes ?? 0) === 0) return false;
     cfg.rev = now;
     return true;
   }
   const upd = await env.DB.prepare(
     `UPDATE wx_config SET bots_json = ?1, llm_enc = ?2, llm_iv = ?3, updated_at = ?4
-     WHERE id = 'main' AND updated_at = ?5`
-  ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now, cfg.rev).run();
+     WHERE id = ?5 AND updated_at = ?6`
+  ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now, owner, cfg.rev).run();
   if ((upd.meta?.changes ?? 0) === 0) return false;
   cfg.rev = now;
   return true;
 }
-async function mutateConfig(env, mutate) {
+async function mutateConfig(env, owner, mutate) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const cfg = await loadConfig(env);
+    const cfg = await loadConfig(env, owner);
     const value = mutate(cfg);
-    if (await saveConfig(env, cfg)) return { ok: true, value };
+    if (await saveConfig(env, owner, cfg)) return { ok: true, value };
     await sleep(60 * (attempt + 1));
   }
   logWarn("config", "\u5199\u5165\u8FDE\u7EED\u51B2\u7A81\uFF0C\u672C\u6B21\u4FEE\u6539\u672A\u751F\u6548\uFF08\u8BA9\u7528\u6237\u91CD\u8BD5\uFF09");
@@ -575,10 +636,10 @@ var botStatePatch = (bot) => ({
   lastError: bot.lastError,
   expired: bot.expired
 });
-async function applyBotState(env, patches) {
+async function applyBotState(env, owner, patches) {
   if (patches.length === 0) return;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const cfg = await loadConfig(env);
+    const cfg = await loadConfig(env, owner);
     for (const patch of patches) {
       const bot = cfg.bots.find((b) => b.botId === patch.botId);
       if (!bot) continue;
@@ -588,7 +649,7 @@ async function applyBotState(env, patches) {
       bot.lastError = patch.lastError;
       bot.expired = patch.expired;
     }
-    if (await saveConfig(env, cfg)) return;
+    if (await saveConfig(env, owner, cfg)) return;
     await sleep(60 * (attempt + 1));
   }
   logWarn("config", "bot \u72B6\u6001\u843D\u5E93\u8FDE\u7EED\u51B2\u7A81\uFF0C\u5DF2\u653E\u5F03\uFF08\u4E0B\u4E00\u8F6E\u4F1A\u518D\u5199\uFF09");
@@ -614,23 +675,28 @@ function readPack(jsonText) {
     return null;
   }
 }
-async function loadPack(env, charId) {
+async function loadPack(env, owner, charId) {
   return env.DB.prepare(
-    `SELECT pack_json, template_ver, chat_built_at FROM wx_packs WHERE char_id = ?1`
-  ).bind(charId).first();
+    `SELECT pack_json, template_ver, chat_built_at FROM wx_packs WHERE owner = ?1 AND char_id = ?2`
+  ).bind(owner, charId).first();
 }
-async function savePack(env, charId, pack, opts = {}) {
+async function savePack(env, owner, charId, pack, opts = {}) {
   const now = Date.now();
   const existing = await env.DB.prepare(
-    `SELECT template_ver FROM wx_packs WHERE char_id = ?1`
-  ).bind(charId).first();
+    `SELECT template_ver FROM wx_packs WHERE owner = ?1 AND char_id = ?2`
+  ).bind(owner, charId).first();
   const templateVer = opts.templateVer ?? existing?.template_ver ?? 1;
+  const packJson = JSON.stringify(pack);
+  const chatBuiltAt = opts.chatBuiltAt ?? pack.chat?.builtAt ?? now;
+  const updated = await env.DB.prepare(
+    `UPDATE wx_packs SET pack_json = ?1, template_ver = ?2, chat_built_at = ?3, updated_at = ?4
+      WHERE owner = ?5 AND char_id = ?6`
+  ).bind(packJson, templateVer, chatBuiltAt, now, owner, charId).run();
+  if ((updated.meta?.changes ?? 0) > 0) return;
   await env.DB.prepare(
-    `INSERT INTO wx_packs (char_id, pack_json, template_ver, chat_built_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5)
-     ON CONFLICT(char_id) DO UPDATE SET
-       pack_json = ?2, template_ver = ?3, chat_built_at = ?4, updated_at = ?5`
-  ).bind(charId, JSON.stringify(pack), templateVer, opts.chatBuiltAt ?? pack.chat?.builtAt ?? now, now).run();
+    `INSERT OR IGNORE INTO wx_packs (owner, char_id, pack_json, template_ver, chat_built_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+  ).bind(owner, charId, packJson, templateVer, chatBuiltAt, now).run();
 }
 async function decryptCreds(env, cfg) {
   if (!cfg.llmEnc || !cfg.llmIv) return null;
@@ -651,24 +717,24 @@ async function decryptCreds(env, cfg) {
     return null;
   }
 }
-async function insertLedger(env, msgId, charId, role, content, at) {
+async function insertLedger(env, owner, msgId, charId, role, content, at) {
   const res = await env.DB.prepare(
-    `INSERT OR IGNORE INTO wx_messages (msg_id, char_id, role, content, source, created_at)
-     VALUES (?1, ?2, ?3, ?4, 'wechat', ?5)`
-  ).bind(msgId, charId, role, content.slice(0, 4e3), at).run();
+    `INSERT OR IGNORE INTO wx_messages (msg_id, owner, char_id, role, content, source, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'wechat', ?6)`
+  ).bind(msgId, owner, charId, role, content.slice(0, 4e3), at).run();
   return (res.meta?.changes ?? 0) > 0;
 }
-async function pushOutbox(env, entries) {
+async function pushOutbox(env, owner, entries) {
   if (entries.length === 0) return;
   const now = Date.now();
   const stmt = env.DB.prepare(
-    `INSERT INTO wx_outbox (char_id, msg_id, payload, created_at) VALUES (?1, ?2, ?3, ?4)`
+    `INSERT INTO wx_outbox (owner, char_id, msg_id, payload, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`
   );
   for (const entry of entries) {
-    await stmt.bind(entry.charId, entry.msgId, JSON.stringify(entry), now).run();
+    await stmt.bind(owner, entry.charId, entry.msgId, JSON.stringify(entry), now).run();
   }
 }
-async function processIncoming(env, cfg, bot, msg) {
+async function processIncoming(env, owner, cfg, bot, msg) {
   const from = String(msg.from_user_id || "").trim();
   if (!from || bot.botId && from === bot.botId) return;
   const text = extractInboundText(msg);
@@ -680,24 +746,24 @@ async function processIncoming(env, cfg, bot, msg) {
   }
   const now = Date.now();
   const msgId = typeof msg.message_id === "number" && msg.message_id > 0 ? `ilink_${msg.message_id}` : `ilink_${from}_${now}`;
-  if (!await insertLedger(env, msgId, charId, "user", text, now)) return;
+  if (!await insertLedger(env, owner, msgId, charId, "user", text, now)) return;
   const contextToken = String(msg.context_token || "");
   if (!contextToken) {
     logWarn("poll", `\u6D88\u606F\u7F3A context_token\uFF0C\u65E0\u6CD5\u56DE\u590D`, { from, charId });
-    await pushOutbox(env, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
+    await pushOutbox(env, owner, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
     return;
   }
-  const packRow = await loadPack(env, charId);
+  const packRow = await loadPack(env, owner, charId);
   const pack = packRow ? readPack(packRow.pack_json) : null;
   if (!packRow || !pack) {
     logWarn("poll", `\u89D2\u8272 ${charId} \u8FD8\u6CA1\u6709\u53EF\u7528\u7684 fire_pack\uFF0C\u65E0\u6CD5\u751F\u6210\u56DE\u590D`);
-    await pushOutbox(env, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
+    await pushOutbox(env, owner, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
     return;
   }
   pack.chat.messages.push({ role: "user", content: text });
   pack.chat.builtAt = now;
-  await savePack(env, charId, pack, { chatBuiltAt: now });
-  await pushOutbox(env, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
+  await savePack(env, owner, charId, pack, { chatBuiltAt: now });
+  await pushOutbox(env, owner, [{ msgId, charId, role: "user", content: text, at: now, source: "wechat" }]);
   if (bot.autoReply === false) {
     log("poll", `\u89D2\u8272 ${charId} \u5173\u7740\u81EA\u52A8\u56DE\u590D\uFF1A\u53EA\u540C\u6B65\uFF0C\u4E0D\u751F\u6210`);
     return;
@@ -745,7 +811,7 @@ async function processIncoming(env, cfg, bot, msg) {
     }
     sentSegments.push(segments[i]);
     const segMsgId = segments.length === 1 ? `${msgId}:reply` : `${msgId}:reply:${i + 1}`;
-    await insertLedger(env, segMsgId, charId, "assistant", segments[i], Date.now());
+    await insertLedger(env, owner, segMsgId, charId, "assistant", segments[i], Date.now());
     outboxEntries.push({
       msgId: segMsgId,
       charId,
@@ -760,8 +826,8 @@ async function processIncoming(env, cfg, bot, msg) {
       pack.chat.messages.push({ role: "assistant", content: segment });
     }
     pack.chat.builtAt = Date.now();
-    await savePack(env, charId, pack, { chatBuiltAt: pack.chat.builtAt });
-    await pushOutbox(env, outboxEntries);
+    await savePack(env, owner, charId, pack, { chatBuiltAt: pack.chat.builtAt });
+    await pushOutbox(env, owner, outboxEntries);
   }
   log("poll", `\u56DE\u590D\u5B8C\u6210\uFF1A${sentSegments.length}/${segments.length} \u6BB5`, { charId });
 }
@@ -772,7 +838,7 @@ async function writeHeartbeat(env, at, note) {
   ).bind(at, note.slice(0, 300)).run();
 }
 var EXPIRED_PROBE_INTERVAL_MS = 5 * 6e4;
-async function pollBotOnce(env, cfg, bot, pollTimeoutMs) {
+async function pollBotOnce(env, owner, cfg, bot, pollTimeoutMs) {
   bot.lastProbeAt = Date.now();
   const token = await decryptBotToken(env, bot);
   if (!token) {
@@ -791,7 +857,7 @@ async function pollBotOnce(env, cfg, bot, pollTimeoutMs) {
     let processed = 0;
     for (const msg of result.messages) {
       try {
-        await processIncoming(env, cfg, bot, msg);
+        await processIncoming(env, owner, cfg, bot, msg);
         processed += 1;
       } catch (err) {
         logWarn("poll", `\u5355\u6761\u6D88\u606F\u5904\u7406\u5931\u8D25\uFF1A${err instanceof Error ? err.message : String(err)}`);
@@ -812,18 +878,55 @@ async function pollBotOnce(env, cfg, bot, pollTimeoutMs) {
     return { expired: false, processed: 0, failed: true };
   }
 }
-async function pollAllBots(env, pollTimeoutMs = 4e4) {
-  const cfg = await loadConfig(env);
-  if (cfg.bots.length === 0) return;
+var OUTBOX_RETENTION_MS = 72 * 60 * 60 * 1e3;
+async function pruneOutbox(env, owner) {
+  const res = await env.DB.prepare(
+    `DELETE FROM wx_outbox WHERE owner = ?1 AND created_at < ?2`
+  ).bind(owner, Date.now() - OUTBOX_RETENTION_MS).run();
+  return res.meta?.changes ?? 0;
+}
+async function pollOwnerOnce(env, owner, pollTimeoutMs) {
+  await pruneOutbox(env, owner);
+  const cfg = await loadConfig(env, owner);
+  if (cfg.bots.length === 0) return 0;
   const patches = [];
+  let polled = 0;
   for (const bot of cfg.bots) {
     if (bot.expired && Date.now() - (bot.lastProbeAt ?? 0) < EXPIRED_PROBE_INTERVAL_MS) continue;
-    await pollBotOnce(env, cfg, bot, pollTimeoutMs);
+    await pollBotOnce(env, owner, cfg, bot, pollTimeoutMs);
     patches.push(botStatePatch(bot));
+    polled += 1;
   }
-  await applyBotState(env, patches);
+  await applyBotState(env, owner, patches);
+  return polled;
 }
-async function handleConfig(req, env) {
+async function listOwners(env) {
+  const rows = await env.DB.prepare(`SELECT id FROM wx_config`).all();
+  return (rows.results || []).map((row) => String(row.id)).filter((id) => !!id);
+}
+var MAX_POLL_CONCURRENCY = 10;
+var POLL_BUDGET_MS = 25e3;
+var resolveShard = (env) => {
+  const parsed = Number((env.WX_POLL_SHARD || "").trim());
+  return Number.isFinite(parsed) && parsed > 1 ? Math.floor(parsed) : 1;
+};
+async function pollAllOwners(env, pollTimeoutMs = 4e4) {
+  const all = await listOwners(env);
+  if (all.length === 0) return { owners: 0, bots: 0, skipped: 0 };
+  const shard = resolveShard(env);
+  const owners = shard === 1 ? all : all.filter((_, index) => index % shard === Math.floor(Date.now() / 6e4) % shard);
+  const deadline = Date.now() + POLL_BUDGET_MS;
+  let skipped = 0;
+  const counts = await mapWithConcurrency(owners, MAX_POLL_CONCURRENCY, async (owner) => {
+    if (Date.now() > deadline) {
+      skipped += 1;
+      return 0;
+    }
+    return pollOwnerOnce(env, owner, pollTimeoutMs);
+  });
+  return { owners: owners.length, bots: counts.reduce((sum, n) => sum + n, 0), skipped };
+}
+async function handleConfig(req, env, owner) {
   const body = await readJson(req);
   if (!body) return json({ ok: false, error: "invalid body" }, 400);
   let chosen = null;
@@ -842,11 +945,11 @@ async function handleConfig(req, env) {
     chosen = { enc: sealed.data, iv: sealed.iv };
   }
   if (!chosen) {
-    const cur = await loadConfig(env);
+    const cur = await loadConfig(env, owner);
     return json({ ok: true, llmConfigured: !!cur.llmEnc });
   }
   const next = chosen;
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     cfg.llmEnc = next.enc;
     cfg.llmIv = next.iv;
     return !!cfg.llmEnc;
@@ -870,7 +973,7 @@ function pruneSiblingBots(cfg, keep) {
   cfg.bots = cfg.bots.filter((b) => b.botId === keep.botId || b.charId !== keep.charId);
   return dropped;
 }
-async function handleBotQrStatus(req, env) {
+async function handleBotQrStatus(req, env, owner) {
   const url = new URL(req.url);
   const qrcode = (url.searchParams.get("qrcode") || "").trim();
   if (!qrcode) return json({ ok: false, error: "\u7F3A\u5C11 qrcode" }, 400);
@@ -887,7 +990,7 @@ async function handleBotQrStatus(req, env) {
     const sealed = await encryptBotToken(env, result.botToken);
     if (!sealed) return json({ ok: false, error: "MASTER_KEY_NOT_SET", hint: "\u5148\u5728 Worker \u4E0A\u914D MASTER_KEY" }, 409);
     const newBotId = result.botId;
-    const res = await mutateConfig(env, (cfg) => {
+    const res = await mutateConfig(env, owner, (cfg) => {
       const existing = cfg.bots.find((b) => b.botId === newBotId);
       const record = {
         botId: newBotId,
@@ -915,11 +1018,11 @@ async function handleBotQrStatus(req, env) {
     return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
   }
 }
-async function handleBotBind(req, env) {
+async function handleBotBind(req, env, owner) {
   const body = await readJson(req);
   const charId = String(body?.charId || "").trim();
   if (!charId) return json({ ok: false, error: "\u7F3A\u5C11 charId" }, 400);
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     const bot = body?.botId ? cfg.bots.find((b) => b.botId === body.botId) : cfg.bots[0];
     if (!bot) return null;
     const previous = bot.charId;
@@ -937,23 +1040,22 @@ async function handleBotBind(req, env) {
   }
   return json({ ok: true, botId, charId, autoReply, removedOld: dropped.length });
 }
-async function handleBotCheck(req, env) {
+async function handleBotCheck(req, env, owner) {
   const body = await readJson(req);
-  const cfg = await loadConfig(env);
+  const cfg = await loadConfig(env, owner);
   const targets = body?.botId ? cfg.bots.filter((b) => b.botId === body.botId) : cfg.bots;
   if (targets.length === 0) {
     return json({ ok: false, error: body?.botId ? "\u627E\u4E0D\u5230\u8FD9\u4E2A\u5FAE\u4FE1\u7ED1\u5B9A" : "\u6CA1\u6709\u5DF2\u767B\u5F55\u7684 bot\uFF08\u5148\u626B\u7801\uFF09" }, 400);
   }
-  const rows = [];
   const patches = [];
-  let failedCount = 0;
-  for (const bot of targets) {
-    const r = await pollBotOnce(env, cfg, bot, 4e4);
+  const results = await mapWithConcurrency(targets, MAX_POLL_CONCURRENCY, async (bot) => {
+    const r = await pollBotOnce(env, owner, cfg, bot, 4e4);
     patches.push(botStatePatch(bot));
-    if (r.failed) failedCount += 1;
-    rows.push({ botId: bot.botId, expired: r.expired, lastPollAt: bot.lastPollAt, lastError: bot.lastError });
-  }
-  await applyBotState(env, patches);
+    return { botId: bot.botId, expired: r.expired, lastPollAt: bot.lastPollAt, lastError: bot.lastError, failed: r.failed };
+  });
+  const rows = results.map(({ failed: _failed, ...row }) => row);
+  const failedCount = results.filter((r) => r.failed).length;
+  await applyBotState(env, owner, patches);
   if (failedCount === targets.length) {
     return json({ ok: false, error: rows[0].lastError || "\u8F6E\u8BE2\u5931\u8D25" }, 502);
   }
@@ -968,10 +1070,10 @@ async function handleBotCheck(req, env) {
     bots: rows
   });
 }
-async function handleBotRemove(req, env) {
+async function handleBotRemove(req, env, owner) {
   const body = await readJson(req);
   if (!body?.botId) return json({ ok: false, error: "\u7F3A\u5C11 botId" }, 400);
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     const before = cfg.bots.length;
     cfg.bots = cfg.bots.filter((b) => b.botId !== body.botId);
     return before - cfg.bots.length;
@@ -979,7 +1081,7 @@ async function handleBotRemove(req, env) {
   if (!res.ok) return json({ ok: false, error: "\u4E91\u7AEF\u914D\u7F6E\u6B63\u5728\u5199\u5165\uFF0C\u8BF7\u518D\u70B9\u4E00\u6B21" }, 409);
   return json({ ok: true, removed: res.value });
 }
-async function handlePackUpload(req, env) {
+async function handlePackUpload(req, env, owner) {
   const body = await readJson(req);
   if (!body?.charId || !body.pack) return json({ ok: false, error: "charId / pack \u5FC5\u586B" }, 400);
   const incoming = body.pack;
@@ -989,7 +1091,7 @@ async function handlePackUpload(req, env) {
   if (!incoming.chat || !Array.isArray(incoming.chat.messages) || incoming.chat.messages.length === 0) {
     return json({ ok: false, error: "pack \u7F3A\u5C11 chat.messages\uFF08\u5FAE\u4FE1\u6865\u9760\u5B83\u5F53\u8BF7\u6C42\u6D88\u606F\uFF09" }, 400);
   }
-  const existing = await loadPack(env, body.charId);
+  const existing = await loadPack(env, owner, body.charId);
   const incomingChatAt = body.chatBuiltAt ?? incoming.chat.builtAt ?? 0;
   let chatBuiltAt = incomingChatAt;
   let chatKept = false;
@@ -1006,7 +1108,7 @@ async function handlePackUpload(req, env) {
     }
   }
   const prevVer = existing?.template_ver ?? 0;
-  await savePack(env, body.charId, incoming, { templateVer: prevVer + 1, chatBuiltAt });
+  await savePack(env, owner, body.charId, incoming, { templateVer: prevVer + 1, chatBuiltAt });
   log("pack", `\u5DF2\u4FDD\u5B58\u89D2\u8272 ${body.charId} \u7684 pack`, {
     templateVer: prevVer + 1,
     messages: incoming.chat?.messages.length ?? 0,
@@ -1014,16 +1116,16 @@ async function handlePackUpload(req, env) {
   });
   return json({ ok: true, templateVer: prevVer + 1, chatKept });
 }
-async function handleOutboxPull(req, env) {
+async function handleOutboxPull(req, env, owner) {
   const url = new URL(req.url);
   const since = Number(url.searchParams.get("since") || "0") || 0;
   const charId = (url.searchParams.get("charId") || "").trim();
   const limit = Math.min(Number(url.searchParams.get("limit") || "200") || 200, 500);
   const rows = charId ? await env.DB.prepare(
-    `SELECT seq, payload FROM wx_outbox WHERE seq > ?1 AND char_id = ?2 ORDER BY seq ASC LIMIT ?3`
-  ).bind(since, charId, limit).all() : await env.DB.prepare(
-    `SELECT seq, payload FROM wx_outbox WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2`
-  ).bind(since, limit).all();
+    `SELECT seq, payload FROM wx_outbox WHERE owner = ?1 AND seq > ?2 AND char_id = ?3 ORDER BY seq ASC LIMIT ?4`
+  ).bind(owner, since, charId, limit).all() : await env.DB.prepare(
+    `SELECT seq, payload FROM wx_outbox WHERE owner = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3`
+  ).bind(owner, since, limit).all();
   const items = [];
   let nextSince = since;
   for (const row of rows.results || []) {
@@ -1035,15 +1137,8 @@ async function handleOutboxPull(req, env) {
   }
   return json({ ok: true, items, nextSince });
 }
-async function handleOutboxAck(req, env) {
-  const body = await readJson(req);
-  const seqs = (body?.seqs || []).filter((n) => Number.isFinite(n)).slice(0, 500);
-  if (seqs.length === 0) return json({ ok: true, deleted: 0 });
-  const placeholders = seqs.map((_, i) => `?${i + 1}`).join(",");
-  const res = await env.DB.prepare(
-    `DELETE FROM wx_outbox WHERE seq IN (${placeholders})`
-  ).bind(...seqs).run();
-  return json({ ok: true, deleted: res.meta?.changes ?? 0 });
+async function handleOutboxAck(_req, _env, _owner) {
+  return json({ ok: true, deleted: 0, kept: true });
 }
 async function listTables(env) {
   const rows = await env.DB.prepare(
@@ -1051,33 +1146,78 @@ async function listTables(env) {
   ).all();
   return new Set((rows.results || []).map((row) => String(row.name)));
 }
+async function hasColumn(env, table, column) {
+  const rows = await env.DB.prepare(
+    `SELECT name FROM pragma_table_info('${table}')`
+  ).all();
+  return (rows.results || []).some((row) => String(row.name) === column);
+}
 async function readSchemaState(env) {
   const existing = await listTables(env);
   const missingTables = SCHEMA_TABLES.filter((name) => !existing.has(name));
+  const missingColumns = [];
+  for (const { table, column } of SCHEMA_UPGRADE_COLUMNS) {
+    if (!existing.has(table)) continue;
+    if (!await hasColumn(env, table, column)) missingColumns.push(`${table}.${column}`);
+  }
   return {
-    schemaReady: missingTables.length === 0,
+    schemaReady: missingTables.length === 0 && missingColumns.length === 0,
     missingTables,
+    missingColumns,
     tableCount: SCHEMA_TABLES.length - missingTables.length
   };
+}
+async function ensureUpgradeColumns(env) {
+  const existing = await listTables(env);
+  const upgraded = [];
+  for (const { table, column, definition } of SCHEMA_UPGRADE_COLUMNS) {
+    if (!existing.has(table)) continue;
+    if (await hasColumn(env, table, column)) continue;
+    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+    upgraded.push(`${table}.${column}`);
+  }
+  return upgraded;
 }
 async function handleInit(_req, env) {
   const before = await listTables(env);
   for (const statement of SCHEMA_STATEMENTS) {
     await env.DB.prepare(statement).run();
   }
+  const upgraded = await ensureUpgradeColumns(env);
   const after = await listTables(env);
   const created = SCHEMA_TABLES.filter((name) => !before.has(name) && after.has(name));
   const state = await readSchemaState(env);
-  log("init", `\u5EFA\u8868\u5B8C\u6210\uFF1A\u65B0\u5EFA ${created.length} \u5F20\uFF0C\u8868\u9F50=${state.schemaReady}`, { created });
-  return json({ ok: true, data: { created, ...state } });
+  log("init", `\u5EFA\u8868\u5B8C\u6210\uFF1A\u65B0\u5EFA ${created.length} \u5F20\u3001\u8865\u5217 ${upgraded.length} \u4E2A\uFF0C\u5C31\u7EEA=${state.schemaReady}`, {
+    created,
+    upgraded
+  });
+  return json({ ok: true, data: { created, upgraded, ...state } });
 }
-async function handleStatus(req, env) {
+async function readLegacySpace(env) {
+  const row = await env.DB.prepare(
+    `SELECT bots_json FROM wx_config WHERE id = ?1`
+  ).bind(DEFAULT_OWNER).first();
+  let bots = 0;
+  try {
+    bots = JSON.parse(row?.bots_json || "[]").length;
+  } catch {
+    bots = 0;
+  }
+  const packs = await env.DB.prepare(
+    `SELECT count(*) AS n FROM wx_packs WHERE owner = ?1`
+  ).bind(DEFAULT_OWNER).first();
+  const packCount = packs?.n ?? 0;
+  return { hasData: bots > 0 || packCount > 0, bots, packs: packCount };
+}
+async function handleStatus(_req, env, owner, anonymous) {
   const storage = await readSchemaState(env);
   if (!storage.schemaReady) {
     return json({
       ok: true,
       data: {
         version: BRIDGE_VERSION,
+        owner,
+        anonymous,
         bots: [],
         llmConfigured: false,
         masterKeyConfigured: !!env.MASTER_KEY,
@@ -1089,13 +1229,13 @@ async function handleStatus(req, env) {
       }
     });
   }
-  const cfg = await loadConfig(env);
+  const cfg = await loadConfig(env, owner);
   const packRows = await env.DB.prepare(
-    `SELECT char_id, template_ver, chat_built_at, length(pack_json) AS bytes FROM wx_packs`
-  ).all();
+    `SELECT char_id, template_ver, chat_built_at, length(pack_json) AS bytes FROM wx_packs WHERE owner = ?1`
+  ).bind(owner).all();
   const packs = {};
   for (const row of packRows.results || []) {
-    const full = await loadPack(env, row.char_id);
+    const full = await loadPack(env, owner, row.char_id);
     const pack = full ? readPack(full.pack_json) : null;
     packs[row.char_id] = {
       templateVer: row.template_ver,
@@ -1106,18 +1246,22 @@ async function handleStatus(req, env) {
   }
   const todayStart = (/* @__PURE__ */ new Date()).setUTCHours(0, 0, 0, 0);
   const today = await env.DB.prepare(
-    `SELECT count(*) AS n FROM wx_messages WHERE created_at >= ?1`
-  ).bind(todayStart).first();
+    `SELECT count(*) AS n FROM wx_messages WHERE owner = ?1 AND created_at >= ?2`
+  ).bind(owner, todayStart).first();
   const pending = await env.DB.prepare(
-    `SELECT count(*) AS n, coalesce(max(seq), 0) AS maxSeq FROM wx_outbox`
-  ).first();
+    `SELECT count(*) AS n, coalesce(max(seq), 0) AS maxSeq FROM wx_outbox WHERE owner = ?1`
+  ).bind(owner).first();
   const heartbeat = await env.DB.prepare(
     `SELECT at, note FROM wx_heartbeat WHERE id = 'cron'`
   ).first();
+  const legacySpace = anonymous ? null : await readLegacySpace(env);
   return json({
     ok: true,
     data: {
       version: BRIDGE_VERSION,
+      // 当前身份与它所属的空间（前端拿来显示"这台设备的身份"、判断是否需要认领）。
+      owner,
+      anonymous,
       // bot 概况（永不返回 token 本体）。
       bots: cfg.bots.map((b) => ({
         botId: b.botId,
@@ -1139,9 +1283,46 @@ async function handleStatus(req, env) {
       heartbeat: heartbeat ? { at: heartbeat.at, note: heartbeat.note } : null,
       // 数据表体检：面板路线装完只差这一步，卡片据此决定要不要摆「初始化数据表」按钮。
       storage,
+      // 名额：已用与上限。满了新身份会被拒，卡片可以直接说人话而不是报错码。
+      owners: { used: await countOwners(env), max: resolveMaxOwners(env) },
+      legacySpace,
       firePackKey: `${BRIDGE_VERSION}:${AMSG_FIRE_PACK_KEY}:${amsgStateNamespace("<charId>")}`
     }
   });
+}
+async function handleClaim(_req, env, owner, anonymous) {
+  if (anonymous) {
+    return json({
+      ok: false,
+      error: "NO_IDENTITY",
+      hint: "\u5F53\u524D\u8BF7\u6C42\u6CA1\u6709\u8BBE\u5907\u8EAB\u4EFD\uFF0C\u672C\u8EAB\u5C31\u5728\u9ED8\u8BA4\u7A7A\u95F4\u91CC\uFF0C\u6CA1\u6709\u53EF\u8BA4\u9886\u7684\u5BF9\u8C61"
+    }, 400);
+  }
+  if (await isKnownOwner(env, owner)) {
+    return json({
+      ok: false,
+      error: "ALREADY_HAS_SPACE",
+      hint: "\u4F60\u5DF2\u7ECF\u6709\u4E00\u4EFD\u81EA\u5DF1\u7684\u6570\u636E\u4E86\uFF0C\u4E0D\u518D\u8BA4\u9886\u8001\u7A7A\u95F4\uFF08\u907F\u514D\u4E24\u4EFD\u6DF7\u5728\u4E00\u8D77\uFF09"
+    }, 409);
+  }
+  const moved = { packs: 0, messages: 0, outbox: 0 };
+  const tables = [
+    ["wx_packs", "packs"],
+    ["wx_messages", "messages"],
+    ["wx_outbox", "outbox"]
+  ];
+  for (const [table, key] of tables) {
+    const res = await env.DB.prepare(
+      `UPDATE ${table} SET owner = ?1 WHERE owner = ?2`
+    ).bind(owner, DEFAULT_OWNER).run();
+    moved[key] = res.meta?.changes ?? 0;
+  }
+  const cfgMoved = await env.DB.prepare(
+    `UPDATE wx_config SET id = ?1 WHERE id = ?2`
+  ).bind(owner, DEFAULT_OWNER).run();
+  moved.config = cfgMoved.meta?.changes ?? 0;
+  log("claim", "\u8BA4\u9886\u8001\u7A7A\u95F4\u5B8C\u6210", { owner, ...moved });
+  return json({ ok: true, moved });
 }
 var src_default = {
   async fetch(request, env) {
@@ -1151,33 +1332,39 @@ var src_default = {
     if (path === "/" || path === "/health") {
       return json({ ok: true, service: "wechat-bridge", version: BRIDGE_VERSION });
     }
-    const denied = checkToken(request, env);
+    const { owner, anonymous } = await resolveOwner(request);
+    const denied = await ownerGate(request, env, owner, anonymous);
     if (denied) return denied;
     try {
-      if (path === "/wx/config" && request.method === "POST") return await handleConfig(request, env);
-      if (path === "/wx/pack" && request.method === "POST") return await handlePackUpload(request, env);
-      if (path === "/wx/outbox" && request.method === "GET") return await handleOutboxPull(request, env);
-      if (path === "/wx/outbox/ack" && request.method === "POST") return await handleOutboxAck(request, env);
+      if (path === "/wx/config" && request.method === "POST") return await handleConfig(request, env, owner);
+      if (path === "/wx/pack" && request.method === "POST") return await handlePackUpload(request, env, owner);
+      if (path === "/wx/outbox" && request.method === "GET") return await handleOutboxPull(request, env, owner);
+      if (path === "/wx/outbox/ack" && request.method === "POST") return await handleOutboxAck(request, env, owner);
       if (path === "/wx/init" && request.method === "POST") return await handleInit(request, env);
-      if (path === "/wx/status" && request.method === "GET") return await handleStatus(request, env);
+      if (path === "/wx/status" && request.method === "GET") return await handleStatus(request, env, owner, anonymous);
+      if (path === "/wx/claim" && request.method === "POST") return await handleClaim(request, env, owner, anonymous);
       if (path === "/wx/bot/qr" && request.method === "POST") return await handleBotQrStart(request, env);
-      if (path === "/wx/bot/qr/status" && request.method === "GET") return await handleBotQrStatus(request, env);
-      if (path === "/wx/bot/bind" && request.method === "POST") return await handleBotBind(request, env);
-      if (path === "/wx/bot/check" && request.method === "POST") return await handleBotCheck(request, env);
-      if (path === "/wx/bot/remove" && request.method === "POST") return await handleBotRemove(request, env);
+      if (path === "/wx/bot/qr/status" && request.method === "GET") return await handleBotQrStatus(request, env, owner);
+      if (path === "/wx/bot/bind" && request.method === "POST") return await handleBotBind(request, env, owner);
+      if (path === "/wx/bot/check" && request.method === "POST") return await handleBotCheck(request, env, owner);
+      if (path === "/wx/bot/remove" && request.method === "POST") return await handleBotRemove(request, env, owner);
       return json({ ok: false, error: "not found", path }, 404);
     } catch (err) {
       logWarn("route", `${path} \u629B\u9519\uFF1A${err instanceof Error ? err.message : String(err)}`);
       return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
     }
   },
-  /** Cron 每分钟一次：逐 bot 长轮询收消息并回复。这是微信桥的心跳。 */
+  /** Cron 每分钟一次：逐空间、逐 bot 长轮询收消息并回复。这是微信桥的心跳。 */
   async scheduled(_event, env) {
     const startedAt = Date.now();
     try {
       await writeHeartbeat(env, startedAt, "start");
-      await pollAllBots(env, 2e4);
-      await writeHeartbeat(env, Date.now(), `ok:${Date.now() - startedAt}ms`);
+      const round = await pollAllOwners(env, 2e4);
+      await writeHeartbeat(
+        env,
+        Date.now(),
+        `ok:${Date.now() - startedAt}ms spaces:${round.owners} bots:${round.bots}` + (round.skipped > 0 ? ` skipped:${round.skipped}` : "")
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logWarn("cron", `\u8F6E\u8BE2\u8F6E\u5931\u8D25\uFF1A${message}`);

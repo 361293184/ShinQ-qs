@@ -46,7 +46,7 @@ import {
   type ILinkInboundMessage,
 } from './ilink';
 import { buildInstantTimelyBlock } from '../../amsg/src/instantChat';
-import { SCHEMA_STATEMENTS, SCHEMA_TABLES } from './schema';
+import { SCHEMA_STATEMENTS, SCHEMA_TABLES, SCHEMA_UPGRADE_COLUMNS } from './schema';
 import { AMSG_FIRE_PACK_KEY, amsgStateNamespace } from '../../../utils/amsgFirePack';
 import type { AmsgFirePack } from '../../../utils/amsgFirePack';
 
@@ -60,8 +60,24 @@ interface Env {
   DB: D1Database;
   /** 64 位 hex，加密用户上传的 LLM 凭据与 bot token。没配就没法解密 → 全线不可用。 */
   MASTER_KEY?: string;
-  /** 可选共享密钥；配了则所有 /wx/* 端点强制校验 X-Client-Token。 */
+  /**
+   * 可选共享密钥。**配了就退化成老的单人模式**：所有 /wx/* 只认这一枚密钥，
+   * 等于把所有人关进同一个空间。多租户请把它留空。
+   */
   WX_BRIDGE_TOKEN?: string;
+  /**
+   * 名额上限（默认 10）。**面板改这个数字即可放宽**，不用改代码、不用重新部署。
+   * 只限制"新身份"，已进门的人不受影响；默认空间 'main' 不占名额。
+   */
+  WX_MAX_OWNERS?: string;
+  /**
+   * 分片轮询（保底开关，默认 1 = 每分钟轮全部空间）。
+   *
+   * 什么时候才需要它：万一平台对"同一请求内的并发外连数"限制比预期低，就把轮询摊到
+   * 多分钟上——每分钟只轮 1/N 的空间，按分钟轮转。代价是收消息延迟几十秒，
+   * 但绝不超时被掐（那会让整轮白跑、还静默无痕）。
+   */
+  WX_POLL_SHARD?: string;
 }
 
 /* 最小 D1 类型声明（与 reality-bridge / amsg 同风格，不引 workers-types） */
@@ -176,12 +192,91 @@ function corsPreflight(): Response {
   });
 }
 
-function checkToken(req: Request, env: Env): Response | null {
-  const expected = (env.WX_BRIDGE_TOKEN || '').trim();
-  if (!expected) return null;
-  const auth = req.headers.get('Authorization') || '';
-  const got = auth.replace(/^Bearer\s+/i, '').trim() || req.headers.get('X-Client-Token') || '';
-  if (got !== expected) return json({ ok: false, error: 'unauthorized' }, 401);
+/* ─────────── 多租户身份 ─────────── */
+
+/**
+ * 身份头：前端首屏自动生成一枚随机「设备身份」（128 位），存 localStorage，请求原样带上。
+ * **用户完全无感**——不注册、不需要任何人分发 token；换设备时把那串身份粘过去即可
+ * （卡片里有「这台设备的身份」显示 / 复制 / 粘贴）。
+ */
+const OWNER_HEADER = 'X-Client-Token';
+/** 老客户端（不带身份头）与迁移期数据的归属空间，也是"主人自己的历史数据"所在。 */
+const DEFAULT_OWNER = 'main';
+/** 名额上限默认值（可用 WX_MAX_OWNERS 覆盖）。 */
+const DEFAULT_MAX_OWNERS = 10;
+
+/** sha256 → hex。把身份折成 owner，库里不存明文身份。 */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * 请求 → owner（sha256 前 16 位 hex：64 bit，够抗撞、又好认）。
+ *
+ * 身份来源两处，优先级：`X-Client-Token`（新前端自动带）→ `Authorization: Bearer`
+ * （老部署的共享密钥模式，那时客户端就是这么发的）。都不带 = 老客户端 / 迁移期 →
+ * 落到默认空间 'main'，行为与升级前完全一致。
+ */
+async function resolveOwner(req: Request): Promise<{ owner: string; anonymous: boolean }> {
+  const header = (req.headers.get(OWNER_HEADER) || '').trim();
+  const auth = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  const raw = header || auth;
+  if (!raw) return { owner: DEFAULT_OWNER, anonymous: true };
+  return { owner: (await sha256Hex(raw)).slice(0, 16), anonymous: false };
+}
+
+const resolveMaxOwners = (env: Env): number => {
+  const parsed = Number((env.WX_MAX_OWNERS || '').trim());
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MAX_OWNERS;
+};
+
+/** 这个身份已经有自己的行了（= 老成员，名额已经算过它）。 */
+async function isKnownOwner(env: Env, owner: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS ok FROM wx_config WHERE id = ?1`,
+  ).bind(owner).first<{ ok: number }>();
+  return !!row;
+}
+
+/** 已占用的名额数。默认空间 'main' 不算——那是主人自己的历史数据。 */
+async function countOwners(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    `SELECT count(*) AS n FROM wx_config WHERE id != ?1`,
+  ).bind(DEFAULT_OWNER).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * 进门前的两道闸（顺序：老密钥 → 名额）。返回非 null = 直接回这个错误。
+ *
+ * · `WX_BRIDGE_TOKEN` 配了 = 老的单人模式：只认这一枚共享密钥（多租户请留空，
+ *   留着它等于把所有人关进同一个空间）。
+ * · 名额：`WX_MAX_OWNERS`（默认 10）只限制**新**身份；满了给人话，不说"错误码 403"。
+ *
+ * 默认（两个都不配）就是"打开链接、扫码即用"，任何人都能直接连——因为主人把仓库
+ * 设为私有、也不想再维护邀请口令。这靠"身份隔离 + 名额 10"兜底，而不是靠一道密码。
+ */
+async function ownerGate(
+  req: Request,
+  env: Env,
+  owner: string,
+  anonymous: boolean,
+): Promise<Response | null> {
+  const sharedToken = (env.WX_BRIDGE_TOKEN || '').trim();
+  if (sharedToken) {
+    const auth = req.headers.get('Authorization') || '';
+    const got = auth.replace(/^Bearer\s+/i, '').trim() || (req.headers.get(OWNER_HEADER) || '').trim();
+    if (got !== sharedToken) return json({ ok: false, error: 'unauthorized' }, 401);
+    return null;
+  }
+  if (anonymous) return null;                    // 默认空间永远放行（主人自己的历史数据）
+
+  const max = resolveMaxOwners(env);
+  if (await isKnownOwner(env, owner)) return null;
+  if ((await countOwners(env)) >= max) {
+    return json({ ok: false, error: 'OWNERS_FULL', hint: `这台服务只留了 ${max} 个位置，已经满了` }, 403);
+  }
   return null;
 }
 
@@ -198,14 +293,40 @@ const logWarn = (tag: string, message: string, extra?: unknown) => {
 
 const sleep = (ms: number) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/**
+ * 有并发上限的 map。
+ *
+ * 为什么需要它：iLink 的 getupdates 是**长轮询**——没有新消息也会把连接挂到超时
+ * （cron 里给 20 秒，实测单 bot 整轮 14.6~18.8 秒）。于是 N 个微信串行就是 N × 20 秒：
+ * 3 个就超过定时任务的墙钟预算，表现为"cron 静默停摆"（2026-09-13 排查了两天）。
+ * 按空间并行后，整轮时长回到"一个长轮询"的量级，加人不再线性变慢。
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  const width = Math.max(1, Math.min(limit, items.length));
+  let cursor = 0;
+  await Promise.all(Array.from({ length: width }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(items[index], index);
+    }
+  }));
+  return results;
+}
+
 /* ─────────── 配置读写 ─────────── */
 
 const emptyConfig = (): BridgeConfig => ({ bots: [], llmEnc: null, llmIv: null });
 
-async function loadConfig(env: Env): Promise<BridgeConfig> {
+async function loadConfig(env: Env, owner: string): Promise<BridgeConfig> {
   const row = await env.DB.prepare(
-    `SELECT bots_json, llm_enc, llm_iv, updated_at FROM wx_config WHERE id = 'main'`,
-  ).first<ConfigRow>();
+    `SELECT bots_json, llm_enc, llm_iv, updated_at FROM wx_config WHERE id = ?1`,
+  ).bind(owner).first<ConfigRow>();
   if (!row) return emptyConfig();
   let bots: BotRecord[] = [];
   try { bots = JSON.parse(row.bots_json || '[]') as BotRecord[]; } catch { /* 坏的当空 */ }
@@ -226,22 +347,22 @@ async function loadConfig(env: Env): Promise<BridgeConfig> {
  * 踩到：/wx/bot/remove 明明返回 removed:1，一分钟后那个 bot 又在状态里（被并发的
  * 那次 cron 落库覆盖）。
  */
-async function saveConfig(env: Env, cfg: BridgeConfig): Promise<boolean> {
+async function saveConfig(env: Env, owner: string, cfg: BridgeConfig): Promise<boolean> {
   const now = Date.now();
   if (cfg.rev === undefined) {
-    // 还没读到过行（空库）：只能插；插不进去 = 有人抢先建了 → 冲突，让调用方重读。
+    // 还没读到过行（这个人第一次落库）：只能插；插不进去 = 有人抢先建了 → 冲突，让调用方重读。
     const ins = await env.DB.prepare(
       `INSERT OR IGNORE INTO wx_config (id, bots_json, llm_enc, llm_iv, updated_at)
-       VALUES ('main', ?1, ?2, ?3, ?4)`,
-    ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now).run();
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    ).bind(owner, JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now).run();
     if ((ins.meta?.changes ?? 0) === 0) return false;
     cfg.rev = now;
     return true;
   }
   const upd = await env.DB.prepare(
     `UPDATE wx_config SET bots_json = ?1, llm_enc = ?2, llm_iv = ?3, updated_at = ?4
-     WHERE id = 'main' AND updated_at = ?5`,
-  ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now, cfg.rev).run();
+     WHERE id = ?5 AND updated_at = ?6`,
+  ).bind(JSON.stringify(cfg.bots), cfg.llmEnc, cfg.llmIv, now, owner, cfg.rev).run();
   if ((upd.meta?.changes ?? 0) === 0) return false;
   cfg.rev = now;
   return true;
@@ -253,12 +374,13 @@ async function saveConfig(env: Env, cfg: BridgeConfig): Promise<boolean> {
  */
 async function mutateConfig<T>(
   env: Env,
+  owner: string,
   mutate: (cfg: BridgeConfig) => T,
 ): Promise<{ ok: true; value: T } | { ok: false }> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const cfg = await loadConfig(env);
+    const cfg = await loadConfig(env, owner);
     const value = mutate(cfg);
-    if (await saveConfig(env, cfg)) return { ok: true, value };
+    if (await saveConfig(env, owner, cfg)) return { ok: true, value };
     await sleep(60 * (attempt + 1));
   }
   logWarn('config', '写入连续冲突，本次修改未生效（让用户重试）');
@@ -280,10 +402,10 @@ const botStatePatch = (bot: BotRecord): BotStatePatch => ({
 /**
  * 把轮询结果**合并**进最新配置再落库。期间被删掉的 bot 直接跳过（状态丢弃，绝不复活）。
  */
-async function applyBotState(env: Env, patches: BotStatePatch[]): Promise<void> {
+async function applyBotState(env: Env, owner: string, patches: BotStatePatch[]): Promise<void> {
   if (patches.length === 0) return;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const cfg = await loadConfig(env);
+    const cfg = await loadConfig(env, owner);
     for (const patch of patches) {
       const bot = cfg.bots.find((b) => b.botId === patch.botId);
       if (!bot) continue;
@@ -293,7 +415,7 @@ async function applyBotState(env: Env, patches: BotStatePatch[]): Promise<void> 
       bot.lastError = patch.lastError;
       bot.expired = patch.expired;
     }
-    if (await saveConfig(env, cfg)) return;
+    if (await saveConfig(env, owner, cfg)) return;
     await sleep(60 * (attempt + 1));
   }
   logWarn('config', 'bot 状态落库连续冲突，已放弃（下一轮会再写）');
@@ -335,29 +457,39 @@ function readPack(jsonText: string): AmsgFirePack | null {
   }
 }
 
-async function loadPack(env: Env, charId: string): Promise<PackRow | null> {
+async function loadPack(env: Env, owner: string, charId: string): Promise<PackRow | null> {
   return env.DB.prepare(
-    `SELECT pack_json, template_ver, chat_built_at FROM wx_packs WHERE char_id = ?1`,
-  ).bind(charId).first<PackRow>();
+    `SELECT pack_json, template_ver, chat_built_at FROM wx_packs WHERE owner = ?1 AND char_id = ?2`,
+  ).bind(owner, charId).first<PackRow>();
 }
 
 async function savePack(
   env: Env,
+  owner: string,
   charId: string,
   pack: AmsgFirePack,
   opts: { templateVer?: number; chatBuiltAt?: number } = {},
 ): Promise<void> {
   const now = Date.now();
   const existing = await env.DB.prepare(
-    `SELECT template_ver FROM wx_packs WHERE char_id = ?1`,
-  ).bind(charId).first<{ template_ver: number }>();
+    `SELECT template_ver FROM wx_packs WHERE owner = ?1 AND char_id = ?2`,
+  ).bind(owner, charId).first<{ template_ver: number }>();
   const templateVer = opts.templateVer ?? existing?.template_ver ?? 1;
+  const packJson = JSON.stringify(pack);
+  const chatBuiltAt = opts.chatBuiltAt ?? pack.chat?.builtAt ?? now;
+  // 手动 upsert（先 UPDATE 再 INSERT）而不是 ON CONFLICT：老库的主键只有 char_id
+  // （多租户升级只能加列、不动主键），ON CONFLICT(owner, char_id) 在老库上找不到对应约束。
+  const updated = await env.DB.prepare(
+    `UPDATE wx_packs SET pack_json = ?1, template_ver = ?2, chat_built_at = ?3, updated_at = ?4
+      WHERE owner = ?5 AND char_id = ?6`,
+  ).bind(packJson, templateVer, chatBuiltAt, now, owner, charId).run();
+  if ((updated.meta?.changes ?? 0) > 0) return;
+  // INSERT OR IGNORE：老库上 char_id 是主键，万一同一个 char_id 已被别人的空间占了
+  // （uuid 撞车，概率可忽略），宁可少写一行也别抛错打断这轮回复。
   await env.DB.prepare(
-    `INSERT INTO wx_packs (char_id, pack_json, template_ver, chat_built_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5)
-     ON CONFLICT(char_id) DO UPDATE SET
-       pack_json = ?2, template_ver = ?3, chat_built_at = ?4, updated_at = ?5`,
-  ).bind(charId, JSON.stringify(pack), templateVer, opts.chatBuiltAt ?? pack.chat?.builtAt ?? now, now).run();
+    `INSERT OR IGNORE INTO wx_packs (owner, char_id, pack_json, template_ver, chat_built_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+  ).bind(owner, charId, packJson, templateVer, chatBuiltAt, now).run();
 }
 
 /* ─────────── 凭据 ─────────── */
@@ -386,10 +518,12 @@ async function decryptCreds(env: Env, cfg: BridgeConfig): Promise<LlmCredentials
 
 /**
  * 幂等写入一条台账。返回 false = 这条已经处理过。
- * 去重靠 `msg_id` 主键 + `INSERT OR IGNORE`：并发/重放都不可能两个都插进去。
+ * 去重靠 `INSERT OR IGNORE`：并发/重放都不可能两个都插进去。
+ * 新库按 (owner, msg_id) 去重（每人各自幂等）；老库主键只有 msg_id，一处顺手也更安全。
  */
 async function insertLedger(
   env: Env,
+  owner: string,
   msgId: string,
   charId: string,
   role: 'user' | 'assistant',
@@ -397,21 +531,21 @@ async function insertLedger(
   at: number,
 ): Promise<boolean> {
   const res = await env.DB.prepare(
-    `INSERT OR IGNORE INTO wx_messages (msg_id, char_id, role, content, source, created_at)
-     VALUES (?1, ?2, ?3, ?4, 'wechat', ?5)`,
-  ).bind(msgId, charId, role, content.slice(0, 4000), at).run();
+    `INSERT OR IGNORE INTO wx_messages (msg_id, owner, char_id, role, content, source, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'wechat', ?6)`,
+  ).bind(msgId, owner, charId, role, content.slice(0, 4000), at).run();
   return (res.meta?.changes ?? 0) > 0;
 }
 
-async function pushOutbox(env: Env, entries: OutboxEntry[]): Promise<void> {
+async function pushOutbox(env: Env, owner: string, entries: OutboxEntry[]): Promise<void> {
   if (entries.length === 0) return;
   const now = Date.now();
   const stmt = env.DB.prepare(
-    `INSERT INTO wx_outbox (char_id, msg_id, payload, created_at) VALUES (?1, ?2, ?3, ?4)`,
+    `INSERT INTO wx_outbox (owner, char_id, msg_id, payload, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`,
   );
   // 逐条跑：条数极少（一次生成最多 6 段），不值得为它引入 batch 的复杂度。
   for (const entry of entries) {
-    await stmt.bind(entry.charId, entry.msgId, JSON.stringify(entry), now).run();
+    await stmt.bind(owner, entry.charId, entry.msgId, JSON.stringify(entry), now).run();
   }
 }
 
@@ -419,6 +553,7 @@ async function pushOutbox(env: Env, entries: OutboxEntry[]): Promise<void> {
 
 async function processIncoming(
   env: Env,
+  owner: string,
   cfg: BridgeConfig,
   bot: BotRecord,
   msg: ILinkInboundMessage,
@@ -445,29 +580,29 @@ async function processIncoming(
     : `ilink_${from}_${now}`;
 
   // 幂等闸：重放/重复推送在这里返回，不会重复生成、重复发。
-  if (!(await insertLedger(env, msgId, charId, 'user', text, now))) return;
+  if (!(await insertLedger(env, owner, msgId, charId, 'user', text, now))) return;
 
   const contextToken = String(msg.context_token || '');
   if (!contextToken) {
     // 没有它就回复不了（协议规定）。仍然记账 + 回流，让用户至少能在 SullyOS 里看到。
     logWarn('poll', `消息缺 context_token，无法回复`, { from, charId: charId });
-    await pushOutbox(env, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
+    await pushOutbox(env, owner, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
     return;
   }
 
-  const packRow = await loadPack(env, charId);
+  const packRow = await loadPack(env, owner, charId);
   const pack = packRow ? readPack(packRow.pack_json) : null;
   if (!packRow || !pack) {
     logWarn('poll', `角色 ${charId} 还没有可用的 fire_pack，无法生成回复`);
-    await pushOutbox(env, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
+    await pushOutbox(env, owner, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
     return;
   }
 
   // ── 先把用户这一轮落进 pack 并保存：哪怕后面 LLM 挂了，这条也进了会话上下文。 ──
   pack.chat!.messages.push({ role: 'user', content: text });
   pack.chat!.builtAt = now;
-  await savePack(env, charId, pack, { chatBuiltAt: now });
-  await pushOutbox(env, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
+  await savePack(env, owner, charId, pack, { chatBuiltAt: now });
+  await pushOutbox(env, owner, [{ msgId, charId: charId, role: 'user', content: text, at: now, source: 'wechat' }]);
 
   if (bot.autoReply === false) {
     log('poll', `角色 ${charId} 关着自动回复：只同步，不生成`);
@@ -524,7 +659,7 @@ async function processIncoming(
     }
     sentSegments.push(segments[i]);
     const segMsgId = segments.length === 1 ? `${msgId}:reply` : `${msgId}:reply:${i + 1}`;
-    await insertLedger(env, segMsgId, charId, 'assistant', segments[i], Date.now());
+    await insertLedger(env, owner, segMsgId, charId, 'assistant', segments[i], Date.now());
     outboxEntries.push({
       msgId: segMsgId, charId: charId, role: 'assistant',
       content: segments[i], at: Date.now(), source: 'wechat',
@@ -537,8 +672,8 @@ async function processIncoming(
       pack.chat!.messages.push({ role: 'assistant', content: segment });
     }
     pack.chat!.builtAt = Date.now();
-    await savePack(env, charId, pack, { chatBuiltAt: pack.chat!.builtAt });
-    await pushOutbox(env, outboxEntries);
+    await savePack(env, owner, charId, pack, { chatBuiltAt: pack.chat!.builtAt });
+    await pushOutbox(env, owner, outboxEntries);
   }
 
   log('poll', `回复完成：${sentSegments.length}/${segments.length} 段`, { charId: charId });
@@ -567,6 +702,7 @@ const EXPIRED_PROBE_INTERVAL_MS = 5 * 60_000;
  */
 async function pollBotOnce(
   env: Env,
+  owner: string,
   cfg: BridgeConfig,
   bot: BotRecord,
   pollTimeoutMs: number,
@@ -581,7 +717,7 @@ async function pollBotOnce(
     const result = await pollUpdates(bot.baseUrl || DEFAULT_ILINK_BASE, token, bot.cursor || '', pollTimeoutMs);
     if (result.expired) {
       // 丢游标重试也过不去 = 会话真的没了。清掉游标（官方口径：清状态重新开始），
-      // 但**不停止轮询**——下面 pollAllBots 会低频探测，恢复了自己会回来。
+      // 但**不停止轮询**——pollOwnerOnce 会对失效 bot 低频探测，恢复了自己会回来。
       bot.expired = true;
       bot.cursor = '';
       bot.lastError = '登录会话已过期（重试仍未通过）；点「检查连接」再试一次，一直不行才需要重新扫码';
@@ -592,7 +728,7 @@ async function pollBotOnce(
     // 顺序处理：确保上一条完整处理完再处理下一条（与上游口径一致）。
     for (const msg of result.messages) {
       try {
-        await processIncoming(env, cfg, bot, msg);
+        await processIncoming(env, owner, cfg, bot, msg);
         processed += 1;
       } catch (err) {
         // 单条失败不连累整批，也不卡游标——下一轮游标已前进，这条不会重收。
@@ -617,24 +753,97 @@ async function pollBotOnce(
   }
 }
 
-async function pollAllBots(env: Env, pollTimeoutMs = 40_000): Promise<void> {
-  const cfg = await loadConfig(env);
-  if (cfg.bots.length === 0) return;
+/** 增量保留窗口：72 小时。窗口外的行由 cron 顺带清掉（替代原来的"认领即删"）。 */
+const OUTBOX_RETENTION_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * 清理窗口外的增量。**按 owner 逐空间清**——不按时间全表清，是因为别人的空间
+ * 不该由这一轮顺手动（虽然结果一样，但隔离意图写在 SQL 里更好读）。
+ */
+async function pruneOutbox(env: Env, owner: string): Promise<number> {
+  const res = await env.DB.prepare(
+    `DELETE FROM wx_outbox WHERE owner = ?1 AND created_at < ?2`,
+  ).bind(owner, Date.now() - OUTBOX_RETENTION_MS).run();
+  return res.meta?.changes ?? 0;
+}
+
+/**
+ * 一个空间（owner）的一轮轮询。**组内串行**：同一个人名下可能有多个微信，
+ * 它们可能绑到同一个角色上，并行会让同一份 pack 出现读改写交错。
+ */
+async function pollOwnerOnce(env: Env, owner: string, pollTimeoutMs: number): Promise<number> {
+  // 增量清理顺带做：没有 bot 的空间也要清，否则它的历史行只涨不消。
+  await pruneOutbox(env, owner);
+  const cfg = await loadConfig(env, owner);
+  if (cfg.bots.length === 0) return 0;
   const patches: BotStatePatch[] = [];
+  let polled = 0;
   for (const bot of cfg.bots) {
     // 失效的 bot **不再永久跳过**（曾经这样，结果静默死掉一整天）：改成低频探测，
     // 会话恢复了自己回来。首次（还没探过）立刻探一次，之后每 5 分钟一次。
     if (bot.expired && Date.now() - (bot.lastProbeAt ?? 0) < EXPIRED_PROBE_INTERVAL_MS) continue;
-    await pollBotOnce(env, cfg, bot, pollTimeoutMs);
+    await pollBotOnce(env, owner, cfg, bot, pollTimeoutMs);
     patches.push(botStatePatch(bot));
+    polled += 1;
   }
   // ★ 合并写（不整行覆盖）：否则这一分钟里用户的手动操作会被这次落库静默回滚。
-  await applyBotState(env, patches);
+  await applyBotState(env, owner, patches);
+  return polled;
+}
+
+/** 所有空间（`wx_config` 的每一行就是一个空间，含默认空间 'main'）。 */
+async function listOwners(env: Env): Promise<string[]> {
+  const rows = await env.DB.prepare(`SELECT id FROM wx_config`).all<{ id: string }>();
+  return (rows.results || []).map((row) => String(row.id)).filter((id) => !!id);
+}
+
+/** 并发上限：跟随在线人数，再留一个安全阀，别把平台的连接数打爆。 */
+const MAX_POLL_CONCURRENCY = 10;
+
+/** 一轮的总预算：到点就不再启动新的空间（宁可这轮少轮几个，也别被平台掐死）。 */
+const POLL_BUDGET_MS = 25_000;
+
+/** 分片轮询的片数（默认 1 = 每分钟轮全部；见 Env 里 WX_POLL_SHARD 的说明）。 */
+const resolveShard = (env: Env): number => {
+  const parsed = Number((env.WX_POLL_SHARD || '').trim());
+  return Number.isFinite(parsed) && parsed > 1 ? Math.floor(parsed) : 1;
+};
+
+/**
+ * 轮询全部空间：**空间之间并行、并发跟随人数**。
+ *
+ * 这是"名额可以放到 10 人"的前提：串行时 10 个微信最多 200 秒，必被墙钟掐死；
+ * 并行后整轮 ≈ 一个长轮询（约 20 秒），人再多也不超预算。
+ * 另有两道保险：总预算守卫（到点不再启动新空间）与可选分片（摊到多分钟）。
+ */
+async function pollAllOwners(
+  env: Env,
+  pollTimeoutMs = 40_000,
+): Promise<{ owners: number; bots: number; skipped: number }> {
+  const all = await listOwners(env);
+  if (all.length === 0) return { owners: 0, bots: 0, skipped: 0 };
+
+  // 分片（默认关闭）：按"第几分钟"轮转，只轮属于这一分钟的那一片。
+  const shard = resolveShard(env);
+  const owners = shard === 1
+    ? all
+    : all.filter((_, index) => index % shard === Math.floor(Date.now() / 60_000) % shard);
+
+  const deadline = Date.now() + POLL_BUDGET_MS;
+  let skipped = 0;
+  const counts = await mapWithConcurrency(owners, MAX_POLL_CONCURRENCY, async (owner) => {
+    if (Date.now() > deadline) {
+      skipped += 1;                              // 这轮没轮上，下一轮还会轮到它（空间不会丢）
+      return 0;
+    }
+    return pollOwnerOnce(env, owner, pollTimeoutMs);
+  });
+  return { owners: owners.length, bots: counts.reduce((sum, n) => sum + n, 0), skipped };
 }
 
 /* ─────────── 端点 ─────────── */
 
-async function handleConfig(req: Request, env: Env): Promise<Response> {
+async function handleConfig(req: Request, env: Env, owner: string): Promise<Response> {
   const body = await readJson<{
     llm?: LlmCredentials | null;
     clearLlm?: boolean;
@@ -659,12 +868,12 @@ async function handleConfig(req: Request, env: Env): Promise<Response> {
   }
   // 既没传 llm 也没传 clearLlm：纯探测请求，只回现状。
   if (!chosen) {
-    const cur = await loadConfig(env);
+    const cur = await loadConfig(env, owner);
     return json({ ok: true, llmConfigured: !!cur.llmEnc });
   }
 
   const next = chosen;
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     cfg.llmEnc = next.enc;
     cfg.llmIv = next.iv;
     return !!cfg.llmEnc;
@@ -709,7 +918,7 @@ function pruneSiblingBots(cfg: BridgeConfig, keep: BotRecord): BotRecord[] {
  * 绑定模型：query 里带 charId（哪个角色的设定页发起的扫码），确认时一并写入——
  * 「在谁家扫码，微信就归谁」。
  */
-async function handleBotQrStatus(req: Request, env: Env): Promise<Response> {
+async function handleBotQrStatus(req: Request, env: Env, owner: string): Promise<Response> {
   const url = new URL(req.url);
   const qrcode = (url.searchParams.get('qrcode') || '').trim();
   if (!qrcode) return json({ ok: false, error: '缺少 qrcode' }, 400);
@@ -729,7 +938,7 @@ async function handleBotQrStatus(req: Request, env: Env): Promise<Response> {
     // 这一跳要塞进 token，必须走"读—改—写"：否则刚写的绑定会被并发的 cron 落库回滚
     // （实测就是它把 /wx/bot/remove 的结果吞了）。
     const newBotId = result.botId;
-    const res = await mutateConfig(env, (cfg) => {
+    const res = await mutateConfig(env, owner, (cfg) => {
       const existing = cfg.bots.find((b) => b.botId === newBotId);
       const record: BotRecord = {
         botId: newBotId,
@@ -763,11 +972,11 @@ async function handleBotQrStatus(req: Request, env: Env): Promise<Response> {
  * 一键改绑 / 改自动回复开关。token 与游标原样保留——换角色不需要重新扫码。
  * botId 缺省 = 唯一那个 bot（当前一个微信一个角色的模型下基本只有一个）。
  */
-async function handleBotBind(req: Request, env: Env): Promise<Response> {
+async function handleBotBind(req: Request, env: Env, owner: string): Promise<Response> {
   const body = await readJson<{ botId?: string; charId?: string; autoReply?: boolean }>(req);
   const charId = String(body?.charId || '').trim();
   if (!charId) return json({ ok: false, error: '缺少 charId' }, 400);
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     const bot = body?.botId ? cfg.bots.find((b) => b.botId === body.botId) : cfg.bots[0];
     if (!bot) return null;
     const previous = bot.charId;
@@ -793,9 +1002,9 @@ async function handleBotBind(req: Request, env: Env): Promise<Response> {
  * **不带 botId = 所有 bot 都查一遍**（前端兜底轮询走这条；以前默认只查 bots[0]，
  * 结果第二个绑定等于没人管）。带 botId = 只查那一个（卡片上的「检查连接」）。
  */
-async function handleBotCheck(req: Request, env: Env): Promise<Response> {
+async function handleBotCheck(req: Request, env: Env, owner: string): Promise<Response> {
   const body = await readJson<{ botId?: string }>(req);
-  const cfg = await loadConfig(env);
+  const cfg = await loadConfig(env, owner);
   const targets = body?.botId
     ? cfg.bots.filter((b) => b.botId === body.botId)
     : cfg.bots;
@@ -803,17 +1012,17 @@ async function handleBotCheck(req: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: body?.botId ? '找不到这个微信绑定' : '没有已登录的 bot（先扫码）' }, 400);
   }
 
-  const rows: Array<{ botId: string; expired: boolean; lastPollAt?: number; lastError?: string }> = [];
+  // 与 cron 同一份口径（含 -14 丢游标重试、成功自愈），也同一套并发策略：
+  // 多个 bot 并行，否则"检查连接"会随着绑定的微信变多而越来越慢（HTTP 路径给 40 秒）。
   const patches: BotStatePatch[] = [];
-  let failedCount = 0;
-  for (const bot of targets) {
-    // 与 cron 共用同一份轮询口径（含 -14 丢游标重试、成功自愈）。
-    const r = await pollBotOnce(env, cfg, bot, 40_000);
+  const results = await mapWithConcurrency(targets, MAX_POLL_CONCURRENCY, async (bot) => {
+    const r = await pollBotOnce(env, owner, cfg, bot, 40_000);
     patches.push(botStatePatch(bot));
-    if (r.failed) failedCount += 1;
-    rows.push({ botId: bot.botId, expired: r.expired, lastPollAt: bot.lastPollAt, lastError: bot.lastError });
-  }
-  await applyBotState(env, patches);
+    return { botId: bot.botId, expired: r.expired, lastPollAt: bot.lastPollAt, lastError: bot.lastError, failed: r.failed };
+  });
+  const rows = results.map(({ failed: _failed, ...row }) => row);
+  const failedCount = results.filter((r) => r.failed).length;
+  await applyBotState(env, owner, patches);
 
   // 一个都没查通 → 按失败返回，前端才会弹「检查失败」而不是「连接正常」。
   if (failedCount === targets.length) {
@@ -831,10 +1040,10 @@ async function handleBotCheck(req: Request, env: Env): Promise<Response> {
   });
 }
 
-async function handleBotRemove(req: Request, env: Env): Promise<Response> {
+async function handleBotRemove(req: Request, env: Env, owner: string): Promise<Response> {
   const body = await readJson<{ botId?: string }>(req);
   if (!body?.botId) return json({ ok: false, error: '缺少 botId' }, 400);
-  const res = await mutateConfig(env, (cfg) => {
+  const res = await mutateConfig(env, owner, (cfg) => {
     const before = cfg.bots.length;
     cfg.bots = cfg.bots.filter((b) => b.botId !== body.botId);
     return before - cfg.bots.length;
@@ -843,7 +1052,7 @@ async function handleBotRemove(req: Request, env: Env): Promise<Response> {
   return json({ ok: true, removed: res.value });
 }
 
-async function handlePackUpload(req: Request, env: Env): Promise<Response> {
+async function handlePackUpload(req: Request, env: Env, owner: string): Promise<Response> {
   const body = await readJson<{ charId?: string; pack?: unknown; chatBuiltAt?: number }>(req);
   if (!body?.charId || !body.pack) return json({ ok: false, error: 'charId / pack 必填' }, 400);
 
@@ -855,7 +1064,7 @@ async function handlePackUpload(req: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: 'pack 缺少 chat.messages（微信桥靠它当请求消息）' }, 400);
   }
 
-  const existing = await loadPack(env, body.charId);
+  const existing = await loadPack(env, owner, body.charId);
   const incomingChatAt = body.chatBuiltAt ?? incoming.chat.builtAt ?? 0;
   let chatBuiltAt = incomingChatAt;
   let chatKept = false;
@@ -877,7 +1086,7 @@ async function handlePackUpload(req: Request, env: Env): Promise<Response> {
   }
 
   const prevVer = existing?.template_ver ?? 0;
-  await savePack(env, body.charId, incoming, { templateVer: prevVer + 1, chatBuiltAt });
+  await savePack(env, owner, body.charId, incoming, { templateVer: prevVer + 1, chatBuiltAt });
   log('pack', `已保存角色 ${body.charId} 的 pack`, {
     templateVer: prevVer + 1,
     messages: incoming.chat?.messages.length ?? 0,
@@ -886,19 +1095,21 @@ async function handlePackUpload(req: Request, env: Env): Promise<Response> {
   return json({ ok: true, templateVer: prevVer + 1, chatKept });
 }
 
-async function handleOutboxPull(req: Request, env: Env): Promise<Response> {
+async function handleOutboxPull(req: Request, env: Env, owner: string): Promise<Response> {
   const url = new URL(req.url);
   const since = Number(url.searchParams.get('since') || '0') || 0;
   const charId = (url.searchParams.get('charId') || '').trim();
   const limit = Math.min(Number(url.searchParams.get('limit') || '200') || 200, 500);
 
+  // ★ 按 owner 过滤：只回自己空间里的增量。多租户之前这里没有任何身份过滤，
+  //   同一个 worker 上的两台设备/两个人会互相拉到对方的条目。
   const rows = charId
     ? await env.DB.prepare(
-        `SELECT seq, payload FROM wx_outbox WHERE seq > ?1 AND char_id = ?2 ORDER BY seq ASC LIMIT ?3`,
-      ).bind(since, charId, limit).all<{ seq: number; payload: string }>()
+        `SELECT seq, payload FROM wx_outbox WHERE owner = ?1 AND seq > ?2 AND char_id = ?3 ORDER BY seq ASC LIMIT ?4`,
+      ).bind(owner, since, charId, limit).all<{ seq: number; payload: string }>()
     : await env.DB.prepare(
-        `SELECT seq, payload FROM wx_outbox WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2`,
-      ).bind(since, limit).all<{ seq: number; payload: string }>();
+        `SELECT seq, payload FROM wx_outbox WHERE owner = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3`,
+      ).bind(owner, since, limit).all<{ seq: number; payload: string }>();
 
   const items: Array<OutboxEntry & { seq: number }> = [];
   let nextSince = since;
@@ -911,16 +1122,16 @@ async function handleOutboxPull(req: Request, env: Env): Promise<Response> {
   return json({ ok: true, items, nextSince });
 }
 
-async function handleOutboxAck(req: Request, env: Env): Promise<Response> {
-  const body = await readJson<{ seqs?: number[] }>(req);
-  const seqs = (body?.seqs || []).filter((n) => Number.isFinite(n)).slice(0, 500);
-  if (seqs.length === 0) return json({ ok: true, deleted: 0 });
-  // D1 不支持数组绑定，占位符自己拼。数字已过滤，不存在注入面。
-  const placeholders = seqs.map((_, i) => `?${i + 1}`).join(',');
-  const res = await env.DB.prepare(
-    `DELETE FROM wx_outbox WHERE seq IN (${placeholders})`,
-  ).bind(...seqs).run();
-  return json({ ok: true, deleted: res.meta?.changes ?? 0 });
+/**
+ * POST /wx/outbox/ack —— 兼容口：**保留接口与返回形状，但不再删除任何东西**。
+ *
+ * 为什么改成不删：以前它是"认领即删"，于是同一个人的手机和电脑会互相抢——谁先拉谁
+ * 把那几条删掉，另一台设备永远补不到（2026-09-13 用户实测："有时候 SullyOS 里看不到
+ * 消息"，就是这个）。改成保留窗口后每台设备按自己的 lastSeq 各拉各的，谁都不吃亏；
+ * 清理交给 cron 按时间做（见 pruneOutbox），重复拉由客户端 msg_id 幂等去重兜住（已有）。
+ */
+async function handleOutboxAck(_req: Request, _env: Env, _owner: string): Promise<Response> {
+  return json({ ok: true, deleted: 0, kept: true });
 }
 
 /* ─────────── 建表与体检 ─────────── */
@@ -933,28 +1144,70 @@ async function listTables(env: Env): Promise<Set<string>> {
   return new Set((rows.results || []).map((row) => String(row.name)));
 }
 
+/** 某一列在不在（表不存在时返回 false）。只给状态接口的体检用，不进 cron 热路径。 */
+async function hasColumn(env: Env, table: string, column: string): Promise<boolean> {
+  const rows = await env.DB.prepare(
+    `SELECT name FROM pragma_table_info('${table}')`,
+  ).all<{ name: string }>();
+  return (rows.results || []).some((row) => String(row.name) === column);
+}
+
 /**
- * 体检：五张表齐不齐。**只在状态接口按需调用，绝不进定时任务**——cron 是每分钟的
- * 热路径，不该为体检多查一次库。
+ * 体检：五张表齐不齐 + 多租户升级列在不在。**只在状态接口按需调用，绝不进定时任务**
+ * ——cron 是每分钟的热路径，不该为体检多查几次库。
+ *
+ * 为什么要连"列"一起查：多租户之前建的老库表是齐的，但缺 owner 列，业务查询会直接
+ * `no such column` 报错。把"缺列"也计入 schemaReady，卡片现有的「初始化数据表」按钮
+ * 就会照常摆出来，而不是让人对着一个"自检全绿、但什么都干不了"的界面。
  */
 async function readSchemaState(
   env: Env,
-): Promise<{ schemaReady: boolean; missingTables: string[]; tableCount: number }> {
+): Promise<{
+  schemaReady: boolean;
+  missingTables: string[];
+  missingColumns: string[];
+  tableCount: number;
+}> {
   const existing = await listTables(env);
   const missingTables = SCHEMA_TABLES.filter((name) => !existing.has(name));
+  const missingColumns: string[] = [];
+  for (const { table, column } of SCHEMA_UPGRADE_COLUMNS) {
+    if (!existing.has(table)) continue;                       // 表都没建 → 建表时会带列
+    if (!(await hasColumn(env, table, column))) missingColumns.push(`${table}.${column}`);
+  }
   return {
-    schemaReady: missingTables.length === 0,
+    schemaReady: missingTables.length === 0 && missingColumns.length === 0,
     missingTables,
+    missingColumns,
     tableCount: SCHEMA_TABLES.length - missingTables.length,
   };
 }
 
 /**
- * POST /wx/init —— 幂等建表。
+ * 老库补列：多租户升级列（owner）在表已存在时只能 ALTER 加。
+ * 先 pragma 看一眼、缺了才加 → 可重复调用；对新建的库是空操作（CREATE 已带列）。
  *
- * 存在意义：面板路线装完后端的人，不该被要求去 D1 控制台粘 75 行 SQL（粘错一个字
- * 就是"功能假死 + 报错看不懂"，而且没人能从 SQL 报错里看出少建了一张表）。
- * 这里逐条跑 CREATE ... IF NOT EXISTS：重复调用无副作用，对已建好表的库是空操作。
+ * 表名 / 列名 / 列定义全部取自 `SCHEMA_UPGRADE_COLUMNS`（编译期常量，不是用户输入），
+ * 所以这里直接拼字符串是安全的；D1 的 prepare 也不接受标识符占位符。
+ */
+async function ensureUpgradeColumns(env: Env): Promise<string[]> {
+  const existing = await listTables(env);
+  const upgraded: string[] = [];
+  for (const { table, column, definition } of SCHEMA_UPGRADE_COLUMNS) {
+    if (!existing.has(table)) continue;
+    if (await hasColumn(env, table, column)) continue;
+    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+    upgraded.push(`${table}.${column}`);
+  }
+  return upgraded;
+}
+
+/**
+ * POST /wx/init —— 幂等建表 + 老库补列。
+ *
+ * 存在意义：面板路线装完后端的人，不该被要求去 D1 控制台粘 SQL（粘错一个字就是
+ * "功能假死 + 报错看不懂"，而且没人能从 SQL 报错里看出少建了一张表）。
+ * 这里逐条跑 CREATE ... IF NOT EXISTS（重复调用无副作用），再补老库缺的列。
  */
 async function handleInit(_req: Request, env: Env): Promise<Response> {
   const before = await listTables(env);
@@ -962,23 +1215,51 @@ async function handleInit(_req: Request, env: Env): Promise<Response> {
     // D1 的 prepare() 一次只能跑一条语句，所以常量是数组而不是一整段 SQL。
     await env.DB.prepare(statement).run();
   }
+  // 多租户升级：老库的表建得出来但缺 owner 列，业务查询会 no such column。
+  const upgraded = await ensureUpgradeColumns(env);
   const after = await listTables(env);
   const created = SCHEMA_TABLES.filter((name) => !before.has(name) && after.has(name));
   const state = await readSchemaState(env);
-  log('init', `建表完成：新建 ${created.length} 张，表齐=${state.schemaReady}`, { created });
-  return json({ ok: true, data: { created, ...state } });
+  log('init', `建表完成：新建 ${created.length} 张、补列 ${upgraded.length} 个，就绪=${state.schemaReady}`, {
+    created,
+    upgraded,
+  });
+  return json({ ok: true, data: { created, upgraded, ...state } });
 }
 
-async function handleStatus(req: Request, env: Env): Promise<Response> {
-  // ★ 先体检再查业务表：刚装好还没建表时，下面每一条查询都会抛 "no such table"，
-  //   整个状态接口 500 —— 那卡片就永远显示不出"该点初始化了"。所以必须早退，
-  //   返回一份"空但可读"的状态，让界面能把初始化按钮摆出来。
+/** 老空间（单租户时代的 'main'）里还有多少东西——只读，用来提示主人「可以认领」。 */
+async function readLegacySpace(
+  env: Env,
+): Promise<{ hasData: boolean; bots: number; packs: number }> {
+  const row = await env.DB.prepare(
+    `SELECT bots_json FROM wx_config WHERE id = ?1`,
+  ).bind(DEFAULT_OWNER).first<{ bots_json: string }>();
+  let bots = 0;
+  try { bots = (JSON.parse(row?.bots_json || '[]') as unknown[]).length; } catch { bots = 0; }
+  const packs = await env.DB.prepare(
+    `SELECT count(*) AS n FROM wx_packs WHERE owner = ?1`,
+  ).bind(DEFAULT_OWNER).first<{ n: number }>();
+  const packCount = packs?.n ?? 0;
+  return { hasData: bots > 0 || packCount > 0, bots, packs: packCount };
+}
+
+async function handleStatus(
+  _req: Request,
+  env: Env,
+  owner: string,
+  anonymous: boolean,
+): Promise<Response> {
+  // ★ 先体检再查业务表：刚装好还没建表（或缺多租户列）时，下面每一条查询都会抛
+  //   "no such table" / "no such column"，整个状态接口 500 —— 那卡片就永远显示不出
+  //   "该点初始化了"。所以必须早退，返回一份"空但可读"的状态，让初始化按钮摆得出来。
   const storage = await readSchemaState(env);
   if (!storage.schemaReady) {
     return json({
       ok: true,
       data: {
         version: BRIDGE_VERSION,
+        owner,
+        anonymous,
         bots: [],
         llmConfigured: false,
         masterKeyConfigured: !!env.MASTER_KEY,
@@ -991,14 +1272,15 @@ async function handleStatus(req: Request, env: Env): Promise<Response> {
     });
   }
 
-  const cfg = await loadConfig(env);
+  const cfg = await loadConfig(env, owner);
+  // ★ 只统计自己名下的包：多租户之前这条没有任何 WHERE，会把别人的一起算进来。
   const packRows = await env.DB.prepare(
-    `SELECT char_id, template_ver, chat_built_at, length(pack_json) AS bytes FROM wx_packs`,
-  ).all<{ char_id: string; template_ver: number; chat_built_at: number; bytes: number }>();
+    `SELECT char_id, template_ver, chat_built_at, length(pack_json) AS bytes FROM wx_packs WHERE owner = ?1`,
+  ).bind(owner).all<{ char_id: string; template_ver: number; chat_built_at: number; bytes: number }>();
 
   const packs: Record<string, { templateVer: number; chatBuiltAt: number; bytes: number; messages: number }> = {};
   for (const row of packRows.results || []) {
-    const full = await loadPack(env, row.char_id);
+    const full = await loadPack(env, owner, row.char_id);
     const pack = full ? readPack(full.pack_json) : null;
     packs[row.char_id] = {
       templateVer: row.template_ver,
@@ -1010,21 +1292,28 @@ async function handleStatus(req: Request, env: Env): Promise<Response> {
 
   const todayStart = new Date().setUTCHours(0, 0, 0, 0);
   const today = await env.DB.prepare(
-    `SELECT count(*) AS n FROM wx_messages WHERE created_at >= ?1`,
-  ).bind(todayStart).first<{ n: number }>();
+    `SELECT count(*) AS n FROM wx_messages WHERE owner = ?1 AND created_at >= ?2`,
+  ).bind(owner, todayStart).first<{ n: number }>();
 
   const pending = await env.DB.prepare(
-    `SELECT count(*) AS n, coalesce(max(seq), 0) AS maxSeq FROM wx_outbox`,
-  ).first<{ n: number; maxSeq: number }>();
+    `SELECT count(*) AS n, coalesce(max(seq), 0) AS maxSeq FROM wx_outbox WHERE owner = ?1`,
+  ).bind(owner).first<{ n: number; maxSeq: number }>();
 
+  // 心跳是全局的（cron 与用户无关），所以这一条不带 owner。
   const heartbeat = await env.DB.prepare(
     `SELECT at, note FROM wx_heartbeat WHERE id = 'cron'`,
   ).first<{ at: number; note: string }>();
+
+  // 老空间提示：只在"自己不是默认空间"时查，主人的日常请求不多花两次查询。
+  const legacySpace = anonymous ? null : await readLegacySpace(env);
 
   return json({
     ok: true,
     data: {
       version: BRIDGE_VERSION,
+      // 当前身份与它所属的空间（前端拿来显示"这台设备的身份"、判断是否需要认领）。
+      owner,
+      anonymous,
       // bot 概况（永不返回 token 本体）。
       bots: cfg.bots.map((b) => ({
         botId: b.botId,
@@ -1046,9 +1335,63 @@ async function handleStatus(req: Request, env: Env): Promise<Response> {
       heartbeat: heartbeat ? { at: heartbeat.at, note: heartbeat.note } : null,
       // 数据表体检：面板路线装完只差这一步，卡片据此决定要不要摆「初始化数据表」按钮。
       storage,
+      // 名额：已用与上限。满了新身份会被拒，卡片可以直接说人话而不是报错码。
+      owners: { used: await countOwners(env), max: resolveMaxOwners(env) },
+      legacySpace,
       firePackKey: `${BRIDGE_VERSION}:${AMSG_FIRE_PACK_KEY}:${amsgStateNamespace('<charId>')}`,
     },
   });
+}
+
+/**
+ * POST /wx/claim —— 认领老空间（多租户升级用，幂等）。
+ *
+ * 场景：升级前的数据全在默认空间 'main' 里（那时没有"谁"这个维度）。主人换成
+ * "无感身份"之后那些数据就看不见了。与其让他去 D1 控制台跑 SQL，不如给一个按钮：
+ * 一次性把 'main' 名下的所有行改挂到当前身份名下。
+ *
+ * 安全口径：**只允许"自己名下什么都没有"的身份认领**（否则等于把别人的空间合并进来，
+ * 语义混乱）。顺序是"先搬数据、最后搬配置"——中途失败时 'main' 的配置还在，
+ * 重试仍然走得通；搬完的第二次调用会因为 'main' 已空而返回 0，天然幂等。
+ */
+async function handleClaim(
+  _req: Request,
+  env: Env,
+  owner: string,
+  anonymous: boolean,
+): Promise<Response> {
+  if (anonymous) {
+    return json({
+      ok: false,
+      error: 'NO_IDENTITY',
+      hint: '当前请求没有设备身份，本身就在默认空间里，没有可认领的对象',
+    }, 400);
+  }
+  if (await isKnownOwner(env, owner)) {
+    return json({
+      ok: false,
+      error: 'ALREADY_HAS_SPACE',
+      hint: '你已经有一份自己的数据了，不再认领老空间（避免两份混在一起）',
+    }, 409);
+  }
+  const moved: Record<string, number> = { packs: 0, messages: 0, outbox: 0 };
+  const tables: Array<[string, string]> = [
+    ['wx_packs', 'packs'],
+    ['wx_messages', 'messages'],
+    ['wx_outbox', 'outbox'],
+  ];
+  for (const [table, key] of tables) {
+    const res = await env.DB.prepare(
+      `UPDATE ${table} SET owner = ?1 WHERE owner = ?2`,
+    ).bind(owner, DEFAULT_OWNER).run();
+    moved[key] = res.meta?.changes ?? 0;
+  }
+  const cfgMoved = await env.DB.prepare(
+    `UPDATE wx_config SET id = ?1 WHERE id = ?2`,
+  ).bind(owner, DEFAULT_OWNER).run();
+  moved.config = cfgMoved.meta?.changes ?? 0;
+  log('claim', '认领老空间完成', { owner, ...moved });
+  return json({ ok: true, moved });
 }
 
 /* ─────────── 入口 ─────────── */
@@ -1064,21 +1407,24 @@ export default {
       return json({ ok: true, service: 'wechat-bridge', version: BRIDGE_VERSION });
     }
 
-    const denied = checkToken(request, env);
+    // 身份：前端首屏自动生成的随机串，hash 后即 owner；不带头 = 默认空间（老客户端兼容）。
+    const { owner, anonymous } = await resolveOwner(request);
+    const denied = await ownerGate(request, env, owner, anonymous);
     if (denied) return denied;
 
     try {
-      if (path === '/wx/config' && request.method === 'POST') return await handleConfig(request, env);
-      if (path === '/wx/pack' && request.method === 'POST') return await handlePackUpload(request, env);
-      if (path === '/wx/outbox' && request.method === 'GET') return await handleOutboxPull(request, env);
-      if (path === '/wx/outbox/ack' && request.method === 'POST') return await handleOutboxAck(request, env);
+      if (path === '/wx/config' && request.method === 'POST') return await handleConfig(request, env, owner);
+      if (path === '/wx/pack' && request.method === 'POST') return await handlePackUpload(request, env, owner);
+      if (path === '/wx/outbox' && request.method === 'GET') return await handleOutboxPull(request, env, owner);
+      if (path === '/wx/outbox/ack' && request.method === 'POST') return await handleOutboxAck(request, env, owner);
       if (path === '/wx/init' && request.method === 'POST') return await handleInit(request, env);
-      if (path === '/wx/status' && request.method === 'GET') return await handleStatus(request, env);
+      if (path === '/wx/status' && request.method === 'GET') return await handleStatus(request, env, owner, anonymous);
+      if (path === '/wx/claim' && request.method === 'POST') return await handleClaim(request, env, owner, anonymous);
       if (path === '/wx/bot/qr' && request.method === 'POST') return await handleBotQrStart(request, env);
-      if (path === '/wx/bot/qr/status' && request.method === 'GET') return await handleBotQrStatus(request, env);
-      if (path === '/wx/bot/bind' && request.method === 'POST') return await handleBotBind(request, env);
-      if (path === '/wx/bot/check' && request.method === 'POST') return await handleBotCheck(request, env);
-      if (path === '/wx/bot/remove' && request.method === 'POST') return await handleBotRemove(request, env);
+      if (path === '/wx/bot/qr/status' && request.method === 'GET') return await handleBotQrStatus(request, env, owner);
+      if (path === '/wx/bot/bind' && request.method === 'POST') return await handleBotBind(request, env, owner);
+      if (path === '/wx/bot/check' && request.method === 'POST') return await handleBotCheck(request, env, owner);
+      if (path === '/wx/bot/remove' && request.method === 'POST') return await handleBotRemove(request, env, owner);
       return json({ ok: false, error: 'not found', path }, 404);
     } catch (err) {
       logWarn('route', `${path} 抛错：${err instanceof Error ? err.message : String(err)}`);
@@ -1086,7 +1432,7 @@ export default {
     }
   },
 
-  /** Cron 每分钟一次：逐 bot 长轮询收消息并回复。这是微信桥的心跳。 */
+  /** Cron 每分钟一次：逐空间、逐 bot 长轮询收消息并回复。这是微信桥的心跳。 */
   async scheduled(_event: unknown, env: Env): Promise<void> {
     // 心跳写在最前面（任何可能抛错/超时的动作之前）：这样「cron 到底有没有跑」
     // 永远有据可查——曾经出现过 scheduled 静默不干活、又没有任何报错可看的情况。
@@ -1094,8 +1440,14 @@ export default {
     try {
       await writeHeartbeat(env, startedAt, 'start');
       // cron 用 20s 上限：scheduled 调用的墙钟比 HTTP 短，40s 长轮询会被平台掐掉。
-      await pollAllBots(env, 20_000);
-      await writeHeartbeat(env, Date.now(), `ok:${Date.now() - startedAt}ms`);
+      // 空间之间并行（并发跟随人数）——人多时整轮仍是一个长轮询的量级，不超预算。
+      const round = await pollAllOwners(env, 20_000);
+      await writeHeartbeat(
+        env,
+        Date.now(),
+        `ok:${Date.now() - startedAt}ms spaces:${round.owners} bots:${round.bots}`
+          + (round.skipped > 0 ? ` skipped:${round.skipped}` : ''),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logWarn('cron', `轮询轮失败：${message}`);
