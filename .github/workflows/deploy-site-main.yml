@@ -1,0 +1,118 @@
+# 推 main 即自动更新网页版（Cloudflare Workers 静态资产站点：sully-os-site）。
+#
+# 为什么是「新增一份」而不是改既有的 deploy-cloudflare-worker.yml：
+#   那份文件由上游（qegj567-cloud/SullyOS）维护，只监听 master——上游作者的发布分支。
+#   直接改它会在每次 Merge upstream 时冲突；本文件独立存在，互不干扰、各自可用。
+#
+# 生效前提（一次性配置，保姆级步骤见 docs/site-auto-deploy.md）：
+#   仓库 Settings → Secrets and variables → Actions：
+#     Secret   CLOUDFLARE_API_TOKEN  ：Cloudflare Token，权限 Account → Workers Scripts → Edit
+#     Variable CLOUDFLARE_ACCOUNT_ID ：你的 Cloudflare 账号 ID（不填则用下面的默认值）
+#   未配 Token 时本工作流会在「Check deployment credentials」一步直接报错（不静默跳过），
+#   网页版此时仍可手动更新：仓库根目录执行 `pnpm run build` 后 `npx --yes wrangler@4.122.0 deploy`。
+name: Deploy site to Cloudflare (main)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-site-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # 同一次提交会被推到两个仓库（私有 ShinQ + 公开 ShinQ-qs）：只让公开仓库真正部署，
+    # 否则两个构建会同时往同一个站点上传、互相覆盖。另一个仓库里本 job 显示 skipped。
+    if: github.repository == '361293184/ShinQ-qs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      # 账号 ID 不是密钥。给默认值 = 克隆本仓库的人只需配一枚 Token 就能部署；
+      # 想换账号，在仓库 Variables 里覆盖即可。
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '70592357c9a42c223eae8375e1bddcb2' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # 站点地址（仅部署后自检用）。换域名在 Variables 里覆盖 SITE_URL 即可。
+      SITE_URL: ${{ vars.SITE_URL || 'https://sully-os-site.qiana-s.workers.dev' }}
+      # 使用统计。值存在仓库的 Variables 里，不写死在这份 YAML——
+      # fork 出去的仓库继承得到工作流、继承不到 Variables，构建出来就是零统计的版本
+      # （两个变量缺任何一个，统计脚本压根不会加载）。详见 docs/analytics.md。
+      VITE_UMAMI_SCRIPT_URL: ${{ vars.UMAMI_SCRIPT_URL }}
+      VITE_UMAMI_WEBSITE_ID: ${{ vars.UMAMI_WEBSITE_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 缺密钥就当场红，并给出去哪配的指路——不静默跳过部署。
+      # 「跑绿了但线上没变」正是这个工作流要消灭的情况，所以宁可红得明确。
+      - name: Check deployment credentials
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error title=缺少 CLOUDFLARE_API_TOKEN::自动部署尚未配置密钥，本次没有部署。请按 docs/site-auto-deploy.md 配置后重跑本工作流（或在仓库根目录手动执行 pnpm run build && npx --yes wrangler@4.122.0 deploy）。"
+            exit 1
+          fi
+          echo "已检测到 CLOUDFLARE_API_TOKEN，使用账号 ${CLOUDFLARE_ACCOUNT_ID} 部署到 ${SITE_URL}。"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 站点必须是「纯静态资产」：一旦 wrangler.jsonc 出现 main / assets.binding /
+      # assets.run_worker_first，或有人加了 worker/site/index.ts，部署形态就变了。
+      # 这里直接拦住，避免手滑把静态站点改成带 Worker 脚本的形态。
+      - name: Verify assets-only configuration
+        run: >-
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          if(c.main||c.assets?.binding||c.assets?.run_worker_first||fs.existsSync('worker/site/index.ts'))
+          throw new Error('Cloudflare site deployment must remain static-assets-only')"
+
+      # 构建发生在 main 上（release 分支），vite.config.ts 据此隐藏「开发中内容」角标
+      # （CI 是 detached HEAD，vite.config 会读 GITHUB_REF_NAME 拿到 main），
+      # 所以不需要额外注入 VITE_HIDE_BUILD_BADGE。
+      - name: Build site
+        run: pnpm run build
+
+      - name: Deploy static assets
+        run: npx --yes wrangler@4.122.0 deploy
+
+      # 自检：把线上 version.json 拉回来，确认线上这份构建就是本次提交。
+      # 这样以后「推了但没生效」会在运行记录里留下一条 warning，
+      # 不用靠人肉刷新页面才发现。自检失败不影响部署结果，故 continue-on-error。
+      - name: Smoke test live version
+        continue-on-error: true
+        run: |
+          set -u
+          body=''
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -fsS --max-time 20 "$SITE_URL/version.json" || true)
+            if [ -n "$body" ]; then break; fi
+            echo "第 $attempt 次拉取 $SITE_URL/version.json 失败，10 秒后重试…"
+            sleep 10
+          done
+          if [ -z "$body" ]; then
+            echo "::warning title=线上版本未取到::无法访问 $SITE_URL/version.json，请稍后手动刷新页面确认。"
+            exit 0
+          fi
+          echo "线上 version.json = $body"
+          live_commit=$(printf '%s' "$body" | jq -r '.commit // empty')
+          if [ -n "$live_commit" ] && [[ "$GITHUB_SHA" == "$live_commit"* ]]; then
+            echo "线上已是本次提交 ${GITHUB_SHA:0:8}"
+          else
+            echo "::warning title=线上版本与本次提交不一致::线上=${live_commit:-未知}，本次=${GITHUB_SHA:0:8}。可能仍在传播，稍后刷新页面确认。"
+          fi
