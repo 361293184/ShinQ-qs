@@ -10,6 +10,7 @@ import { SARModuleMonitor } from './sar/SARModuleMonitor';
 import Launcher from '../apps/Launcher';
 import CompanionLockChrome from './os/CompanionLockChrome';
 import { RealityBridgePoller } from './reality-bridge/global-poller';
+import { WechatBridgePoller } from './wechat-bridge/global-poller';
 import { loadCompanionFrameStyle } from './os/companionFrameStyles';
 import { createPreloadableLazy, type PreloadableLazy } from './os/preloadableLazy';
 
@@ -1081,6 +1082,8 @@ const PhoneShell: React.FC = () => {
 
           {/* 现实桥全局轮询器（隐形，返回 null；配置 workerUrl 后 App 存活期间拉取待合并事件进角色会话） */}
           <RealityBridgePoller />
+          {/* 微信桥全局轮询器（同上；把微信里的一来一回幂等合并进角色主时间线，没配置时零开销） */}
+          <WechatBridgePoller />
           
           {/* Overlays: Suspended Call Bar */}
           {suspendedCall && activeApp !== AppID.Call && (

@@ -61,6 +61,10 @@ const WORKERS = [
   // reality-bridge = 现实桥（iPhone 快捷指令 ↔ 云收件箱 ↔ 角色回应 LLM ↔ Web Push）。
   // 与 post-office 同为纯后端，只产 worker.bundle.js 供 wrangler/粘面板，不写 public/。
   { name: 'reality-bridge', skipPublicOut: true },
+  // wechat-bridge = 微信桥（扫码登录的微信 ↔ 角色 in 微信 ↔ 回流 SullyOS 主时间线）。
+  // 大脑直接复用 utils/amsgFirePack 的满血链路，与 amsg 的端点/表/密钥**无关**。
+  // public/ 副本给设置页「复制 Worker 代码」按钮 fetch（与 amsg 同一套部署引导）。
+  { name: 'wechat-bridge', outName: 'wechat-bridge-worker.bundle.js' },
 ];
 
 // amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the

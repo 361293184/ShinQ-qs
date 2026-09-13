@@ -32,6 +32,7 @@ import { readShareText } from '../utils/pngShare';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
+import WechatBridgeCard from '../components/character/WechatBridgeCard';
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     extractExternalMemoryText,
@@ -1731,7 +1732,10 @@ ${isInitialGeneration ? `
                                </div>
                            </div>
 
-                           {/* Export Card Button */}
+                           {/* WeChat Bridge Section —— 微信桥：角色住进微信（共用 fire_pack 大脑，消息回流主时间线） */}
+                          <WechatBridgeCard char={formData} />
+
+                          {/* Export Card Button */}
                            <div className="pt-4">
                                <button
                                    onClick={handleExportCard}
