@@ -1,0 +1,53 @@
+## 微信桥 Cloudflare Worker — wrangler 配置
+##
+## 作用：对接**微信官方 iLink Bot API**（扫码登录的个人微信，官方接口无封号问题）。
+## Cron 每分钟长轮询拉新消息 → 云端用**和 SullyOS 同一份 fire_pack** 生成角色回复
+## → 发回微信；一来一回同时记进 outbox，App 打开时补收并合并进角色的主时间线。
+## 不需要任何第三方网关、常驻电脑或付费服务。
+##
+## 与其他 worker 的关系：
+##   · 大脑复用 utils/amsgFirePack.ts 的满血链路（pack.chat.messages + 时效块），
+##     与 worker/amsg（主动消息 2.0）的端点/表/密钥**无关**，没配过 amsg 照样能跑。
+##
+## 部署：
+##   1) pnpm build:workers            # 产出 worker/wechat-bridge/worker.bundle.js
+##   2) wrangler d1 create sullyos-wechat-bridge     # 拿到 database_id 填到下面
+##   3) wrangler d1 execute sullyos-wechat-bridge --file=./schema.sql
+##   4) 设密钥（见文末），然后 wrangler deploy
+
+name = "sullyos-wechat-bridge"
+# 已经 esbuild 打好的整包（pnpm build:workers 产出）。wrangler 直接发它，
+# 部署侧不需要再装依赖、再构建一次（与 worker/amsg 同一套做法）。
+main = "worker.bundle.js"
+compatibility_date = "2026-01-01"
+# 全 Web Crypto，不需要 nodejs_compat。
+
+# wrangler deploy 会用本地这份配置**整体覆盖**面板设置。不写 keep_vars 的话，
+# 每次部署都会把面板上手动加过的明文变量清空（用户在面板上很容易把 MASTER_KEY
+# 存成 Text 而不是 Secret，那样撑到下一次部署就没了、worker 全线 503）。
+keep_vars = true
+
+# 排障靠 Workers Logs（[wx:webhook] / [wx:llm] 这些日志），显式声明成开，
+# 否则面板里手动开的实时日志会被下一次 deploy 关掉。
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+# 收消息的心跳：每分钟触发一次 scheduled，对每个已登录 bot 发起一次 getupdates
+# 长轮询（服务端最多挂 ~35s）。这是微信消息唯一的入口——关掉 cron 等于功能停摆。
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sullyos-wechat-bridge"
+database_id = "cb7e97ae-d1d7-40ec-80ee-534e889e5881"
+
+# Secrets（用 `wrangler secret put <名字>` 或面板设置，别写进本文件）：
+#   MASTER_KEY        64 位 hex；加密用户上传的 LLM 凭据用（openssl rand -hex 32）
+#   WX_BRIDGE_TOKEN   可选；配了则所有 /wx/* 端点强制校验 X-Client-Token
+#
+# 注意：微信网关自身的登录态 / 发送凭据不放在这里——那是**用户**在设置页里填的
+# 网关地址与凭据，随 /wx/config 存进 D1（见 schema.sql 的 wx_config）。
