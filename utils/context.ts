@@ -14,6 +14,32 @@ import {
 import { buildSARModulePrompt } from './vrWorld/sarModuleRuntime';
 
 /**
+ * 对话中的称呼规范 (Forms of Address)。
+ *
+ * 只做正向的关系化引导，**刻意不列举任何具体头衔或外号**——把禁语写进提示词反而会激活它
+ * （同下面「表达底线」的取向）。文案由用户定稿，回归测试同时锁住关键句与"零词例"。
+ *
+ * 位置约束：内容静态（只依赖 char.name / user.name），必须留在 stable 侧——挪进 deferVolatile
+ * 的 volatile 段会打断 prompt 前缀缓存（守恒见 contextVolatileSplit.test.ts）。
+ * 群聊流（groupOptions）跳过：多成员场景会重复注入 N 份，与「表达底线」同一取舍。
+ * 日后若要给用户开关，需要新增 UserProfile / CharacterProfile 字段与设置项。
+ */
+export const FORMS_OF_ADDRESS = (charName: string, userName: string): string => `
+### 对话中的称呼规范 (Forms of Address)
+${charName}，你对${userName}的称呼应自然、克制，并符合真实聊天习惯。不要为了表现亲密、幽默、暧昧或角色感，刻意给${userName}安排称呼。
+
+- 日常聊天不需要频繁称呼${userName}。能直接接话时就直接说，不要每句话都加名字、昵称或头衔。
+- 默认只使用${userName}已明确提供、长期使用或表现出接受的名字与昵称，不主动创造新的爱称、外号、职位或身份标签。
+- 不要用“姓氏＋职位”或角色化的头衔来制造幽默感或情趣，这不会让${userName}感到开心。
+- 不要因为${userName}当下的一次行为（提醒你、照顾你、约束你之类），就立刻给 ta 贴一个对应的称呼。
+- 不要把对${userName}性格、行为或关系位置的概括，直接变成一个昵称。
+- 幽默、调侃、亲密感和暧昧感应通过具体回应、语气与互动自然体现，而不是依靠不断给${userName}起外号。
+- 新称呼只有在双方互动中自然形成、具有明确共同语境，并且${userName}表现出接受时，才可以偶尔使用。
+- 不要擅自宣布某个新称呼，不要因为使用过一次就将其固定下来，也不要把称呼变成重复出现的口癖。
+- 拿不准该如何称呼${userName}时，宁可省略称呼，也不要临时创造一个看似俏皮或亲密的叫法。
+`;
+
+/**
  * Memory Central
  * 负责统一构建所有 App 共用的基础角色上下文 (System Prompt)。
  * 包含：身份设定、用户画像、世界观、核心记忆、详细记忆、以及角色内心看法。
@@ -317,6 +343,14 @@ export const ContextBuilder = {
         // 群聊流（groupOptions）跳过：多成员场景会重复注入 N 份，群聊侧暂不接入。
         if (!groupOptions) {
             context += `### 表达底线 (Anti-Filler)\n当你觉得"没什么可说"的时候，不要用空泛的感慨、万能句式或华丽排比去填充——那是没话找话，对方一眼就能看出来。素材永远比你以为的多：对方的用词、ta 怎么说的、ta 没说的部分、此刻的情境、你们的过去、你心里闪过的念头——挑一两条往深处走就够了。宁可一个具体的小细节，不要一句谁都能说的话。\n\n`;
+        }
+
+        // 8. 对话中的称呼规范 (Forms of Address) —— 收紧模型的默认礼貌惯例（"姓氏＋职位"托词）
+        // 与"随手起外号 → 固化成口癖"。放在「表达底线」之后 = stable 段内最靠后的位置，注意力最强；
+        // 用户实测"挂世界书没作用"正因为它落在资料段（作者注释），这里与同类说话规则相邻、更易被当约束。
+        // 群聊流（groupOptions）跳过，取舍同上一块（多成员场景会重复注入 N 份）。
+        if (!groupOptions) {
+            context += FORMS_OF_ADDRESS(char.name, user.name);
         }
 
         // Debug: warn about missing context sections

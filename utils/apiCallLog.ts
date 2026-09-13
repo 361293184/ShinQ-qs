@@ -416,6 +416,7 @@ function splitSystemBlocks(text: string): PromptBlockStat[] {
 const FIXED_PROMPT_LABEL_PREFIXES = [
     '聊天 App 行为规范',
     '表达底线',
+    '对话中的称呼规范',
     '🎤 语音消息功能',
     '关于对方的表达',
     '最后，回到你自己',
