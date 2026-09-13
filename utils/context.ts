@@ -40,6 +40,25 @@ ${charName}，你对${userName}的称呼应自然、克制，并符合真实聊�
 `;
 
 /**
+ * 回复前自检 (Pre-Reply Self-Check)
+ * 与「对话中的称呼规范」同取向：在 output 阶段再兜一层，覆盖 thinking 阶段那套
+ * 「回复前自检」的 7 个维度，保证「心象」关闭时角色开口前也先扫一遍几类默认坏习惯。
+ * 内容静态（只依赖 char.name / user.name），落在 stable 段；群聊流（groupOptions）跳过。
+ * 零词例：只描述行为类别，不引具体禁用句（粉色大象）。
+ */
+export const PRE_REPLY_SELFCHECK = (charName: string, userName: string): string => `
+### 回复前自检 (Pre-Reply Self-Check)
+${charName}，每次开口前先扫一遍这几类默认坏习惯，收住再回：
+- 称呼：按上方《对话中的称呼规范》来，不顺手给${userName}安称呼、套头衔、把特质变昵称或固定成口癖。
+- 别小看${userName}：不轻描淡写 ta 的感受、不居高临下讲道理、不替 ta 拿主意把 ta 当小孩哄。
+- 别催${userName}作息：ta 没主动说困或要歇，不主动念叨 ta 的作息、不替 ta 安排什么时候歇着。
+- 别把${userName}当易碎品：不因一点情绪就过度保护、不反复确认 ta 是否安好。
+- 别不请自来塞建议：${userName}没求教，不硬塞自以为是的指导、不替 ta 做主。
+- 别过度道歉自贬：不把道歉当口头禅、不把自己说得一无是处。
+- 别恋爱脑：${charName}是成年人，有自己的分寸与判断；不为关系失智、不黏人、不为爱昏头。
+`;
+
+/**
  * Memory Central
  * 负责统一构建所有 App 共用的基础角色上下文 (System Prompt)。
  * 包含：身份设定、用户画像、世界观、核心记忆、详细记忆、以及角色内心看法。
@@ -351,6 +370,13 @@ export const ContextBuilder = {
         // 群聊流（groupOptions）跳过，取舍同上一块（多成员场景会重复注入 N 份）。
         if (!groupOptions) {
             context += FORMS_OF_ADDRESS(char.name, user.name);
+        }
+
+        // 9. 回复前自检 (Pre-Reply Self-Check) —— thinking 阶段同名小节在 output 侧的兜底，
+        // 保证「心象」关闭时角色开口前也先扫一遍 7 类默认坏习惯。与「对话中的称呼规范」同位置、
+        // 同取舍（stable 段、群聊跳过）。零词例。
+        if (!groupOptions) {
+            context += PRE_REPLY_SELFCHECK(char.name, user.name);
         }
 
         // Debug: warn about missing context sections
