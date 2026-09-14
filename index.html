@@ -120,6 +120,24 @@
       }
     </script>
     <style>
+      /* ── 来信 · 手写钢笔字（子集化产物，见 scripts/subset-font.py）──
+         清松手写体5 打底（真手写感）+ 霞鹜文楷兜底（缺字回退，同为楷系、气质接近）。
+         两者均为 SIL OFL 1.1，可商用、可嵌入。font-display: swap 保证字体没到位也不白屏，
+         拆信动画那几百毫秒正好当加载窗口。 */
+      @font-face {
+        font-family: 'JasonHandwriting5';
+        src: url('./fonts/JasonHandwriting5-subset.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'LXGW WenKai';
+        src: url('./fonts/LXGWWenKai-Regular-subset.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
       :root {
         --primary-hue: 245; 
         --primary-sat: 25%;

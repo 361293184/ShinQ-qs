@@ -1,0 +1,85 @@
+/**
+ * 新年信笺（深红金线）专用样式 —— 只服务于 theme.festive 的那一张纸。
+ *
+ * 为什么不写成 Tailwind：这一层全是「多层叠加的装饰」—— 三层渐变底 + 金线框
+ * + 四角角花 + 自绘滚动条。用 utility class 拼出来的 JSX 会变成一堵墙，
+ * 反而看不清版式结构。项目里已有 components/chat/QixiEventCard.css、
+ * components/os/anniversary-gift.css 两处先例，Vite 原生支持 CSS import。
+ *
+ * 前缀统一 .letter-st-（stationery），不外泄、不覆盖任何全局选择器。
+ */
+
+/* ── 1. 信笺底：深红，但不是一块死色 ──
+ * 三层叠加，缺一层就会立刻显「塑料」：
+ *   顶光 → 上沿有受光感；暗角 → 下沿沉下去；主渐变 → 左上略亮、右下略沉。 */
+.letter-st-paper {
+    background-color: #7e1d1d;
+    background-image:
+        radial-gradient(ellipse 78% 42% at 50% -8%, rgba(255, 226, 180, 0.13), transparent 70%),
+        radial-gradient(ellipse 66% 40% at 50% 110%, rgba(0, 0, 0, 0.26), transparent 72%),
+        linear-gradient(166deg, #8a2020 0%, #7e1d1d 46%, #6b1717 100%);
+}
+
+/* ── 2. 金线框：整张纸的「函套」骨架 ──
+ * 直角而非圆角 —— 圆角是通用 UI 语汇（任何卡片都有），直角才是信笺。 */
+.letter-st-frame {
+    position: absolute;
+    inset: 10px;
+    border: 1px solid rgba(201, 162, 39, 0.72);
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+/* ── 3. 四角回纹角花：贴在金线框的四个角上，让框角有「包边」的厚度 ── */
+.letter-st-corner {
+    position: absolute;
+    pointer-events: none;
+}
+.letter-st-corner--tl {
+    top: 9px;
+    left: 9px;
+}
+.letter-st-corner--tr {
+    top: 9px;
+    right: 9px;
+}
+.letter-st-corner--br {
+    bottom: 9px;
+    right: 9px;
+}
+.letter-st-corner--bl {
+    bottom: 9px;
+    left: 9px;
+}
+
+/* ── 4. 正文区：宋体、行距疏朗、每个自然段首行缩进两字 ──
+ * 缩进用全角空格在 JS 里补（见 LetterPaper 的 paragraph），这里只管排印。
+ * 滚动条由 LetterScrollBar 自绘，所以不隐藏系统滚动条 —— 但要把它压窄，
+ * 免得在深红底上冒出一条白光。 */
+.letter-st-body {
+    scrollbar-width: none; /* Firefox */
+}
+.letter-st-body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* ── 5. 常驻金色长条滚动指示条（位置由 JS 直接写 transform，这里只定外观） ──
+ * top/bottom 由父容器决定，滑动行程靠 transform 而不是 top —— top 会触发布局。 */
+.letter-st-scrollbar {
+    position: absolute;
+    top: 2px;
+    right: 5px;
+    width: 3px;
+    border-radius: 9999px;
+    pointer-events: none;
+    will-change: transform, height;
+    transition: opacity 0.35s ease;
+}
+
+/* ── 6. 无障碍：用户要求减少动态效果时，滚动条不做淡入淡出（它本来也不是动画） ── */
+@media (prefers-reduced-motion: reduce) {
+    .letter-st-scrollbar {
+        transition: none;
+    }
+}

@@ -1,0 +1,169 @@
+/**
+ * 拾光首页背景层样式。
+ *
+ * 前缀统一 .shelf-bg-，纯装饰：不出这一层、不覆盖任何全局选择器。
+ *
+ * 这个背景的想法只有一句话：**一束光，落在一本摊开的收藏册上**。
+ * 四层不是四个装饰贴纸，而是同一个空间里的四个距离 ——
+ *   最近的：内页细格纹（纸的质感）
+ *   中景：自上而下的暖光（光的氛围）
+ *   最远：纸上盖过的旧戳（藏品的印记）
+ *   浮在光里：缓慢上升的微尘（光的证据）
+ */
+
+.shelf-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    /* 底色收进这一层：主页根 div 不再自己管背景，避免两处都写一份米色。
+       票根改成深酒红之后，背景又压深了一档 —— 深色卡纸放在浅白纸上会"飘"，
+       背景要有足够的重量才托得住它。 */
+    background: #e9dcc6;
+}
+
+/* ── 背景里的旧票虚影 ──
+ * 这是解决「突兀」的关键一层：只有一张票时，它和四周是**没有关系**的，
+ * 所以看起来像被p上去的。在背后压两张极淡的票形虚影之后，
+ * 它就从"孤零零一张"变成"一叠里的最上面那张"—— 关系一旦成立，突兀感就没了。
+ * 全部只有虚框 + 极淡底，不画齿孔：它们是"印子"，不是实体。 */
+.shelf-bg-ghost {
+    position: absolute;
+    width: 196px;
+    height: 272px;
+    border: 1px solid rgba(90, 70, 45, 0.14);
+    border-radius: 5px;
+    background: rgba(120, 90, 60, 0.045);
+}
+.shelf-bg-ghost--a {
+    top: 15%;
+    left: -58px;
+    transform: rotate(-14deg);
+}
+.shelf-bg-ghost--b {
+    bottom: 9%;
+    right: -52px;
+    transform: rotate(11deg);
+}
+
+/* ── 1. 内页细格纹 ──
+ * 浓度压到「凑近才看得见」：它是纸的**质感**，不是页面上的表格。
+ * 四边用径向遮罩淡出 —— 格纹一路铺到屏幕边缘，会立刻变成 Excel 而不是册页。 */
+.shelf-bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(74, 63, 53, 0.10) 0 1px, transparent 1px 26px),
+        repeating-linear-gradient(90deg, rgba(74, 63, 53, 0.075) 0 1px, transparent 1px 26px);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 46%, #000 28%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 46%, #000 28%, transparent 100%);
+}
+
+/* ── 2. 暖光 + 暗角 ──
+ * 中心落在 38% 高度（卡片所在处），让视线自然被推过去；
+ * 底部再补一点点橘色余温，避免画面下半截发冷、发空。
+ *
+ * 最上面那层暗角是这一版新加的，也是「平淡」的主要解法：
+ * 没有暗角时四角和中心一样亮，画面是平的；四角压下去之后，
+ * 中心那片暖光才真正"亮"起来，卡片也跟着浮出纸面。 */
+.shelf-bg-glow {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 86% 60% at 50% 44%, transparent 24%, rgba(58, 44, 32, 0.30) 100%),
+        radial-gradient(ellipse 58% 30% at 50% 50%, rgba(255, 250, 236, 0.52), transparent 74%),
+        radial-gradient(ellipse 92% 46% at 50% 38%, rgba(255, 246, 230, 0.85), rgba(255, 246, 230, 0) 68%),
+        radial-gradient(ellipse 72% 40% at 50% 102%, rgba(232, 132, 90, 0.10), transparent 70%);
+}
+
+/* ── 3. 压印邮戳 ──
+ * 两处关键决定：
+ *
+ * ① **颜色必须是印泥的朱红**（#b23a2e），不是灰褐。真印章就是红的 ——
+ *    之前用灰褐 + 0.15 透明度，等于在米色纸上画一个浅灰环，几乎看不见。
+ *    朱红在暖米色上天生有"盖上去"的质感，这是「邮戳不够明显」最主要的解法。
+ *
+ * ② **位置要让卡片压住它一角**。定位在右上并出血到屏幕外，同时下沿探进卡片区域 ——
+ *    有了这种前后层叠，邮戳才从"飘在空中的环"变成"盖在纸下的印"。
+ *    卡片不透明且层级更高，重叠部分自然被遮住，不需要额外做遮罩。 */
+.shelf-bg-stamp {
+    position: absolute;
+    /* 只让下沿探进卡片十来像素 —— 留一点点前后层叠的意思，但整枚戳要能看全 */
+    top: -58px;
+    right: -62px;
+    width: 300px;
+    height: 300px;
+    color: #b23a2e;
+    opacity: 0.24;
+    transform: rotate(-12deg);
+}
+/* 弧形小字：等宽体，与票根上的 NO.xxxx 同源 */
+.shelf-bg-stamp-arc {
+    font-family: 'Courier Prime', 'Songti SC', monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+}
+/* 中心的「拾光」用马善政毛笔楷书 —— 印章上的字本来就该是手写体，
+   规规矩矩的宋体是印不出来的。字距收窄（手写体一拉开就散）。 */
+.shelf-bg-stamp-core {
+    font-family: 'Ma Shan Zheng', 'LXGW WenKai', cursive;
+    font-size: 38px;
+    font-weight: 400;
+    letter-spacing: 0.03em;
+}
+/* 盖戳日期：等宽小字，像压上去的编号 */
+.shelf-bg-stamp-date {
+    font-family: 'Courier Prime', 'Songti SC', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    opacity: 0.9;
+}
+.shelf-bg-stamp-star {
+    font-family: 'Songti SC', 'STSong', serif;
+    font-size: 11px;
+    opacity: 0.85;
+}
+
+/* ── 4. 时光尘埃 ──
+ * 只动 transform / opacity（走合成层，不触发布局）。
+ * 数量与透明度都刻意压着：宁可少而淡，不能变成下雪。 */
+.shelf-bg-dust {
+    position: absolute;
+    inset: 0;
+}
+.shelf-bg-mote {
+    position: absolute;
+    border-radius: 9999px;
+    opacity: 0;
+    will-change: transform, opacity;
+    animation-name: shelf-bg-rise;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+@keyframes shelf-bg-rise {
+    0% {
+        transform: translate3d(0, 44px, 0) scale(0.7);
+        opacity: 0;
+    }
+    18% {
+        opacity: var(--peak, 0.18);
+    }
+    70% {
+        opacity: var(--peak, 0.18);
+    }
+    100% {
+        transform: translate3d(var(--drift, 12px), -150px, 0) scale(1);
+        opacity: 0;
+    }
+}
+
+/* 减少动态效果：微尘停在原地但**保留可见**（直接隐藏会让背景失去层次） */
+@media (prefers-reduced-motion: reduce) {
+    .shelf-bg-mote {
+        animation: none;
+        opacity: 0.12;
+    }
+}

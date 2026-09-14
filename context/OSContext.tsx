@@ -1,8 +1,9 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import type { VRSARActivity } from '../types';
-import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, FanwaiStory, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, MemoryPalaceFeatureFlags } from '../types';
+import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, FanwaiStory, LetterRecord, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, MemoryPalaceFeatureFlags } from '../types';
 import { DB } from '../utils/db';
+import { setLetterContextSource } from '../utils/letter/letterMemory';
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { clampClaudeTemperature, modelRejectsSamplingParams, stripSamplingParams } from '../utils/samplingParamCompat';
 import { buildMalformedImageDiagnostics, extractImagesInPlace, deepCloneForExport, stripBackupImages, parseImageDataUrlForBackup, type BackupObjectPath, type MalformedBackupImageDiagnostic } from '../utils/backupExport';
@@ -345,6 +346,10 @@ interface OSContextType {
   addFanwaiStory: (story: FanwaiStory) => void;
   deleteFanwaiStory: (id: string) => void;
   updateFanwaiStory: (id: string, story: FanwaiStory) => void;
+  // 来信收藏（拾光 App）：信生成后自动收进来，拾光内可删（不影响聊天里的原消息）
+  collectedLetters: LetterRecord[];
+  addCollectedLetter: (letter: LetterRecord) => void;
+  deleteCollectedLetter: (id: string) => void;
 
   // Songs (Songwriting)
   songs: SongSheet[];
@@ -934,6 +939,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [novels, setNovels] = useState<NovelBook[]>([]); // New
   const [fanwaiStories, setFanwaiStories] = useState<FanwaiStory[]>([]); // 番外收藏（拾光 App）
   const pendingFanwaiDeleteRef = useRef<Record<string, number>>({}); // 软删除撤销窗口的定时器 id，撤销时取消真正删除
+  const [collectedLetters, setCollectedLetters] = useState<LetterRecord[]>([]); // 来信收藏（拾光 App）
+  const pendingLetterDeleteRef = useRef<Record<string, number>>({}); // 来信软删除撤销窗口的定时器 id
   const [songs, setSongs] = useState<SongSheet[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(defaultUserProfile);
@@ -1604,7 +1611,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         };
 
-        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbFanwaiStories, dbSongs, dbCharGroups] = await Promise.all([
+        const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbFanwaiStories, dbCollectedLetters, dbSongs, dbCharGroups] = await Promise.all([
             settle(DB.getAllCharacters(), 'characters', [] as CharacterProfile[]),
             settle(DB.getThemes(), 'themes', [] as ChatTheme[]),
             settle(DB.getUserProfile(), 'userProfile', null as UserProfile | null),
@@ -1612,6 +1619,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             settle(DB.getAllWorldbooks(), 'worldbooks', [] as Worldbook[]),
             settle(DB.getAllNovels(), 'novels', [] as NovelBook[]),
             settle(DB.getAllFanwaiStories(), 'fanwaiStories', [] as FanwaiStory[]),
+            settle(DB.getAllCollectedLetters(), 'collectedLetters', [] as LetterRecord[]),
             settle(DB.getAllSongs(), 'songs', [] as SongSheet[]),
             settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
@@ -1722,6 +1730,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         setWorldbooks(dbWorldbooks);
         setNovels(dbNovels);
         setFanwaiStories(dbFanwaiStories ?? []);
+        setCollectedLetters(dbCollectedLetters ?? []);
         setSongs(dbSongs);
         setCustomThemes(dbThemes);
         if (dbUser) setUserProfile(dbUser);
@@ -3500,6 +3509,41 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           DB.deleteFanwaiStory(id).catch(() => {});
       }, 5000);
       pendingFanwaiDeleteRef.current[id] = timer;
+      if (doomed) {
+          addToast('已从拾光移除，可撤销', 'info', { label: '撤销', onClick: undo });
+      }
+  };
+
+  // 来信上下文源：收藏变化时同步给 ContextBuilder（纯内存，构建上下文时不触发 IO）。
+  useEffect(() => {
+      setLetterContextSource(collectedLetters);
+  }, [collectedLetters]);
+
+  // 来信收藏（拾光 App）Methods
+  const addCollectedLetter = async (letter: LetterRecord) => {
+      // 同一封信只应存在一份：按 id 去重后再放最前。
+      setCollectedLetters(prev => [letter, ...prev.filter(l => l.id !== letter.id)]);
+      await DB.saveCollectedLetter(letter);
+  };
+
+  const deleteCollectedLetter = async (id: string) => {
+      // 与番外同一套软删除 + 撤销窗口；拾光里删信不影响聊天里那条原消息。
+      const doomed = collectedLetters.find(l => l.id === id);
+      setCollectedLetters(prev => prev.filter(l => l.id !== id));
+      const undo = () => {
+          if (pendingLetterDeleteRef.current[id]) clearTimeout(pendingLetterDeleteRef.current[id]);
+          delete pendingLetterDeleteRef.current[id];
+          if (doomed) {
+              setCollectedLetters(prev => prev.some(l => l.id === id) ? prev : [doomed, ...prev]);
+              DB.saveCollectedLetter(doomed).catch(() => {});
+          }
+          addToast('已恢复这封信', 'success');
+      };
+      const timer = window.setTimeout(() => {
+          delete pendingLetterDeleteRef.current[id];
+          DB.deleteCollectedLetter(id).catch(() => {});
+      }, 5000);
+      pendingLetterDeleteRef.current[id] = timer;
       if (doomed) {
           addToast('已从拾光移除，可撤销', 'info', { label: '撤销', onClick: undo });
       }
@@ -5423,6 +5467,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     addFanwaiStory,
     deleteFanwaiStory,
     updateFanwaiStory,
+    collectedLetters,
+    addCollectedLetter,
+    deleteCollectedLetter,
     songs,
     addSong,
     updateSong,

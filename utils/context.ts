@@ -12,6 +12,7 @@ import {
     type WorldbookScanMessage,
 } from './worldbook';
 import { buildSARModulePrompt } from './vrWorld/sarModuleRuntime';
+import { buildLetterInjectionBlock } from './letter/letterMemory';
 
 /**
  * 对话中的称呼规范 (Forms of Address)。
@@ -340,6 +341,14 @@ export const ContextBuilder = {
             if (mpContext && mpContext.trim()) {
                 context += `${mpContext}\n\n`;
             }
+        }
+
+        // 5c. 来信（你们之间的信）—— L0 信档案常驻 + L1 最近要点 + L2 当下层，总预算 800 字。
+        // 纯内存切片：构建上下文时不发 DB 查询、不发网络请求；没有信时返回空串。
+        // 群聊流跳过（多成员会重复注入 N 份，与上两块同一取舍）。
+        if (!groupOptions) {
+            const letterBlock = buildLetterInjectionBlock(char);
+            if (letterBlock) context += letterBlock;
         }
 
         // 6. 情绪底色 Buff (Emotion Buff Injection)

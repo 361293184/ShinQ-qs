@@ -1306,6 +1306,127 @@ export interface FanwaiStory {
 }
 
 // =====================================================================
+// --- 来信（重要日子角色主动写信）类型 ---
+// 判定来自 utils/realtimeWorldCore.ts 的 checkSpecialDatesDetailed；
+// 信落库为聊天消息（type: 'letter_card' + metadata.letter），v1 不做拾光收藏馆，
+// 信永久留在聊天记录里，不会丢。见 utils/letter/*。
+// =====================================================================
+
+/** 来信触发来源：由 checkSpecialDatesDetailed 的命中项归一化而来。 */
+export interface LetterOccasion {
+    /** 节日名：七夕 / 情人节 / 520 / 除夕 / 春节 / 用户生日 / 纪念日 title。 */
+    name: string;
+    /** 节日副标题，如「中国传统情人节」。 */
+    label?: string;
+    tier: 'core' | 'normal' | 'light';
+    isUserBirthday?: boolean;
+    isAnniversary?: boolean;
+}
+
+/** 信件调性（决定 prompt 分支与信纸配色），见 utils/letter/tonePresets.ts。 */
+export type LetterToneId = 'love' | 'family' | 'birthday' | 'anniversary' | 'festive' | 'custom';
+
+/** 信纸皮肤 id（按节日整套换肤），见 utils/letter/paperThemes.ts。 */
+export type LetterPaperThemeId =
+    | 'qixi' | 'newyear' | 'birthday' | 'anniversary' | 'christmas' | 'newyearEve' | 'default';
+
+/** 一封信。 */
+export interface LetterRecord {
+    /** `letter-${date}-${charId}`（同角色同一天唯一，天然防重）。 */
+    id: string;
+    charId: string;
+    /** 角色名快照：角色被删后仍能正确显示。 */
+    charName: string;
+    /** 信上标的日期 YYYY-MM-DD。 */
+    date: string;
+    /** 年份（= date 前四位，冗余但列表分组省事）。 */
+    year: number;
+    occasion: LetterOccasion;
+    tone: LetterToneId;
+    /** 信纸皮肤：按 tone/occasion 决定整套配色。 */
+    paperTheme: LetterPaperThemeId;
+    /** 信件名称（列表显示；模型未产出时用 occasion 名兜底）。 */
+    title: string;
+    /** 信正文（纯文本，带空行分段）。 */
+    body: string;
+    /**
+     * 信的要点（2–3 句）：写进角色记忆、后续注入上下文用，不是全文。
+     * 模型没输出时用正文首尾句拼接兜底（见 utils/letter/generator.ts）。
+     */
+    gist: string;
+    /** 落款（称呼 + 署名），可选。 */
+    signature?: string;
+    /** 字数：只作展示，不反向约束生成。 */
+    wordCount: number;
+    createdAt: number;
+    /** 拆信时间；undefined = 未拆。 */
+    readAt?: number;
+    /** 收进收藏的时间（v1 未启用收藏馆，占位为 createdAt）。 */
+    collectedAt: number;
+    /** 迟到的信：本该是哪一天写的（当天没上线，补发）。v1.3 用。 */
+    lateFor?: string;
+    /** 用户回信对应的消息 id（兼作记忆幂等键）。v1.2 用。 */
+    replyMessageId?: string;
+    /** 聊天里那条 letter_card 消息 id，用于「跳回原消息」。 */
+    sourceMessageId?: string;
+    /** 信封弹过一次就不再弹（避免刷新/切页重复弹）。 */
+    envelopeShownAt?: number;
+    /** 正文是否已分块向量化进记忆宫殿（L3 召回的前提）。 */
+    indexedToPalace?: boolean;
+    /**
+     * 信里夹的图（v2）：正文里 `[[图:描述]]` 标记按出现顺序对应生成出的图片。
+     * 生图失败时可能少于标记数，渲染层按缺省跳过那个位置。
+     */
+    letterImages?: Array<{ prompt: string; url: string }>;
+    meta?: {
+        daysTogether?: number;
+        weather?: string;
+        model?: string;
+        recalledFromPalace?: number;
+    };
+}
+
+/** 每个角色的来信配置（挂在 CharacterProfile.letterConfig）。 */
+export interface LetterConfig {
+    /** 让 ta 在重要日子给这个角色写信。 */
+    enabled: boolean;
+    /**
+     * 篇幅：auto = 由角色性格 + 记忆决定（默认，也是唯一推荐的档）。
+     * 特意只留 'auto'：留字段位以便将来扩展，但现在不给用户可选档位。
+     */
+    verbosity?: 'auto';
+    /** auto = 按节日自动分叉（见 tonePresets）；其他值手动指定覆盖。 */
+    tone?: 'auto' | LetterToneId;
+    /**
+     * 信相关上下文注入力度：index = 只注入信档案；gist = 档案 + 要点；full = 近期信全文。
+     * 由 ContextBuilder 消费，见设计稿 §5.5。
+     */
+    letterInjectMode?: 'index' | 'gist' | 'full';
+}
+
+/**
+ * 短期「最近的信」上下文（挂在 CharacterProfile 上，会过期）。
+ *
+ * 光靠长期记忆不够：记忆检索有延迟，而需求是「紧接着的下一轮就体现出来」。
+ * 所以写信 / 回信后写一份短时效上下文，24 小时 且 ≤3 轮 AI 回复，先到失效。
+ * 见设计稿 §5.4。
+ */
+export interface RecentLetterContext {
+    letterId: string;
+    /** 节日名，如「七夕」。 */
+    occasion: string;
+    /** 我写了什么（信的要点）。 */
+    gist: string;
+    /** 你回了什么（原文；回信后才有）。 */
+    replyText?: string;
+    createdAt: number;
+    /** 到期时间（24 小时）。 */
+    expiresAt: number;
+    /** 剩余可注入轮数：每轮 AI 回复后 -1，≤0 即失效。 */
+    turnsLeft: number;
+}
+
+// =====================================================================
 // --- TECNO HANDOU (手账) TYPES ---
 // 个人日程/打卡/碎碎念手账（源自 techo 插件 React 移植）。
 // 存储走 STORE_TECHO 通用 KV store，key 见 utils/techoStore.ts。
@@ -3152,6 +3273,10 @@ export interface CharacterProfile {
   offlineConfig?: OfflineConfig;
   /** 相伴纪念日（YYYY-MM-DD，可空）：用于桌面槽位与特殊日期「相伴 N 天」计算 */
   relationshipStartDate?: string;
+  /** 来信配置（开关/调性/注入力度），见 utils/letter/*。 */
+  letterConfig?: LetterConfig;
+  /** 短期「最近的信」上下文（24h / ≤3 轮，先到失效），让角色下一轮就知道。 */
+  recentLetterContext?: RecentLetterContext;
 
   savedDateState?: DateState;
   specialMomentRecords?: Record<string, SpecialMomentRecord>;
@@ -4107,7 +4232,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay' | 'letter_card' | 'letter_reply_card';
 
 /** 角色心声 —— 台词没说出口的内心，随台词同一次输出、入库前剥离，仅存于 metadata 不渲染不入上下文。 */
 export interface InnerVoiceLayer {
@@ -4205,6 +4330,7 @@ export interface FullBackupData {
     
     novels?: NovelBook[];
     fanwaiStories?: FanwaiStory[];      // 番外收藏（拾光 App）
+    collectedLetters?: LetterRecord[];  // 来信收藏（拾光 App）
     vrNovels?: VRWorldNovel[];          // 虚拟世界「彼方」全局小说库
     vrAnnotations?: VRNovelAnnotation[]; // 虚拟世界小说批注
     customCreatorParts?: CustomCreatorPart[]; // 捏脸系统自定义部件

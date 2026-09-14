@@ -1,0 +1,250 @@
+/**
+ * 拾光 · 票根卡片样式。
+ *
+ * 只服务拾光首页的角色卡，前缀统一 .shelf-ticket-，不外泄、不覆盖全局选择器。
+ *
+ * 注：这个文件在开发期被高频热更新过，如果哪天发现「卡片突然完全没样式、但同页
+ * 其他 CSS 都正常」，先怀疑 Vite dev server 的 CSS 模块图失效 —— 重启 server，
+ * 而不是找语法错误（esbuild 能解析通过就说明文件本身没问题）。
+ *
+ * 关键手法：**齿孔用 mask 切，不用图片、不用伪元素拼**。
+ * 票根的灵魂就是边缘那排半圆缺口，而它必须跟着卡片宽度自适应 ——
+ * 用 background-image 贴一排小圆点会在不同宽度下错位，用 mask 是唯一稳的做法。
+ *
+ * 四条渐变各画一部分缺口（上排孔 / 下排孔 / 撕线左右两个缺口），靠 **交集合成** 拼出完整齿孔。
+ *
+ * 这里是最容易踩的坑：多层 mask 的默认合成是 source-over（后层叠加并**覆盖**前层），不是并集。
+ * 一旦用默认值，第 2 层会把第 1 层挖好的孔填回不透明，第 3、4 层再把剩下的填掉 ——
+ * 最后整张卡完全不透明，齿孔一个都看不见（这个 bug 真实发生过）。
+ *
+ * 交集语义下，只有「四层都不透明」的区域才显示，正好等于「不在任何孔里」的区域。
+ * 标准属性与 Safari 前缀必须**同时**写，只写一个的话 iOS 上仍然是平滑圆角。
+ */
+
+.shelf-ticket {
+    /* 齿孔半径与孔间距：半径越大孔越明显，间距决定边缘的疏密。
+       7px / 20px 是在真机上「一眼能认出这是票根」的下限 —— 再小就只是圆角毛边了。 */
+    --notch: 7px;
+    --pitch: 20px;
+    /* 撕线在卡片高度上的位置（与 .shelf-ticket-photo 的高度保持一致） */
+    --perf: 64%;
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* 直角小圆角：真票根的四角几乎不带圆润感，14px 太"卡片"了 */
+    border-radius: 5px;
+    /* ── 偏白硬卡纸 ──
+     * 纸面保持干净（不做纤维压纹），靠三样东西立住质感：
+     *   ① 顶部受光 + 底部压沉的纵向渐变 = 纸面的起伏
+     *   ② 主色渐变：左上略亮、右下略沉
+     *   ③ 上下两道边：上沿一道高光、下沿一道暗边，做出纸的厚度
+     *
+     * 全是 inset（盒内绘制），所以**不会被 mask 裁掉** —— mask 只裁盒子外面。 */
+    background-color: #efeae0;
+    background-image:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0) 24%, rgba(0, 0, 0, 0) 74%, rgba(88, 68, 44, 0.07) 100%),
+        linear-gradient(168deg, #f6f2e9 0%, #efeae0 46%, #e3ddd0 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        inset 0 -1px 0 rgba(88, 68, 44, 0.12);
+
+    /* 影子必须用 filter: drop-shadow，**不能用外阴影的 box-shadow**。
+       原因：这个元素上有 mask，而 mask 会裁掉元素盒子之外的一切 —— box-shadow 画在盒子外面，
+       正好被整个裁掉（所以之前卡片一直是没影子的，看起来"没压住"）。
+       drop-shadow 作用在渲染结果上，不但不会被裁，还会**跟着齿孔的锯齿轮廓走**：
+       影子边缘自带缺口，比矩形阴影真实得多。 */
+    filter: drop-shadow(0 14px 18px rgba(74, 63, 53, 0.42));
+
+    -webkit-mask-image:
+        /* 上边缘：一排半圆缺口 */
+        radial-gradient(circle var(--notch) at calc(var(--pitch) / 2) 0, transparent 0 calc(var(--notch) - 0.5px), #000 var(--notch)),
+        /* 下边缘：同样一排 */
+        radial-gradient(circle var(--notch) at calc(var(--pitch) / 2) 100%, transparent 0 calc(var(--notch) - 0.5px), #000 var(--notch)),
+        /* 撕线左端缺口 */
+        radial-gradient(circle 8px at 0 var(--perf), transparent 0 7.5px, #000 8px),
+        /* 撕线右端缺口 */
+        radial-gradient(circle 8px at 100% var(--perf), transparent 0 7.5px, #000 8px);
+    -webkit-mask-size: var(--pitch) 100%, var(--pitch) 100%, 100% 100%, 100% 100%;
+    -webkit-mask-repeat: repeat-x, repeat-x, no-repeat, no-repeat;
+    -webkit-mask-composite: source-in;
+
+    mask-image:
+        radial-gradient(circle var(--notch) at calc(var(--pitch) / 2) 0, transparent 0 calc(var(--notch) - 0.5px), #000 var(--notch)),
+        radial-gradient(circle var(--notch) at calc(var(--pitch) / 2) 100%, transparent 0 calc(var(--notch) - 0.5px), #000 var(--notch)),
+        radial-gradient(circle 8px at 0 var(--perf), transparent 0 7.5px, #000 8px),
+        radial-gradient(circle 8px at 100% var(--perf), transparent 0 7.5px, #000 8px);
+    mask-size: var(--pitch) 100%, var(--pitch) 100%, 100% 100%, 100% 100%;
+    mask-repeat: repeat-x, repeat-x, no-repeat, no-repeat;
+    mask-composite: intersect;
+
+    transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.25s ease;
+}
+.shelf-ticket:hover {
+    transform: translateY(-3px);
+    /* 抬起时影子更长更淡，符合"离纸面更远"的直觉 */
+    filter: drop-shadow(0 20px 24px rgba(74, 63, 53, 0.44));
+}
+.shelf-ticket:active {
+    transform: scale(0.985);
+}
+
+/* ── 照片区 ── */
+.shelf-ticket-photo {
+    position: relative;
+    flex: 0 0 var(--perf);
+    min-height: 0;
+    padding: 9px 9px 0;
+}
+.shelf-ticket-photo-frame {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 10px;
+    background: linear-gradient(160deg, #f8f5ee 0%, #e9e3d7 100%);
+    /* 照片四周一道深褐细线：像被嵌进卡纸里的相框 */
+    box-shadow: inset 0 0 0 1px rgba(90, 70, 45, 0.34);
+}
+/* 照片顶部压一层极淡的暗影。
+   底部的 veil 只解决了性格话的可读性，顶部那行统计小字同样是白字压在照片上 ——
+   遇到浅色照片就看不见了。 */
+.shelf-ticket-photo-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 66px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(24, 20, 16, 0.44), transparent);
+}
+.shelf-ticket-photo-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    /* 极轻的旧色：卡纸是旧的，照片要是崭新的就两张皮了。
+       只给 12% 的 sepia —— 目标是"略微褪色"，不是"泛黄老照片"。 */
+    filter: sepia(0.12) saturate(1.05) contrast(1.02);
+}
+
+/* 照片上的文字：底部压一层由深到透的渐变，保证白字在任何图上都读得清 */
+.shelf-ticket-photo-veil {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 26px 12px 10px;
+    background: linear-gradient(180deg, transparent 0%, rgba(24, 20, 16, 0.10) 34%, rgba(24, 20, 16, 0.72) 100%);
+    text-align: center;
+}
+.shelf-ticket-line {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #fdfaf4;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* 顶部轻量信息（收藏数量 / 最近时间）：只做提示，不抢照片 */
+.shelf-ticket-photo-top {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* ── 撕线 ──
+ * 不用一条整齐的 dashed：真撕口是两排错开的短纤维，整齐的虚线一眼就是画上去的。
+ * 两条 1px 高的 repeating-linear-gradient 错位叠放（间距 5/9 与 3/7 故意不同），
+ * 上排实、下排淡，就有了「毛毛的」边缘感。 */
+.shelf-ticket-perf {
+    position: relative;
+    flex: 0 0 auto;
+    height: 0;
+}
+.shelf-ticket-perf::after {
+    content: '';
+    position: absolute;
+    left: 15px;
+    right: 15px;
+    top: 0;
+    height: 3px;
+    background-image:
+        repeating-linear-gradient(90deg, rgba(90, 70, 45, 0.68) 0 5px, transparent 5px 9px),
+        repeating-linear-gradient(90deg, rgba(90, 70, 45, 0.3) 0 3px, transparent 3px 7px);
+    background-size: 100% 1px, 100% 1px;
+    background-position: 0 0, 2px 2px;
+    background-repeat: no-repeat;
+}
+
+/* ── 票根区：编号 / 角色名 / 条形码 ── */
+.shelf-ticket-stub {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 9px;
+    padding: 12px 18px 16px;
+}
+/* 票根四边一道内嵌细线框 —— 老票根上印的边框 */
+.shelf-ticket-stub::before {
+    content: '';
+    position: absolute;
+    inset: 6px 10px 8px;
+    border: 1px solid rgba(90, 70, 45, 0.26);
+    border-radius: 2px;
+    pointer-events: none;
+}
+.shelf-ticket-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+/* 票根上的字：深褐黑。米白纸上不需要烫金 —— 黑字才是票据本来的样子 */
+.shelf-ticket-serial {
+    font-family: 'Courier Prime', 'Songti SC', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #2a2620;
+}
+.shelf-ticket-name {
+    min-width: 0;
+    overflow: hidden;
+    font-family: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif SC', serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #2a2620;
+}
+
+/* 条形码：条宽按权重分配（flex-grow），所以能撑满整条票根，又保持粗细参差 */
+.shelf-ticket-barcode {
+    display: flex;
+    align-items: stretch;
+    gap: 1.5px;
+    height: 26px;
+}
+.shelf-ticket-barcode span {
+    height: 100%;
+    background: #2a2620;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shelf-ticket,
+    .shelf-ticket:hover,
+    .shelf-ticket:active {
+        transition: none;
+        transform: none;
+    }
+}

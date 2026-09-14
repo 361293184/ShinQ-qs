@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import Modal from '../os/Modal';
-import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
+import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig, LetterToneId } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
 import ChatInputSettings from './ChatInputSettings';
@@ -12,6 +12,7 @@ import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 import { trackEvent } from '../../utils/analytics';
+import { LETTER_TONES } from '../../utils/letter/tonePresets';
 
 interface ChatModalsProps {
     modalType: string;
@@ -163,6 +164,15 @@ interface ChatModalsProps {
         waterlineAlreadyAhead: boolean;
     } | null;
     onForceVectorize?: () => void;
+    // 来信（重要日子角色主动写信）
+    letterEnabled?: boolean;
+    onToggleLetter?: () => void;
+    /** 'auto' = 按节日自动分叉调性；其他值手动指定。 */
+    letterTone?: 'auto' | LetterToneId;
+    onSetLetterTone?: (tone: 'auto' | LetterToneId) => void;
+    /** 「让 ta 现在写一封」：手动跑完整链路（生成 → 信封弹出 → 拆信）。 */
+    onComposeLetter?: () => void;
+    letterComposing?: boolean;
     // Emotion (embedded under schedule modal, synced on/off with scheduleStyle)
     apiPresets?: ApiPreset[];
     onAddApiPreset?: (name: string, config: APIConfig) => void;
@@ -284,6 +294,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     isScheduleFeatureEnabled, onToggleScheduleFeature,
     isMemoryPalaceEnabled, isVectorizing, vectorizePendingCount, vectorizeProgress,
     retainRecentForVectorize, setRetainRecentForVectorize, vectorizeResult, onForceVectorize,
+    letterEnabled, onToggleLetter, letterTone, onSetLetterTone, onComposeLetter, letterComposing,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs,
 }) => {
     const bgInputRef = useRef<HTMLInputElement>(null);
@@ -589,6 +600,62 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                     使用副 API 分批整理。正式开始前会再次说明影响，不会直接执行。
                                 </p>
                             </div>
+                        )}
+                    </ChatSettingsSection>
+                    <ChatSettingsSection title="来信" summary="让 ta 在重要日子给你写一封信">
+                        <div className="flex justify-between items-center cursor-pointer" onClick={onToggleLetter}>
+                            <div className="min-w-0 pr-3">
+                                <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">重要日子来信</label>
+                                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                    七夕、除夕、你的生日……到了这些日子，ta 会给你写一封信，信封会落在聊天里。
+                                </p>
+                            </div>
+                            <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center shrink-0 ${letterEnabled ? 'bg-primary' : 'bg-slate-200'}`}>
+                                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${letterEnabled ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                        </div>
+
+                        {letterEnabled && (
+                            <>
+                                <div className="pt-3 border-t border-slate-100">
+                                    <label className="text-xs font-bold text-slate-400 uppercase">调性</label>
+                                    <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">决定这封信的语气，也决定信纸的配色。</p>
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => onSetLetterTone?.('auto')}
+                                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${(!letterTone || letterTone === 'auto') ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-500'}`}
+                                        >
+                                            跟随节日
+                                        </button>
+                                        {LETTER_TONES.map(t => (
+                                            <button
+                                                type="button"
+                                                key={t.id}
+                                                title={t.hint}
+                                                onClick={() => onSetLetterTone?.(t.id)}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${letterTone === t.id ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-500'}`}
+                                            >
+                                                {t.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="pt-3 border-t border-slate-100">
+                                    <button
+                                        type="button"
+                                        onClick={onComposeLetter}
+                                        disabled={letterComposing}
+                                        className="w-full py-3 bg-amber-50 text-amber-700 font-bold rounded-2xl border border-amber-200 active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        {letterComposing ? '✍️ ta 正在写…' : '✉️ 让 ta 现在写一封'}
+                                    </button>
+                                    <p className="text-[10px] text-slate-400 mt-2 text-center leading-relaxed">
+                                        用副 API 生成，写完信封会弹在聊天里（用来先看看效果）。
+                                    </p>
+                                </div>
+                            </>
                         )}
                     </ChatSettingsSection>
                     <ChatSettingsSection title="翻译与语音" summary="消息语言、语音与自动播放">

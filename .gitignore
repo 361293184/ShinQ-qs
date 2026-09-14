@@ -87,3 +87,6 @@ xiaohongshu-skills/
 
 # Local generated previews, browser QA and isolated build artifacts.
 /output/
+
+# Isolated build output used to syntax-check CSS during development.
+/dist-csscheck/

@@ -4,7 +4,7 @@ import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anni
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Message, ChatTheme, OfflineConfig, InnerVoiceLayer } from '../../types';
+import { Message, ChatTheme, OfflineConfig, InnerVoiceLayer, LetterRecord, LetterPaperThemeId } from '../../types';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
 import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
 // SAR 设施卡：钓鱼卖出回执（上游新增，按需加载）
@@ -21,6 +21,9 @@ import { dataUrlToBlob, isImageValue, useBlobRefUrl } from '../../utils/blobRef'
 import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
 import { stripLeakedSourceTags } from '../../utils/sanitize';
 import { fetchBlobForShare, shareOrDownloadBlob } from '../../utils/shareExport';
+import { getPaperTheme } from '../../utils/letter/paperThemes';
+import LetterEnvelope from '../letter/LetterEnvelope';
+import LetterReplyView from '../letter/LetterReplyView';
 import { SARSpeechSwitch } from '../sar/SARSpeechSwitch';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
@@ -1152,6 +1155,8 @@ interface MessageItemProps {
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
     /** 生图消息：AI 主动生成的图片，失败时点「重试」重新触发 */
     onRetryImageGen?: (msgId: number, sceneDesc: string) => void;
+    /** 来信卡片：点开后提交回信（落库 + 幂等写记忆） */
+    onLetterReply?: (letter: LetterRecord, text: string) => void | Promise<void>;
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
@@ -1209,6 +1214,7 @@ const MessageItem = React.memo(({
     onResolveTransfer,
     onResolveLifeRecord,
     onRetryImageGen,
+    onLetterReply,
     thinkingChainOptions,
     offlineConfig,
     innerVoiceHost = false,
@@ -1243,6 +1249,10 @@ const MessageItem = React.memo(({
     const [previewSrc, setPreviewSrc] = useState<string | null>(null);
     const [previewDownloading, setPreviewDownloading] = useState(false);
     const [showSarTruth, setShowSarTruth] = useState(false);
+    // 来信卡片：点击拆开 → 信封浮层（null = 未打开）
+    const [openLetter, setOpenLetter] = useState<LetterRecord | null>(null);
+    // 回信卡片：点击展开我写的那封（null = 未打开）
+    const [openReply, setOpenReply] = useState<{ text: string; occasion: string; paperTheme?: LetterPaperThemeId } | null>(null);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
     const [isReplyReady, setIsReplyReady] = useState(false);
@@ -2194,6 +2204,116 @@ const MessageItem = React.memo(({
                     )}
                 </div>
             </div>
+        );
+    }
+
+    // --- Letter Card (重要日子角色写来的信·信封卡片) ---
+    if (m.type === 'letter_card' && m.metadata?.letter) {
+        const letter: LetterRecord = m.metadata.letter;
+        const theme = getPaperTheme(letter.paperTheme);
+        return commonLayout(
+            <>
+                <button
+                    type="button"
+                    onClick={() => setOpenLetter(letter)}
+                    className="w-60 cursor-pointer select-none overflow-hidden rounded-2xl text-left shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-transform active:scale-[0.98]"
+                    style={{ background: theme.paper, border: `1px solid ${theme.stamp}44` }}
+                >
+                    {/* 顶栏：来信 + 日期 */}
+                    <div
+                        className="flex items-center justify-between px-3 py-1.5"
+                        style={{ background: `${theme.stamp}1f`, borderBottom: `1px solid ${theme.stamp}33` }}
+                    >
+                        <span className="text-[9px] font-extrabold tracking-widest" style={{ color: theme.stamp }}>来信</span>
+                        <span className="text-[9px]" style={{ color: theme.ink, opacity: 0.55 }}>{letter.date}</span>
+                    </div>
+                    {/* 主体：迷你信封 + 标题 */}
+                    <div className="flex items-center gap-3 px-3 py-3.5">
+                        <div className="relative shrink-0 rounded-md" style={{ width: 46, height: 33, background: '#FFFFFF', border: `1px solid ${theme.stamp}55` }}>
+                            <span
+                                aria-hidden
+                                className="absolute inset-0 rounded-md"
+                                style={{ background: `${theme.stamp}12`, clipPath: 'polygon(0 0, 100% 0, 50% 58%)' }}
+                            />
+                            <span
+                                className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                                style={{ background: theme.seal, boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
+                            />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-[13px] font-bold" style={{ color: theme.ink }}>{letter.title}</div>
+                            <div className="mt-0.5 truncate text-[10px]" style={{ color: theme.ink, opacity: 0.6 }}>
+                                {letter.occasion.name} · 轻触拆开
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                {openLetter && (
+                    <LetterEnvelope
+                        letter={openLetter}
+                        onClose={() => setOpenLetter(null)}
+                        onReply={onLetterReply ? (text) => onLetterReply(openLetter, text) : undefined}
+                    />
+                )}
+            </>
+        );
+    }
+
+    // --- Letter Reply Card (我写的回信·与来信卡片成对，用白底 + 虚线描边区分方向) ---
+    if (m.type === 'letter_reply_card') {
+        const meta = m.metadata?.letterReply || {};
+        const theme = getPaperTheme(meta.paperTheme || 'default');
+        const replyBody: string = meta.text || m.content || '';
+        return commonLayout(
+            <>
+                <button
+                    type="button"
+                    onClick={() => setOpenReply({ text: replyBody, occasion: meta.occasion || '', paperTheme: meta.paperTheme })}
+                    className="w-60 cursor-pointer select-none overflow-hidden rounded-2xl text-left shadow-[0_6px_22px_rgba(0,0,0,0.18)] transition-transform active:scale-[0.98]"
+                    style={{ background: '#FFFFFF', border: `1.5px dashed ${theme.stamp}66` }}
+                >
+                    {/* 顶栏：与来信卡片对称，浅底 + 虚线区分 */}
+                    <div
+                        className="flex items-center justify-between px-3 py-1.5"
+                        style={{ background: `${theme.stamp}12`, borderBottom: `1px solid ${theme.stamp}22` }}
+                    >
+                        <span className="text-[9px] font-extrabold tracking-widest" style={{ color: theme.stamp }}>我的回信</span>
+                        <span className="text-[9px] text-slate-400">
+                            {meta.replyAt ? new Date(meta.replyAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''}
+                        </span>
+                    </div>
+                    {/* 主体：虚线迷你信封 + 回给哪封信 */}
+                    <div className="flex items-center gap-3 px-3 py-3.5">
+                        <div
+                            className="relative shrink-0 rounded-md"
+                            style={{ width: 46, height: 33, background: '#F8FAFC', border: `1px dashed ${theme.stamp}66` }}
+                        >
+                            <span
+                                className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                                style={{ background: theme.stamp, opacity: 0.7 }}
+                            />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-[13px] font-bold text-slate-700">
+                                回给{meta.originalTitle ? `「${meta.originalTitle}」` : '那封信'}
+                            </div>
+                            <div className="mt-0.5 truncate text-[10px] text-slate-400">
+                                {meta.occasion ? `${meta.occasion} · ` : ''}轻触展开
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                {openReply && (
+                    <LetterReplyView
+                        text={openReply.text}
+                        occasion={openReply.occasion}
+                        paperTheme={openReply.paperTheme}
+                        onClose={() => setOpenReply(null)}
+                    />
+                )}
+            </>
         );
     }
 

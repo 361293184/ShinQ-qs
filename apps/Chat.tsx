@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
-import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
+import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot, Anniversary } from '../types';
 import { processImage, processImageToBlob } from '../utils/file';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
@@ -28,6 +28,21 @@ import { isMcdConfigured } from '../utils/mcdMcpClient';
 import { isMcdActivatedInMessages, MCD_ACTIVATE_TRIGGER, MCD_DEACTIVATE_TRIGGER } from '../utils/mcdToolBridge';
 import { isLuckinConfigured } from '../utils/luckinMcpClient';
 import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE_TRIGGER } from '../utils/luckinToolBridge';
+import { generateLetter, extractImageMarkers } from '../utils/letter/generator';
+import { saveLetterReply, letterReplyMeta } from '../utils/letter/reply';
+import { indexLetterToPalace } from '../utils/letter/letterMemory';
+import {
+    readLastSeenDate,
+    writeLastSeenDate,
+    hasLetterWritten,
+    markLetterWritten,
+    resolveLetterTrigger,
+    isLetterEligible,
+    isLetterEnabled,
+} from '../utils/letter/letterTrigger';
+import { checkSpecialDatesDetailed } from '../utils/realtimeWorldCore';
+import LetterEnvelope from '../components/letter/LetterEnvelope';
+import type { LetterRecord, LetterOccasion, LetterToneId } from '../types';
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
 import ImageGenPanel from '../components/chat/ImageGenPanel';
 import NovelReaderPanel from '../components/chat/NovelReaderPanel';
@@ -146,7 +161,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
+    const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, addCollectedLetter, collectedLetters, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -161,6 +176,11 @@ const Chat: React.FC = () => {
     // 生图：已处理过的消息 id（去重，避免 messages 变化导致重复触发）；手动生图面板开关
     const processedMsgIdsRef = useRef<Set<number>>(new Set());
     const [showImageGenPanel, setShowImageGenPanel] = useState(false);
+    // 来信：生成中 / 待展示的信（信封浮层）
+    const [letterComposing, setLetterComposing] = useState(false);
+    const [pendingLetter, setPendingLetter] = useState<LetterRecord | null>(null);
+    // 来信触发判定需要「用户纪念日」（按 MM-DD 命中 core）；一次性加载，失败降级为空。
+    const [letterAnniversaries, setLetterAnniversaries] = useState<Anniversary[]>([]);
     // 角色心声：点最新一条角色消息头像 → 弹出「此刻的心里话」；null = 未打开
     const [innerVoiceMsg, setInnerVoiceMsg] = useState<Message | null>(null);
     // Instant Push 路径："准备中"三个点 = 消息正在拼接+发送; 消失 = SSE POST 已排进
@@ -2710,6 +2730,263 @@ const Chat: React.FC = () => {
         }
     };
 
+    // ===== 来信：重要日子角色主动写信 =====
+    // 触发判定要看「今天是不是用户生日 / 纪念日」，纪念日一次性读取即可（失败降级为空）。
+    useEffect(() => {
+        let cancelled = false;
+        DB.getAllAnniversaries()
+            .then(list => { if (!cancelled) setLetterAnniversaries(Array.isArray(list) ? list : []); })
+            .catch(e => console.error('[Letter] load anniversaries failed:', e));
+        return () => { cancelled = true; };
+    }, []);
+
+    const handleToggleLetter = () => {
+        if (!char) return;
+        const prev = char.letterConfig || { enabled: false };
+        updateCharacter(char.id, { letterConfig: { ...prev, enabled: !prev.enabled } });
+    };
+
+    const handleSetLetterTone = (tone: 'auto' | LetterToneId) => {
+        if (!char) return;
+        const prev = char.letterConfig || { enabled: false };
+        updateCharacter(char.id, { letterConfig: { ...prev, tone } });
+    };
+
+    /** 相伴天数（有 relationshipStartDate 时算，含首日在内）。 */
+    const calcDaysTogether = (start?: string): number | undefined => {
+        if (!start) return undefined;
+        const t = Date.parse(start);
+        if (!isFinite(t)) return undefined;
+        return Math.max(1, Math.floor((Date.now() - t) / 86400000) + 1);
+    };
+
+    /** 真正的写信动作：生成 → 落库 → 幂等记忆 + 短期上下文 → 自动进拾光 → 弹信封。 */
+    const composeLetter = async (
+        occasion: LetterOccasion,
+        dateStr: string,
+        opts?: { egg?: string; lateFor?: string },
+    ) => {
+        if (!char) return;
+        const subApi = {
+            baseUrl: apiConfig.subBaseUrl,
+            apiKey: apiConfig.subApiKey,
+            model: apiConfig.subModel,
+        };
+        if (!subApi.baseUrl || !subApi.apiKey || !subApi.model) {
+            addToast('请先在设置里配置副 API（来信用它生成）', 'error');
+            return;
+        }
+        setLetterComposing(true);
+        try {
+            // 防重复：找同一节日最近写过的一封，把开头句带进 prompt 要求换角度。
+            const priorSame = collectedLetters
+                .filter(l => l.charId === char.id && l.occasion.name === occasion.name)
+                .sort((a, b) => b.createdAt - a.createdAt)[0];
+            const previousOpening = priorSame
+                ? priorSame.body.replace(/\s+/g, ' ').trim().slice(0, 40)
+                : undefined;
+
+            const result = await generateLetter(
+                char,
+                userProfile,
+                {
+                    occasion,
+                    date: dateStr,
+                    tone: char.letterConfig?.tone || 'auto',
+                    egg: opts?.egg,
+                    lateFor: opts?.lateFor,
+                    previousOpening,
+                    daysTogether: calcDaysTogether(char.relationshipStartDate),
+                    recentMessages: messages.slice(-40).map(m => ({ role: m.role, content: m.content })),
+                },
+                subApi,
+            );
+
+            if (!result.ok || !result.letter) {
+                addToast(result.reason === 'empty' ? '这次没写出来，再试一次吧' : '来信生成失败，请检查副 API 与网络', 'error');
+                return;
+            }
+
+            let letter = result.letter;
+
+            // v2 信里夹图：正文里的 `[[图:描述]]` 标记 → 调项目生图能力画出来，夹进信里。
+            // 生图失败就省略那张图、信照常发（图是锦上添花，不能拖累收信）。
+            const imageMarkers = extractImageMarkers(letter.body);
+            if (imageMarkers.length > 0) {
+                const genBase = apiConfig.imageGenBaseUrl;
+                const genKey = apiConfig.imageGenApiKey;
+                const genModel = apiConfig.imageGenModel;
+                if (genBase && genKey && genModel) {
+                    const generated: Array<{ prompt: string; url: string }> = [];
+                    for (const desc of imageMarkers.slice(0, 1)) {
+                        try {
+                            const imgRes = await generateImageApi({
+                                baseUrl: genBase,
+                                apiKey: genKey,
+                                model: genModel,
+                                prompt: `一张生活照：${desc}。这是「${char.name}」写给 ta 的信里夹的一张照片，自然光、真实质感，画面里不要出现任何文字或水印。`,
+                                size: '1024x1024',
+                                timeoutMs: 180000,
+                            });
+                            if (imgRes?.url) generated.push({ prompt: desc, url: imgRes.url });
+                        } catch (e) {
+                            console.error('[Letter] inline image gen failed (信继续发):', e);
+                        }
+                    }
+                    if (generated.length > 0) letter = { ...letter, letterImages: generated };
+                }
+            }
+
+            const newMsgId = await DB.saveMessage({
+                charId: char.id,
+                role: 'assistant',
+                type: 'letter_card',
+                content: letter.title,
+                metadata: { letter },
+            } as any);
+
+            setMessages(prev => [...prev, {
+                id: newMsgId,
+                charId: char.id,
+                role: 'assistant',
+                type: 'letter_card',
+                content: letter.title,
+                timestamp: letter.createdAt,
+                metadata: { letter },
+            } as Message]);
+
+            // 幂等写一条长期记忆：角色「记得自己写过」，重写替换而非追加。
+            // 同时写短期「最近的信」上下文（24h / ≤3 轮），让紧接着的下一轮就有当下感。
+            const memId = `mem-letter-${letter.id}`;
+            const prevMems = char.memories || [];
+            const nowMs = Date.now();
+            updateCharacter(char.id, {
+                memories: [
+                    ...prevMems.filter(m => m.id !== memId),
+                    { id: memId, date: letter.date, summary: `在「${letter.occasion.name}」这天，我给 ta 写了一封信。大意是：${letter.gist}`, mood: 'tender' },
+                ],
+                recentLetterContext: {
+                    letterId: letter.id,
+                    occasion: letter.occasion.name,
+                    gist: letter.gist,
+                    createdAt: nowMs,
+                    expiresAt: nowMs + 24 * 60 * 60 * 1000,
+                    turnsLeft: 3,
+                },
+            });
+
+            // 信一生成就自动收进拾光：礼物的仪式感在「拆信」，不该要求用户再做一次「收藏」。
+            void addCollectedLetter(letter);
+
+            // 后台异步：把信全文分块进记忆宫殿（不阻塞拆信；未开宫殿的角色自动跳过）。
+            // 这是「L3 召回层」的前提 —— 让信原文可被向量检索，而不是靠 prompt 硬塞全文。
+            const mpEmb = memoryPalaceConfig?.embedding;
+            const mpLLM = memoryPalaceConfig?.lightLLM;
+            if (char.memoryPalaceEnabled && mpEmb?.baseUrl && mpEmb?.apiKey && mpLLM?.baseUrl) {
+                void indexLetterToPalace(letter, char, userProfile?.name || '', mpEmb, mpLLM)
+                    .then(ok => { if (ok) void addCollectedLetter({ ...letter, indexedToPalace: true }); });
+            }
+
+            setPendingLetter(letter);
+        } catch (e: any) {
+            console.error('[Letter] compose failed:', e);
+            addToast('来信生成失败，请检查副 API 与网络', 'error');
+        } finally {
+            setLetterComposing(false);
+        }
+    };
+
+    /** 「让 ta 现在写一封」：手动跑完整链路（测试入口，不写「一天一封」标记）。 */
+    const handleComposeLetter = async () => {
+        if (!char || letterComposing) return;
+        const charAnnis = letterAnniversaries.filter(a => !(a as any).charId || (a as any).charId === char.id);
+        const hits = checkSpecialDatesDetailed(
+            resolveCharTimeZone(char),
+            Date.now(),
+            charAnnis,
+            userProfile?.birthday,
+        );
+        const hit = hits.find(h => h.tier === 'core') || hits[0];
+        const occasion: LetterOccasion = hit
+            ? { name: hit.name, label: hit.label, tier: hit.tier, isUserBirthday: hit.isUserBirthday, isAnniversary: hit.isAnniversary }
+            : { name: '平常日子', tier: 'core' };
+        await composeLetter(occasion, localDateKey, { egg: hit?.egg });
+    };
+
+    /** 用户回信：落库 + 幂等写记忆 + 刷新短期「最近的信」上下文（角色下一轮就知道）。 */
+    const handleLetterReply = async (letter: LetterRecord, text: string) => {
+        if (!char) return;
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        try {
+            const newMsgId = await saveLetterReply(letter, trimmed, char, updateCharacter);
+            setMessages(prev => [...prev, {
+                id: newMsgId,
+                charId: char.id,
+                role: 'user',
+                // 回信在聊天里是「回信卡片」（与来信卡片成对），不是气泡文字。
+                type: 'letter_reply_card',
+                content: trimmed,
+                timestamp: Date.now(),
+                metadata: letterReplyMeta(letter),
+            } as Message]);
+            addToast('回信已寄出', 'success');
+        } catch (e: any) {
+            console.error('[Letter] reply failed:', e);
+            addToast('回信寄出失败，请重试', 'error');
+        }
+    };
+
+    // 来信短期上下文「最近的信」按轮数衰减：每轮 AI 回复收尾时 -1，归零或过期即清空。
+    const prevLetterTypingRef = useRef(false);
+    useEffect(() => {
+        if (!char) { prevLetterTypingRef.current = isTyping; return; }
+        const ctx = char.recentLetterContext;
+        if (prevLetterTypingRef.current && !isTyping && ctx) {
+            const expired = ctx.expiresAt <= Date.now();
+            const nextTurns = (ctx.turnsLeft ?? 0) - 1;
+            updateCharacter(char.id, {
+                recentLetterContext: (expired || nextTurns <= 0) ? undefined : { ...ctx, turnsLeft: nextTurns },
+            });
+        }
+        prevLetterTypingRef.current = isTyping;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isTyping, char?.id]);
+
+    // 来信：进入某个角色的私聊时判定一次（当天首次进就写，不是开机批跑；不做空闲检测）。
+    const letterTriggerRef = useRef('');
+    useEffect(() => {
+        if (view !== 'chat' || !char) return;
+        if (!isLetterEnabled(char)) return;
+        const today = localDateKey;
+        const gate = `${char.id}:${today}`;
+        if (letterTriggerRef.current === gate) return;   // 同一次会话只判一次
+        letterTriggerRef.current = gate;
+
+        // 一天一封 + 活跃度门槛（防陌生角色轰炸）。
+        if (hasLetterWritten(char.id, today)) return;
+        const lastActiveTs = messages[messages.length - 1]?.timestamp;
+        if (!isLetterEligible(lastActiveTs)) return;
+
+        // 迟到信的区间要基于「上次上线日」，所以先读后写。
+        const lastSeen = readLastSeenDate();
+        writeLastSeenDate(today);
+
+        const charAnnis = letterAnniversaries.filter(a => !(a as any).charId || (a as any).charId === char.id);
+        const trigger = resolveLetterTrigger({
+            lastSeenDate: lastSeen && lastSeen < today ? lastSeen : null,
+            today,
+            tz: resolveCharTimeZone(char),
+            anniversaries: charAnnis,
+            birthday: userProfile?.birthday,
+        });
+        if (!trigger) return;
+
+        void composeLetter(trigger.occasion, today, { egg: trigger.egg, lateFor: trigger.lateFor })
+            .then(() => markLetterWritten(char.id, today));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [view, char?.id, messages.length, letterAnniversaries]);
+
     const saveSettings = async () => {
         const canUseAdaptiveRange = !!(char.autoArchiveEnabled || char.contextFollowsMemoryPalaceHwm);
         const nextMode: ContextRangeMode = canUseAdaptiveRange
@@ -4004,7 +4281,22 @@ const Chat: React.FC = () => {
                     updateCharacter(char.id, { activeBuffs: [], buffInjection: '' });
                     addToast('情绪状态已清除', 'info');
                 }}
+                letterEnabled={!!char.letterConfig?.enabled}
+                onToggleLetter={handleToggleLetter}
+                letterTone={char.letterConfig?.tone || 'auto'}
+                onSetLetterTone={handleSetLetterTone}
+                onComposeLetter={handleComposeLetter}
+                letterComposing={letterComposing}
              />
+
+             {/* 来信：信封居中弹出 → 点开拆信 → 读信 / 回信（组件内部 portal 到 body） */}
+             {pendingLetter && (
+                 <LetterEnvelope
+                     letter={pendingLetter}
+                     onClose={() => setPendingLetter(null)}
+                     onReply={(text) => handleLetterReply(pendingLetter, text)}
+                 />
+             )}
 
              {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
              {theaterSlotIdx !== null && scheduleData && createPortal(
@@ -4246,6 +4538,7 @@ const Chat: React.FC = () => {
                             moduleAlign={mergedFineTune.chatModuleAlign || 'center'}
                             onLongPress={handleMessageLongPress}
                             onReply={handleQuickReply}
+                            onLetterReply={handleLetterReply}
                             selectionMode={selectionMode}
                             isSelected={selectedMsgIds.has(m.id)}
                             onToggleSelect={toggleMessageSelection}
