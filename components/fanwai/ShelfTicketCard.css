@@ -237,7 +237,18 @@
 }
 .shelf-ticket-barcode span {
     height: 100%;
+    /* flex item 默认 min-width:auto，理论上可能被 min-content 撑开；显式归零杜绝这类干扰 */
+    min-width: 0;
     background: #2a2620;
+    /* 三项 flex 属性必须**分开写长属性**、基准用**绝对长度 0px**。
+       原因：flex 简写里的百分比基准（原先写的是 `flex: <权重> 0 0%`）在部分 iOS Safari 上
+       会被错解析成 flex-basis:auto，于是 26 个竖条不再从「零基础宽度」开始分配剩余空间，
+       条码只铺满票根左半边 —— 桌面 Chrome 解析正确，所以那边一直正常。
+       flex-basis 用绝对长度 0px 后不存在「百分比基准怎么解析」的歧义，各引擎表现一致。
+       权重由组件经 --bar-w 注入；兜底值 1 保证变量缺失时竖条不会塌成 0 宽。 */
+    flex-grow: var(--bar-w, 1);
+    flex-shrink: 0;
+    flex-basis: 0px;
 }
 
 @media (prefers-reduced-motion: reduce) {

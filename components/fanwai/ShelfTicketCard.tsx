@@ -90,7 +90,10 @@ const ShelfTicketCard: React.FC<ShelfTicketCardProps> = ({
                 </div>
                 <div className="shelf-ticket-barcode" aria-hidden>
                     {bars.map((w, i) => (
-                        <span key={i} style={{ flex: `${w} 0 0%` }} />
+                        // 只传权重，宽度分配交给 CSS 里的 flex 长属性。
+                        // 原先在这里内联 `flex: ${w} 0 0%`，其百分比基准在部分 iOS Safari 上
+                        // 被错解析成 auto，表现为条码只铺满票根左半边（桌面 Chrome 正常）。
+                        <span key={i} style={{ '--bar-w': String(w) } as React.CSSProperties} />
                     ))}
                 </div>
             </div>
