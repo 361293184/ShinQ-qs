@@ -227,14 +227,6 @@ describe('parseFirePack', () => {
     expect(parseFirePack(JSON.stringify({ ...valid, lastUserMessageAt: 123 }))?.lastUserMessageAt).toBe(123);
   });
 
-  it('maxUnansweredSends 可选：缺省合法、非负数字透传、坏值整包打回', () => {
-    expect(parseFirePack(JSON.stringify(valid))?.maxUnansweredSends).toBeUndefined();
-    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: 5 }))?.maxUnansweredSends).toBe(5);
-    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: 0 }))?.maxUnansweredSends).toBe(0);
-    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: '5' }))).toBeNull();
-    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: -1 }))).toBeNull();
-  });
-
   it('tzId 必填：缺失 / 空串 / 非字符串整包打回（渲染时间没有第二套算法可退）', () => {
     expect(parseFirePack(JSON.stringify({ ...valid, tzId: 'Asia/Tokyo' }))?.tzId).toBe('Asia/Tokyo');
     const { tzId: _tz, ...noTzId } = valid;
@@ -527,29 +519,35 @@ describe('连发提醒（自述块内的计数与上限）', () => {
     log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
     log = appendSelfLogEntry(log, entry('t1@2', '第二条'));
     const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
-    expect(rendered).toContain('你已连发 2 条');
-    expect(rendered).toContain(`上限 ${DEFAULT_MAX_UNANSWERED_SENDS} 条`);
+    expect(rendered).toContain('连着主动找了对方 2 次');
+    expect(rendered).toContain(`上限 ${DEFAULT_MAX_UNANSWERED_SENDS} 次`);
   });
 
-  it('pack 带用户自设上限时按用户的来；0（不限）不渲染上限半句', () => {
+  it('按传进来的用户上限渲染；不限（Infinity）不渲染上限半句', () => {
     let log = createSelfLog(packAt);
     log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
-    const custom = renderFirePack(
-      { ...slotted, maxUnansweredSends: 8 }, packAt + 60_000, '指令', { selfLog: log },
-    );
-    expect(custom).toContain('上限 8 条');
-    const unlimited = renderFirePack(
-      { ...slotted, maxUnansweredSends: 0 }, packAt + 60_000, '指令', { selfLog: log },
-    );
-    expect(unlimited).toContain('你已连发 1 条');
+    const custom = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log, maxUnansweredSends: 8 });
+    expect(custom).toContain('上限 8 次');
+    const unlimited = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log, maxUnansweredSends: Infinity });
+    expect(unlimited).toContain('连着主动找了对方 1 次');
     expect(unlimited).not.toContain('上限');
+  });
+
+  // 回归守卫：到上限之后自排的后续是跳过、不补发。以前写成「会暂停、等对方回复才恢复」，
+  // 角色读了以为排着的话迟早会说出去，照样对用户许诺。
+  it('上限说明讲的是「跳过、不补发」，不是「暂停后恢复」', () => {
+    let log = createSelfLog(packAt);
+    log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
+    const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log, maxUnansweredSends: 3 });
+    expect(rendered).toContain('跳过、不补发');
+    expect(rendered).not.toContain('暂停');
   });
 
   it('只有即时回复（reply 条目）→ 列出但不算连发，不出现计数行', () => {
     const log = appendSelfLogEntry(createSelfLog(packAt), { id: 'r@1', at: packAt + 1000, text: '嗯我在', reply: true });
     const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
     expect(rendered).toContain('嗯我在');
-    expect(rendered).not.toContain('你已连发');
+    expect(rendered).not.toContain('连着主动找了对方');
   });
 
   it('已进转写的条目（at ≤ basePackAt）不再重复渲染正文，但计数保留', () => {
@@ -559,7 +557,7 @@ describe('连发提醒（自述块内的计数与上限）', () => {
     const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
     expect(rendered).not.toContain('已在转写里的那条');
     expect(rendered).toContain('转写之后新发的');
-    expect(rendered).toContain('你已连发 2 条');
+    expect(rendered).toContain('连着主动找了对方 2 次');
   });
 
   it('不再往【本次任务】前面插旧版 streak 提醒行', () => {

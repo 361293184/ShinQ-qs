@@ -693,7 +693,8 @@ Explain this chapter's key concepts to the user based strictly on the Source Mat
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: isFallback ? [{ role: "user", content: prompt }]
+                        : ContextBuilder.buildCharacterRequest({ char: selectedChar, user: userProfile }, [{ role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 8000, 
                     safetySettings: [
@@ -710,7 +711,7 @@ Explain this chapter's key concepts to the user based strictly on the Source Mat
             // Attempt 1: Full Character Context (The "Soul")
             // [MODIFIED]: Use centralized ContextBuilder with memory enabled
             await injectMemoryPalace(selectedChar, undefined, chapter.title);
-            let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+            let baseContext = ''; // 角色上下文由 callApi 的统一消息管线装配。
 
             // Append Study Mode specific instructions to the core context
             baseContext += `
@@ -799,14 +800,15 @@ You are now acting as a private tutor for ${userProfile.name}.
 
             // [MODIFIED]: Use Full Context for Q&A
             await injectMemoryPalace(selectedChar, undefined, question);
-            let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
-            baseContext += `
+            const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
+
+            const studyInstructions = `
 ### [System: Study Mode Q&A]
 User is asking a question about the study material.
 - **Maintain Personality**: Answer in character.
 `;
 
-            const prompt = `${baseContext}
+            const prompt = `
 ### Source Material
 ${chunkText.substring(0, 8000)}
 
@@ -821,7 +823,7 @@ Answer the question based on the source material. Be helpful and encouraging (in
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'system', content: studyInstructions }, { role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 8000
                 })
@@ -1086,9 +1088,10 @@ ${chunkText.substring(0, 10000)}
         }).join('\n\n');
 
         await injectMemoryPalace(selectedChar, undefined, quizSession.chapterTitle);
-        let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+        const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
-        const reviewPrompt = `${baseContext}
+
+        const reviewPrompt = `
 
 ### [System: Quiz Review Mode]
 You just gave ${userProfile.name} a quiz on "${quizSession.chapterTitle}".
@@ -1118,7 +1121,7 @@ ${resultsText}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: reviewPrompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: reviewPrompt }]),
                     temperature: 0.8,
                     max_tokens: 8000
                 })
@@ -1198,9 +1201,10 @@ ${resultsText}
         setFollowUpInput('');
 
         await injectMemoryPalace(selectedChar, undefined, userQ);
-        let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+        const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
-        const prompt = `${baseContext}
+
+        const prompt = `
 
 ### [System: Quiz Follow-up Q&A]
 The user just did a quiz and wants to ask about a specific question they got ${question.isCorrect ? 'right' : 'wrong'}.
@@ -1221,7 +1225,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 4000
                 })

@@ -31,7 +31,6 @@ interface ChatHeaderShellProps {
     /** 私聊启用底部生成入口时隐藏顶栏闪电。 */
     hideTrigger?: boolean;
     isEmotionEvaluating?: boolean;
-    isInstantSending?: boolean;
     isMemoryPalaceProcessing?: boolean;
     memoryPalaceStatusText?: string;
     lastTokenUsage: number | null;
@@ -74,7 +73,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     onCancelSelection,
     activeCharacter,
     isEmotionEvaluating,
-    isInstantSending,
     isMemoryPalaceProcessing,
     memoryPalaceStatusText,
     lastTokenUsage,
@@ -329,16 +327,11 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         );
     };
 
-    const floatingStatusNodes = (lastTokenUsage || isInstantSending || isEmotionEvaluating || isMemoryPalaceProcessing) ? (
+    const floatingStatusNodes = (lastTokenUsage || isEmotionEvaluating || isMemoryPalaceProcessing) ? (
         <div className={`absolute ${extraAction ? 'right-20' : 'right-12'} top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none`}>
             {lastTokenUsage && (
                 <div className={`sully-chat-token text-[9px] px-1.5 py-0.5 rounded-md font-mono border ${isDarkHeader ? 'bg-slate-800 text-slate-300 border-white/10' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/20' : 'bg-slate-100/95 text-slate-400 border-slate-200'}`}>
                     {lastTokenUsage}
-                </div>
-            )}
-            {isInstantSending && (
-                <div className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border animate-pulse ${isDarkHeader ? 'bg-sky-500/15 text-sky-200 border-sky-400/20' : isPixelHeader ? 'bg-[#eff6ff] text-[#1d4ed8] border-[#1d4ed8]/20' : 'bg-sky-50/95 text-sky-600 border-sky-200'}`}>
-                    发送中…
                 </div>
             )}
             {isEmotionEvaluating && (
@@ -379,11 +372,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     {lastTokenUsage && (
                         <div className={`sully-chat-token text-[9px] px-1.5 py-0.5 rounded-md font-mono border ${isDarkHeader ? 'bg-slate-800 text-slate-300 border-white/10' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/20' : 'bg-slate-100 text-slate-400 border-slate-200'}`} title={tokenBreakdown ? `prompt: ${tokenBreakdown.prompt} | completion: ${tokenBreakdown.completion} | msgs: ${tokenBreakdown.msgCount} | pass: ${tokenBreakdown.pass}` : ''}>
                             {lastTokenUsage}
-                        </div>
-                    )}
-                    {isInstantSending && (
-                        <div className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border animate-pulse ${isDarkHeader ? 'bg-sky-500/15 text-sky-200 border-sky-400/20' : isPixelHeader ? 'bg-[#eff6ff] text-[#1d4ed8] border-[#1d4ed8]/20' : 'bg-sky-50 text-sky-600 border-sky-200'}`}>
-                            发送中…
                         </div>
                     )}
                     {isEmotionEvaluating && (

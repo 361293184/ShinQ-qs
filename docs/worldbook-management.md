@@ -28,3 +28,36 @@
 `utils/worldbookPersistence.test.ts` 覆盖多角色、部分挂载、常驻／关键词往返、辅助关键词条件、同名但不同 ID 的独立条目、整组删除和事务回滚。
 
 `scripts/test-worldbook-cowork.mjs` 用真实 OSContext、世界书 App、神经链接和 IndexedDB 验证保存重启、整组改名、取消删除、整组删除及当前角色解除挂载。
+
+## 全 App 世界书构建管线
+
+新 App 的默认入口是 `ContextBuilder.buildCharacterRequest({ char, user }, messages)`，返回可直接发送的完整消息数组。角色档案、挂载世界书、固定位置和指定深度一次装配；不要先拼 `buildCoreContext` 再调用它，否则会重复人设。App 只负责本次玩法规则、输出格式和本场景历史。
+
+`buildCharacterContext({ char, user, history, instructions })` 是需要拆分主提示词与历史的同一管线接口（聊天、见面、通话使用）。`buildWorldbookRequest` 服务剧场的自定义预设布局，`buildGroupWorldbookRequest` 服务多人布局；这些都在 ContextBuilder 内调用同一解析器和深度放置器。App 不得直接调用世界书解析/插入函数。
+
+### 顺序和深度
+
+- 固定位置优先于 order；同一位置/深度按 order 升序，同序保留挂载顺序。
+- 深度按本次实际发送的历史消息从末尾倒数，包含本轮用户消息；0 在末条之后，超长深度钳到历史开头。世界书和额外系统规则不参与计数。无历史时也保留独立角色消息。
+- scanDepth 只决定关键词扫描范围，与注入 depth 无关。常驻、禁用、关键词、辅助关键词、概率和宏替换都在公共层处理，概率同轮只抽一次。
+- system/user/assistant 由条目 role 决定，不把所有深度条目压成 system 文本。
+- 历史必须先按场景范围筛选、转成实际请求消息。不要为触发世界书读取隐藏/归档对话；空范围不能回退全库。App 的系统规则默认不参加关键词扫描。
+- 群聊同 ID 只激活一次，同时保留条目所有者；私有条目不能作为所有成员共同设定。剧场仍使用场景选中的书、预设启用状态与角色归属，深度插入不会计入预填充。
+
+参考 [SillyTavern World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 的基础语义。这里没有实现酒馆全部递归、预算、Outlet 等高级功能，不宣称完整兼容。
+
+### 已接入与兼容边界
+
+聊天、见面发送/重生成/开场感知、通话、群聊、剧场、跑团、Spark、学习、日程、交换日记、歌词本、攻略本、小说、都市人生、角色间私聊、自由活动、记忆潜行、触碰/陪伴、节日活动等生成入口使用消息管线。单次生成只有一条任务消息时，深度 4 会自然落在该消息之前；不会把任务正文中的换行冒充四条历史。
+
+旧 `buildCoreContext` 只用于文本兼容：全部已激活位置都有正文，但字符串无法携带消息角色和真实深度。保留的消费者是记忆诊断/迁移/门牌任务，以及多人布局的无世界书人设子块。旧主动消息模板也仍是单串协议：包含激活条目正文，但不保证独立消息角色/深度；不能将此称为消息模式。当前前台聊天请求不走这个降级接口。
+
+新增 App 必须使用消息入口，不再新增文本兼容调用。`utils/contextPipeline.test.ts` 限制旧入口扩散和 App 私自解析世界书，`utils/contextWorldbook.test.ts` 验证公共行为。后续若调整旧后台模板协议，应连同 Worker 契约与对应测试迁移，不能仅改文本拼接。
+
+### 发送统计
+
+统计按正文标题拆分；沿用 master 的修复，世界书条目内部小标题不再拆散世界书分区。`apiCallLog.findBlockHeaders` 通过 `formatWorldbookSection` 的收尾格式（条目末尾 `---`，整段末尾额外空行）识别边界，修改格式须同步统计解析与测试。完整请求 JSON 用于确认实际发送内容。见面用户输入参与关键词匹配，VN 指令不参与；depth=0 条目不会被错误追加用户输入的 System Note。
+
+验证：`utils/contextPipeline.test.ts`、`utils/contextWorldbook.test.ts`、`utils/chatRequestPayload.test.ts`、`utils/datePrompts.test.ts`、`utils/worldbook.test.ts`、`utils/storyTheater.test.ts`、`utils/apiCallLog.test.ts`。
+
+视频通话先给真实用户消息贴摄像头快照，再构建世界书消息；不支持图片时只还原原用户消息，保留同轮世界书的激活结果与顺序。群聊输出继续沿用 master 的思考块清理逻辑。

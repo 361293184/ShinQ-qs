@@ -558,20 +558,6 @@ const getTimeGapHint = (lastMsgTimestamp: number | undefined, tz?: string): stri
 };
 
 /**
- * 把 buildMessageHistory 的结构化输出压平成纯文本（peek 的 [最近记录] 块用）。
- * 图片消息的 image_url 部分丢弃，只保留文字占位（peek 不需要看图）。
- */
-const flattenHistoryToText = (apiMessages: ApiMessage[]): string =>
-    apiMessages.map(m => {
-        const text = typeof m.content === 'string'
-            ? m.content
-            : Array.isArray(m.content)
-                ? m.content.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join(' ')
-                : '';
-        return `${m.role}: ${text}`;
-    }).join('\n');
-
-/**
  * VN 模式系统提示（send 与 reroll 共用同一份，避免两处手抄漂移）。
  * reroll 的差异只体现在末尾 user 消息的 System Note 里，不在这里分叉。
  * 风格 / 人称 / 自定义补充按 char.dateStyleConfig 动态拼装。
@@ -664,12 +650,17 @@ export const DatePrompts = {
             undefined,
             { useVisionDescriptions: input.useVisionDescriptions === true },
         );
-        const recentMsgs = flattenHistoryToText(apiMessages);
 
         // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）
         // conversational 不给：peek 是「用户还没走过去」的第三人称镜头，时间块末尾那句
         // 语境框定说的是「对方还在跟你说话」，跟这里的框定正好相反（见下面的 peekInstructions）。
-        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char) });
+        const context = ContextBuilder.buildCharacterContext({
+            char, user: userProfile,
+            history: apiMessages.map(message => ({ ...message, content: typeof message.content === 'string'
+                ? message.content : message.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text).join(' ') })),
+            includeDetailedMemories: false,
+            timeOptions: { skipTimeAwareness: !isDateTimeAwarenessOn(char) },
+        });
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
@@ -698,8 +689,8 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
 
         return {
             messages: [
-                { role: 'system', content: baseContext },
-                { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
+                ...context.messages,
+                { role: 'user', content: `[最近记录 (Previous Context)] 见以上消息历史。${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
             ],
         };
     },
@@ -728,9 +719,15 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             input.useVisionDescriptions === true,
         );
 
+        const conversation = [...historyMsgs, { role: 'user', content: userText }];
+
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
-        const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char), conversational: true })
+        const context = ContextBuilder.buildCharacterContext({
+            char, user: userProfile, history: conversation,
+            timeOptions: { skipTimeAwareness: !isDateTimeAwarenessOn(char), conversational: true },
+        });
+        const systemPrompt = context.coreContext
             + buildVNModeBlock(char, userProfile?.name || '')
             + ContextBuilder.buildSARModuleContext(char, userProfile, 'date');
 
@@ -740,11 +737,15 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             ? `(System Note: 严格遵守 VN 格式。每一行都要以 [emotion] 开头，根据内容逐行切换情绪标签，不要整段只用同一个。叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`
             : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然严格遵守 VN 格式：每一行以 [emotion] 开头并逐行切换情绪，叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`;
 
+        const messagesWithWorldbooks = context.history;
+        // depth=0 会在末条用户消息之后插入世界书，不能给数组最后一项追加 VN 指令。
+        const pendingMessage = conversation[conversation.length - 1];
         return {
             messages: [
                 { role: 'system', content: systemPrompt },
-                ...historyMsgs,
-                { role: 'user', content: `${userText}\n\n${note}` },
+                ...messagesWithWorldbooks.map(message => message === pendingMessage
+                    ? { ...message, content: `${userText}\n\n${note}` }
+                    : message),
             ],
         };
     },

@@ -35,7 +35,6 @@ import { buildMcpSystemBlock, MCP_TAIL_REMINDER } from './mcpToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChange } from '../context/MusicContext';
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
-import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
@@ -342,6 +341,20 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 但主 API 的 historyMsgsForPrompt 来自完整 DB，仍然会看到它们。模式切换必须以 API
     // 真正要发送的历史为准，否则模型会收到特殊模式正文，却收不到「切回聊天格式」的提示。
     const returningFromMode = detectChatModeTransition(historyMsgsForPrompt);
+    // 在公共上下文管线之前准备实际历史，世界书触发和摆放共用这一份消息。
+    const { apiMessages } = ChatPrompts.buildMessageHistory(
+        historyMsgsForPrompt,
+        contextLimit,
+        char,
+        userProfile,
+        emojis,
+        undefined,
+        { useVisionDescriptions, contextHighWaterMark },
+    );
+
+    // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
+    const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
+
     const parts = await ChatPrompts.buildSystemPromptParts(
         char, userProfile, groups, emojis, categories, recentMsgsHint,
         realtimeConfig, innerState || undefined,
@@ -350,6 +363,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         musicCfg,
         recentTrackSwitch,
         {
+            history: cleanedApiMessages,
             timelyByWorker: input.timelyByWorker === true,
             returningFromMode: returningFromMode || undefined,
             // 角色「允许主动发照片」开关：由 Chat 主链路从 apiConfig 透传，注入主动发图引导
@@ -427,29 +441,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         })}`;
     }
 
-    // ── 7. 历史消息构造 ───────────────────────────────────
-    const { apiMessages } = ChatPrompts.buildMessageHistory(
-        historyMsgsForPrompt,
-        contextLimit,
-        char,
-        userProfile,
-        emojis,
-        undefined,
-        { useVisionDescriptions, contextHighWaterMark },
-    );
-
-    // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
-    const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
-    const resolvedWorldbookEntries = resolveWorldbookEntries(
-        char.mountedWorldbooks || [],
-        cleanedApiMessages,
-        char.name,
-        userProfile.name,
-    );
-    const messagesWithWorldbookDepth = injectWorldbookDepthEntries(
-        cleanedApiMessages,
-        resolvedWorldbookEntries.filter(entry => entry.position === 4),
-    );
+    const messagesWithWorldbookDepth = parts.history;
 
     // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
     const mcdActive = !!mcdMiniSnap?.open;
@@ -537,7 +529,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 结构：[稳定 system] + [历史消息] + [易变状态 system] (+ 末尾 reminder)。
     // 稳定前缀不再包含分钟级时间戳等易变内容 → 支持前缀缓存的中转能跨轮命中；
     // 易变状态贴着生成点注入，时间/情绪/日程反而拿到最强 recency 注意力。
-    // 注意：instant push 的 worker 端情绪评估把 messages[0] 当 system、messages[1..]
+    // 注意：即时对话的 worker 端情绪评估把 messages[0] 当 system、messages[1..]
     // 展平为对话历史 —— 易变尾段会以「[系统]: …」行出现在历史末尾，信息不丢。
     const fullMessages: Array<{ role: string; content: any }> = [
         { role: 'system', content: systemPrompt },

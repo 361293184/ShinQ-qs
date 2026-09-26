@@ -681,7 +681,7 @@ const OneShotCapturePanel: React.FC<{
                         <div className="mt-4 border-t border-slate-200/70 pt-3">
                             <div className="mb-2">
                                 <h4 className="text-[11px] font-bold text-slate-600">动态内容与请求配置</h4>
-                                <p className="mt-0.5 text-[9px] text-slate-400">按实际发送顺序列出；每段都标明来源和原始请求位置。</p>
+                                <p className="mt-0.5 text-[9px] text-slate-400">按实际发送顺序列出；分区与来源按正文标题识别。世界书正文中的小标题保留在原分区内，核对实际发送内容可查看完整请求 JSON。</p>
                             </div>
                             <div className="space-y-1.5">
                             {detailSections.map(renderSection)}

@@ -1,3 +1,4 @@
+import { ContextBuilder } from '../utils/context';
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -433,7 +434,14 @@ const SocialApp: React.FC = () => {
     const buildGenerationContext = async (participants: CharacterProfile[]) => {
         const recent = await Promise.all(participants.map(async char =>
             [char.id, await loadCharacterContextMessages(char)] as const));
-        return buildSparkGenerationContext(participants, userProfile, socialProfile, characterHandles, Object.fromEntries(recent));
+        return buildSparkGenerationContext(participants.map(char => ({ ...char, mountedWorldbooks: [] })), userProfile, socialProfile, characterHandles, Object.fromEntries(recent));
+    };
+
+    const buildGenerationMessages = (members: CharacterProfile[], context: string, prompt: string) => {
+        const history = [{ role: 'user', content: prompt }];
+        return ContextBuilder.buildGroupWorldbookRequest({ members, user: userProfile, history,
+            render: (slots, turns) => [{ role: 'system', content: slots.before + context + slots.after }, ...turns],
+        });
     };
 
     const handleRefresh = async () => {
@@ -484,7 +492,7 @@ const SocialApp: React.FC = () => {
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'system', content: context }, { role: "user", content: prompt }], temperature: 0.8, max_tokens: 8000 }),
+                body: JSON.stringify({ model: apiConfig.model, messages: buildGenerationMessages(selectedChars, context, prompt), temperature: 0.8, max_tokens: 8000 }),
                 signal: controller.signal,
                 __sullyMeta: { appId: 'social', appName: 'Spark', purpose: '刷新推荐流' },
             } as RequestInit);
@@ -597,7 +605,7 @@ ${post.content || '(楼主没写正文)'}
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'system', content: context }, { role: "user", content: prompt }], temperature: 0.8 }),
+                body: JSON.stringify({ model: apiConfig.model, messages: buildGenerationMessages(selectedChars, context, prompt), temperature: 0.8 }),
                 signal: controller.signal,
                 __sullyMeta: { appId: 'social', appName: 'Spark', purpose: '生成帖子评论' },
             } as RequestInit);
@@ -688,7 +696,7 @@ ${buildSparkCommentHistory(post)}
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'system', content: context }, { role: "user", content: prompt }], temperature: 0.8 }),
+                body: JSON.stringify({ model: apiConfig.model, messages: buildGenerationMessages(selectedChars, context, prompt), temperature: 0.8 }),
                 signal: controller.signal,
                 __sullyMeta: { appId: 'social', appName: 'Spark', purpose: '回复用户评论' },
             } as RequestInit);
@@ -842,7 +850,7 @@ ${buildSparkCommentHistory(post)}
 
     // 1. Feed Item (Glassmorphism)
     const renderFeedItem = (post: SocialPost) => (
-        <div key={post.id} onClick={() => handleOpenPost(post)} className="break-inside-avoid mb-3 bg-white/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer active:scale-[0.98] border border-white/50 relative group">
+        <div key={post.id} onClick={() => handleOpenPost(post)} className="min-w-0 bg-white/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer active:scale-[0.98] border border-white/50 relative group">
             <div className="aspect-[4/5] w-full flex items-center justify-center relative overflow-hidden" style={{ background: post.bgStyle }}>
                 {/* Decorative Overlay for "Premium" look */}
                 <div className="absolute inset-0 bg-white/5 backdrop-blur-[1px]"></div>
@@ -854,12 +862,12 @@ ${buildSparkCommentHistory(post)}
                 )}
             </div>
             <div className="p-3">
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 min-w-0">
+                <div className="flex justify-between items-center gap-2">
+                    <div className="flex flex-1 items-center gap-2 min-w-0">
                         <TokenImg value={post.authorAvatar} className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-white/50" />
                         <span className="text-[11px] text-slate-700 truncate font-medium">{post.authorName}</span>
                     </div>
-                    <div className="flex items-center gap-1 text-slate-400 group-hover:text-slate-600 transition-colors">
+                    <div className="flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-600 transition-colors">
                         <Icons.Heart filled={post.isLiked} className="w-4 h-4" onClick={(e) => handleLike(e, post)} />
                         <span className="text-[10px] font-medium">{post.likes}</span>
                     </div>
@@ -1139,7 +1147,8 @@ ${buildSparkCommentHistory(post)}
                                     </button>
                                 )}
                             </div>
-                            <div className="columns-2 gap-2 space-y-2 pb-24">
+                            {/* 完整卡片占一个网格单元，避免多栏分片与 backdrop-filter/裁切组合丢失作者栏。 */}
+                            <div className="grid grid-cols-2 items-start gap-x-2 gap-y-3 pb-24">
                                 {feed.map(post => renderFeedItem(post))}
                             </div>
                         </div>

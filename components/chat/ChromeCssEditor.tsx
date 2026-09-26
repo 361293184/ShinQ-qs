@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { DB } from '../../utils/db';
 import { shareOrDownloadFile } from '../../utils/shareExport';
 import { readShareText } from '../../utils/pngShare';
+import { FileOrImageImport } from '../share/FileOrImageImport';
 
 // 聊天「白框」自定义 CSS 编辑器（Appearance 全局默认 与 单角色定制 共用）。
 // 选择器钩子覆盖顶栏、输入栏、整屏背景与普通消息布局；完整清单见下方 AI_PROMPT。
@@ -36,6 +37,14 @@ const AI_PROMPT = `你是一个 CSS 设计师。我在用一个叫 SullyOS·糯�
 - .sully-chat-message-avatar  默认贴在组末气泡旁的头像
 - .sully-chat-turn-avatar-slot 每组首条的头像槽（默认 display:none，内部已有正确的双方头像）
 - .sully-chat-turn-avatar      上述头像槽里的头像容器；图片是 .sully-chat-message-avatar-img
+- .sully-chat-avatar-wrap      消息头像通用容器（含组首头像），可用 ::before / ::after 添加头像框
+- .sully-chat-message-avatar-img 头像图片；修改 border-radius / clip-path 可改变方圆或异形轮廓
+- .sully-chat-avatar-frame     气泡工坊已有的头像框贴图（仅设置了贴图时存在）；可隐藏以免与 CSS 框叠加
+- .sully-chat-transfer-card / .sully-chat-transfer-receipt 转账主卡 / 收款或退回回执
+- .sully-chat-transfer-header / -icon / -brand / -watermark 转账标题行 / 图标 / 品牌文字 / 水印（均为 sully-chat-transfer 前缀）
+- .sully-chat-transfer-amount / -note / -recipient / -status 金额 / 备注 / 收款方 / 状态（同上前缀）
+- .sully-chat-transfer-overlay / -dialog / -accept / -return 转账弹窗遮罩 / 详情面板 / 接收 / 退回按钮（同上前缀）
+  主卡和回执可用 [data-status="pending"] / [data-status="accepted"] / [data-status="returned"] 区分状态。
 - .sully-bubble-ai / .sully-bubble-user 角色 / 用户气泡
 - .sully-schedule-change      角色修改未来日程后浮出的整张回执
 - .sully-schedule-change-head / -mark / -kicker  回执标题行 / 勾选标记 / 标题文字
@@ -53,6 +62,11 @@ const AI_PROMPT = `你是一个 CSS 设计师。我在用一个叫 SullyOS·糯�
 7. 性能：可以用静态 backdrop-filter/blur，但不要对 blur/backdrop 做持续动画。
 8. 若要“每轮头像在气泡上方”：显示 .sully-chat-turn-avatar-slot、隐藏 .sully-chat-message-avatar，
    给 .sully-chat-message-group-first 留出顶部空间，并清零 .sully-chat-message-content 的左右 margin。
+9. CSS 头像框画在 .sully-chat-avatar-wrap::after 上：content:""; position:absolute; inset:-20%;
+   background:url(透明框图直链) center/contain no-repeat; pointer-events:none; z-index:20。
+   容器保持 overflow:visible，只对 .sully-chat-message-avatar-img 做圆角或 clip-path，避免裁掉外框。
+   可用 .sully-chat-message-ai / .sully-chat-message-user 后代选择器区分双方；这些样式随 CSS 预设保存和切换。
+   顶栏 .sully-chat-avatar 是 img，不要在它上面使用伪元素头像框。
 
 【可以自由发挥的部分】
 - 背景：纯色、渐变、重复图案、图片（background: url(图片直链)）、多层叠加，随意。
@@ -293,7 +307,6 @@ const copyText = async (text: string): Promise<boolean> => {
 const ChromeCssEditor: React.FC<{ value: string; onChange: (css: string) => void }> = ({ value, onChange }) => {
     const [copied, setCopied] = useState(false);
     const [custom, setCustom] = useState<Preset[]>([]);
-    const txtImportRef = useRef<HTMLInputElement>(null);
     const presetImageRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -446,8 +459,7 @@ const ChromeCssEditor: React.FC<{ value: string; onChange: (css: string) => void
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-slate-500">CSS 代码 <span className="font-normal text-slate-400">· 可手改 / 粘贴</span></span>
                     <div className="flex items-center gap-1">
-                        <input ref={txtImportRef} type="file" accept=".png,.css,.txt,image/png,text/css,text/plain" className="hidden" onChange={handleTxtImport} />
-                        <button onClick={() => txtImportRef.current?.click()} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-indigo-500 hover:bg-indigo-50">导入 PNG / CSS</button>
+                        <FileOrImageImport onChange={handleTxtImport} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-indigo-500 hover:bg-indigo-50" />
                         <button onClick={handleTxtExport} disabled={!value.trim()} className={`rounded-lg px-2 py-1 text-[10px] font-semibold ${value.trim() ? 'text-indigo-500 hover:bg-indigo-50' : 'text-slate-300'}`}>导出分享</button>
                         {value && <button onClick={() => onChange('')} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-rose-400 hover:bg-rose-50 hover:text-rose-500">清空</button>}
                     </div>

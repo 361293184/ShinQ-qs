@@ -150,6 +150,8 @@ export const detectChatModeTransition = (messages: readonly Message[]): ChatMode
  * | `[schedule_message]` 教学 | 排的是浏览器里的本地定时消息，App 关着没人派发 | worker 追加自己的排程工具说明 |
  */
 export interface PromptBuildOptions {
+    /** 已完成清洗的实际消息，由公共上下文管线统一处理世界书。 */
+    history?: import('./context').ContextMessage[];
     forFirePack?: boolean;
     /**
      * 角色「允许主动发照片」开关（Settings 里的 imageGenProactiveEnabled）。
@@ -266,7 +268,8 @@ export const ChatPrompts = {
         const parts = await ChatPrompts.buildSystemPromptParts(
             char, userProfile, groups, emojis, categories, currentMsgs,
             realtimeConfig, evolvedNarrative, userListeningContext, isListeningTogether, musicCfg,
-            undefined, promptOptions,
+            // 本接口只返回文本，不能把深度条目移交给会被丢弃的 history 返回值。
+            undefined, { ...promptOptions, history: undefined },
         );
         return parts.stable + parts.volatileState + parts.recencyTail;
     },
@@ -307,7 +310,7 @@ export const ChatPrompts = {
         // 刚才一起听途中歌被切了（char 还没重新加入）—— 注入"察觉换歌"提示。
         recentTrackSwitch?: { songName: string; artists: string } | null,
         promptOptions?: PromptBuildOptions,
-    ): Promise<{ stable: string; volatileState: string; recencyTail: string }> => {
+    ): Promise<{ stable: string; volatileState: string; recencyTail: string; history: import('./context').ContextMessage[] }> => {
         // 主动消息的模板是最后一次聊天时打好、到点才渲染的，凡是「打包这一刻」的状态
         // 到触发时都已经过期，一律不烤进模板。见 PromptBuildOptions 的清单。
         const forFirePack = promptOptions?.forFirePack === true;
@@ -357,15 +360,12 @@ export const ChatPrompts = {
         // 记忆宫殿检索结果现在从 char.memoryPalaceInjection 读取。
         // deferVolatile：时间/宫殿召回/情绪 buff 三块不进 stable，由下面的 volatileState 承接。
         const coreT0 = performance.now();
-        let baseSystemPrompt = ContextBuilder.buildCoreContext(
-            char,
-            userProfile,
-            true,
-            undefined,
-            undefined,
-            { worldbookMessages: currentMsgs },
-            { deferVolatile: true },
-        );
+        const context = ContextBuilder.buildCharacterContext({
+            char, user: userProfile, history: promptOptions?.history,
+            timeOptions: { worldbookMessages: currentMsgs },
+            layout: { deferVolatile: true },
+        });
+        let baseSystemPrompt = context.coreContext;
         timings.buildCoreContext = Math.round(performance.now() - coreT0);
 
         // ── 易变状态段（volatileState）──
@@ -1169,7 +1169,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
             .join(' ');
         console.log(`⏱ [buildSystemPrompt] total=${perfTotal}ms | stable=${baseSystemPrompt.length}ch volatile=${volatileState.length}ch | ${timingStr}`);
 
-        return { stable: baseSystemPrompt, volatileState, recencyTail };
+        return { stable: baseSystemPrompt, volatileState, recencyTail, history: context.history };
     },
 
     // 格式化消息历史

@@ -98,7 +98,7 @@ import {
   type UserCameraEmotionResult,
 } from '../utils/userCameraEmotion';
 import {
-  attachSnapshotToLatestUserMessage,
+  prepareUserCameraSnapshot,
   captureUserCameraSnapshot,
   isVisionInputUnsupportedError,
   USER_CAMERA_SNAPSHOT_SYSTEM_NOTE,
@@ -1774,17 +1774,18 @@ const CallApp: React.FC = () => {
         const directorApi = resolvePerformanceDirectorApi(character);
         const baseUrl = directorApi.baseUrl?.replace(/\/+$/, '');
         if (!baseUrl) return null;
-        const coreContext = ContextBuilder.buildCoreContext(character, userProfile, true);
+        const characterContextInput = { char: character, user: userProfile, includeDetailedMemories: true };
+
         const prompt = buildAvatarPerformancePersonaPrompt({
           characterName: character.name,
-          coreContext,
+          coreContext: '',
         });
         const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directorApi.apiKey || 'sk-none'}` },
           body: JSON.stringify({
             model: directorApi.model,
-            messages: [{ role: 'user', content: prompt }],
+            messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
             temperature: 0.25,
             max_tokens: AVATAR_PERFORMANCE_PERSONA_MAX_TOKENS,
             stream: false,
@@ -1900,17 +1901,10 @@ ${sentencePlan}`;
       const callMsgs = await loadCharacterContextMessages(selectedChar);
       await injectMemoryPalace(selectedChar, callMsgs);
     }
-    const baseCallPrompt = selectedChar
-      ? buildCallPrompt(
-          userName,
-          selectedChar.name,
-          // conversational：通话是实时对话，时间块补那句语境框定（见 buildTimeAwarenessBlock）
-          ContextBuilder.buildCoreContext(selectedChar, userProfile, true, undefined, undefined, { conversational: true }),
-          voiceLang || undefined,
-          callMode,
-          resolveCharTimeZone(selectedChar),
-        )
-      : buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
+    const touchContext = selectedChar
+      ? buildPendingAvatarTouchContext(pendingTouches, selectedChar.name, userName)
+      : '';
+    const messages = await buildHistoryMessages(input, skipDbId, touchContext);
     const thinkingPrompt = selectedChar?.showThinkingChain
       ? [
           buildThinkingChainPrompt(selectedChar.name, userName),
@@ -1937,6 +1931,14 @@ ${sentencePlan}`;
     if (includeUserCameraContext && callMode === 'video' && userCameraMode === 'snapshot' && !userCameraSnapshot && userCameraSnapshotForTurn === undefined) {
       addToast('摄像头画面还没准备好，本轮已只发送文字', 'info');
     }
+    const snapshotHistory = prepareUserCameraSnapshot(messages, userCameraSnapshot);
+    const characterContext = selectedChar ? ContextBuilder.buildCharacterContext({
+      char: selectedChar, user: userProfile, history: snapshotHistory.messages,
+      timeOptions: { conversational: true },
+      instructions: core => buildCallPrompt(userName, selectedChar.name, core, voiceLang || undefined, callMode, resolveCharTimeZone(selectedChar)),
+    }) : null;
+    const baseCallPrompt = characterContext?.coreContext
+      ?? buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
     const baseSystemPrompt = [
       baseCallPrompt,
       callMode === 'video' && !highQualityPerformance ? buildAvatarPerformancePrompt(allowedModelActions) : '',
@@ -1946,17 +1948,8 @@ ${sentencePlan}`;
     const systemPrompt = [baseSystemPrompt, userCameraSnapshot ? USER_CAMERA_SNAPSHOT_SYSTEM_NOTE : '']
       .filter(Boolean)
       .join('\n\n');
-    const touchContext = selectedChar
-      ? buildPendingAvatarTouchContext(
-          pendingTouches,
-          selectedChar.name,
-          userName,
-        )
-      : '';
-    const messages = await buildHistoryMessages(input, skipDbId, touchContext);
-    const requestMessages = userCameraSnapshot
-      ? attachSnapshotToLatestUserMessage(messages, userCameraSnapshot)
-      : messages;
+    const requestMessages = characterContext?.history ?? snapshotHistory.messages;
+    const textOnlyMessages = snapshotHistory.restoreTextMessages(requestMessages);
     const sendChatRequest = (
       nextMessages: any[],
       nextSystemPrompt: string,
@@ -1989,7 +1982,7 @@ ${sentencePlan}`;
       if (!userCameraSnapshot || !isVisionInputUnsupportedError(error)) throw error;
       console.warn('[camera-snapshot] provider rejected vision input; retrying text-only:', error);
       addToast('当前模型不支持图片；本轮已自动改为只发文字', 'info');
-      chatData = await sendChatRequest(messages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
+      chatData = await sendChatRequest(textOnlyMessages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
     }
     const parsed = parseCallAssistantMessage(
       chatData?.choices?.[0]?.message,
