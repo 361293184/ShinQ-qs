@@ -78,6 +78,55 @@ export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
         label: '小游戏战绩历史',
         content: true,
     },
+    {
+        // 权威定义：components/chat/ImageGenPanel.tsx:5 CHAR_SETTINGS_PREFIX
+        //           utils/imageGen.ts:140 另有同样的字符串拼接
+        // 含角色外观描述 + 锁脸参考照（压缩后的 dataURL）+ 场景描述。
+        // 注意 key 拼的是**角色名**而非 charId（既有行为，本次不改）。
+        key: 'os_imagegen_char_',
+        prefix: true,
+        label: '生图·各角色外观描述与锁脸照',
+        content: true,
+    },
+    {
+        // 权威定义：utils/imageGen.ts:154 USER_IMAGE_SETTINGS_KEY
+        // 「用户自己」那一份与角色侧分开存，两者都要登记，漏一个用户描述照样丢
+        key: 'os_imagegen_user_lock',
+        label: '生图·用户外观描述与锁脸照',
+        content: true,
+    },
+    {
+        // 权威定义：utils/imageGen.ts:191 CUSTOM_STYLE_KEY
+        // 提示词是用户自己写的，属内容而非纯配置
+        key: 'os_imagegen_custom_styles',
+        label: '生图·自定义风格（用户写的提示词）',
+        content: true,
+    },
+    {
+        // 权威定义：components/os/TamagotchiHome.tsx:814（`tama_board_img_${charId}`）
+        // 注意只匹配带下划线的**每角色**形态；迁移前的旧全局单键 `tama_board_img`
+        // 已由 desktopSkinBackup 的显式字段覆盖，前缀不会误抓它。
+        // 这正是「迁移后只登记旧键、新键漏登记」的典型，与 fanwai_stories 同一类病。
+        key: 'tama_board_img_',
+        prefix: true,
+        label: '电子宠物·每角色看板横幅图',
+        content: true,
+    },
+    {
+        // 权威定义：apps/Appearance.tsx:846,848
+        // 进入「动森模式」前备份的用户原壁纸（渐变/URL 形态；data: 形态存
+        // IndexedDB 的 wallpaper_user_backup，随 store 通道走）
+        key: 'acnh_wallpaper_backup',
+        label: '动森模式前的原壁纸备份',
+        content: true,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:716（写）/ :586（读）/ :730（删）
+        // 视频通话「假摄像头」的静态机位图（blobref 令牌）
+        key: 'sully-call-fake-camera-image-v1',
+        label: '视频通话·假摄像头机位图',
+        content: true,
+    },
 
     // ─────────── 配置类（丢失需重设） ───────────
     {
@@ -129,6 +178,27 @@ export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
         key: 'os_letter_written_',
         prefix: true,
         label: '来信节奏·当天已写信标记',
+        content: false,
+    },
+    {
+        // 权威定义：components/chat/ImageGenPanel.tsx:6 STYLE_PRESET_KEY
+        key: 'os_imagegen_style_preset',
+        label: '生图·当前选中的风格预设',
+        content: false,
+    },
+    {
+        // 权威定义：components/os/TamagotchiHome.tsx:831（`tama_board_fg_${charId}`）
+        // 同 tama_board_img_：只匹配每角色形态，旧全局键另走 desktopSkinBackup
+        key: 'tama_board_fg_',
+        prefix: true,
+        label: '电子宠物·每角色看板文字色',
+        content: false,
+    },
+    {
+        // 权威定义：apps/Settings.tsx:1346（写）/ :89（读）
+        // 视觉（识图）可用模型列表缓存，丢了要重新拉取
+        key: 'os_vision_available_models',
+        label: '视觉识图·可用模型列表缓存',
         content: false,
     },
 ];
