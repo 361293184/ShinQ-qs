@@ -44,6 +44,7 @@ import { isAnalyticsRequestUrl, trackEvent, shouldReportSnapshot, trackDataScale
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import { collectAppearance, collectCharSettings, collectDataScale, collectFeatureFlagsAsync, collectSARFeatureFlags } from '../utils/analyticsSnapshot';
 import { normalizeApiConfig, normalizeApiPreset } from '../utils/apiConfigNormalize';
+import { collectLocalStateBackup, restoreLocalStateBackup } from '../utils/backupLocalState';
 import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import { markBackupDone } from '../utils/backupReminder';
 import { collectSARLocalBackup, restoreSARLocalBackup } from '../utils/vrWorld/sarBackup';
@@ -4095,7 +4096,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'worlds', 'world_episodes',
               // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
               // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
-              'life_records', 'med_plans', 'life_record_settings'
+              'life_records', 'med_plans', 'life_record_settings',
+              // 自研：拾光（番外收藏 / 来信收藏）与角色小红书主页帖子。
+              // 导入端 importFullData 早已支持恢复（utils/db.ts 的 availableStores 与
+              // runSection 都有），但导出清单长期漏登记 —— 循环遍历不到，导致
+              // 备份文件里根本没有这些数据，换设备导入后书架全空。
+              'fanwai_stories', 'collected_letters', 'xhs_owned_posts'
           ];
 
           if (mode === 'full') {
@@ -4153,6 +4159,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 云端配置
               cloudBackupConfig: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_cloud_backup_config'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,
               remoteVectorConfig: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_remote_vector_config'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,
+
+              // 自研功能的 localStorage 数据：私聊小说共读(nrcache_*) / 现实桥 /
+              // 微信桥设备身份 / 副 API 预设 / 小游戏 / 番外表单记忆 / 来信节奏。
+              // 登记范围集中在 utils/backupLocalState.ts —— 以后新增自研功能往那儿
+              // 加一行即可，不必再改导出主流程（此前正因为漏改这里，番外/来信/小说/
+              // 副 API 预设等数据从未进过备份）。值原样搬运，无图片，不需抽图。
+              localState: (mode === 'text_only' || mode === 'full') ? collectLocalStateBackup() : undefined,
 
               // SAR 活动室：公告/初见、双卡池及人格推演记录必须跟用户历史一起迁移。
               chatInputPreferences: (mode === 'text_only' || mode === 'full') ? loadChatInputPreferences() : undefined,
@@ -4443,6 +4456,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               story_theater_masks: 'storyTheaterMasks',
               novels: 'novels',
               fanwai_stories: 'fanwaiStories',
+              collected_letters: 'collectedLetters',
+              xhs_owned_posts: 'xhsOwnedPosts',
               songs: 'songs',
               bank_transactions: 'bankTransactions',
               xhs_activities: 'xhsActivities',
@@ -4683,6 +4698,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'story_theater_masks': backupData.storyTheaterMasks = processedData; break;
                   case 'novels': backupData.novels = processedData; break;
                   case 'fanwai_stories': backupData.fanwaiStories = processedData; break;
+                  // 键名须与 importFullData 读取的字段（data.collectedLetters）对齐
+                  case 'collected_letters': backupData.collectedLetters = processedData; break;
                   case 'songs': backupData.songs = processedData; break;
                   case 'bank_transactions': backupData.bankTransactions = processedData; break;
                   case 'bank_data': {
@@ -4696,6 +4713,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
                   case 'xhs_activities': backupData.xhsActivities = processedData; break;
                   case 'xhs_stock': backupData.xhsStockImages = processedData; break;
+                  // 角色小红书主页帖子 —— 键名须与 importFullData 读取的
+                  // 字段（data.xhsOwnedPosts）对齐
+                  case 'xhs_owned_posts': backupData.xhsOwnedPosts = processedData; break;
                   case 'quizzes': backupData.quizSessions = processedData; break;
                   case 'guidebook': backupData.guidebookSessions = processedData; break;
                   case 'scheduled_messages': backupData.scheduledMessages = processedData; break;
@@ -5193,6 +5213,20 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.apiPresets) savePresets(data.apiPresets);
           if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置
           if (data.memoryPalaceConfig) updateMemoryPalaceConfig(data.memoryPalaceConfig); // 恢复记忆宫殿全局配置
+
+          // 自研功能的 localStorage 数据：私聊小说共读(nrcache_*) / 现实桥 / 微信桥
+          // 设备身份 / 副 API 预设 / 小游戏 / 番外表单记忆 / 来信节奏。
+          // 放在 IndexedDB 恢复完成之后写回，逐键容错（单键失败只告警，不回滚已恢复的
+          // IDB 数据）；未出现在备份中的键保持本地原值，因此旧备份不会清空本地数据。
+          if (data.localState) {
+              const localStateResult = restoreLocalStateBackup(data.localState);
+              if (localStateResult.restored > 0) {
+                  console.log(`[Backup] 已恢复 ${localStateResult.restored} 项本地状态（小说共读/现实桥/微信桥/副 API 预设等）`);
+              }
+              if (localStateResult.failed > 0 || localStateResult.skipped > 0) {
+                  console.warn('[Backup] 本地状态恢复存在跳过或失败项', localStateResult);
+              }
+          }
 
           if (data.customIcons !== undefined || data.appearancePresets !== undefined) {
               await restoreAssetsInPlace(data.customIcons, '应用图标');

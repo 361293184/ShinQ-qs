@@ -4297,6 +4297,13 @@ export interface FullBackupData {
     novels?: NovelBook[];
     fanwaiStories?: FanwaiStory[];      // 番外收藏（拾光 App）
     collectedLetters?: LetterRecord[];  // 来信收藏（拾光 App）
+    /**
+     * 需要随备份迁移的 localStorage 原始键值对（字符串原样搬运，无损往返）。
+     * 登记范围见 utils/backupLocalState.ts 的 LOCAL_STATE_ENTRIES：
+     * 私聊小说共读(nrcache_*) / 现实桥 / 微信桥设备身份 / 副 API 预设 /
+     * 小游戏 / 番外表单记忆 / 来信节奏。旧备份缺此字段时导入端整体跳过。
+     */
+    localState?: Record<string, string>;
     vrNovels?: VRWorldNovel[];          // 虚拟世界「彼方」全局小说库
     vrAnnotations?: VRNovelAnnotation[]; // 虚拟世界小说批注
     customCreatorParts?: CustomCreatorPart[]; // 捏脸系统自定义部件

@@ -4074,10 +4074,15 @@ export const DB = {
       }, data.novels?.length || 0);
       await runSection('番外收藏（拾光）', data.fanwaiStories !== undefined, async () => {
           await clearAndAdd(STORE_FANWAI_STORIES, data.fanwaiStories, '番外收藏', false);
+          // 镜像必须跟着走：getAllFanwaiStories 在 IDB 为空时会用镜像回填，
+          // 不同步的话，导入前残留的旧镜像会把刚恢复的数据覆盖回去。
+          writeFanwaiMirror(Array.isArray(data.fanwaiStories) ? data.fanwaiStories : []);
           data.fanwaiStories = undefined as any;
       }, data.fanwaiStories?.length || 0);
       await runSection('来信收藏（拾光）', data.collectedLetters !== undefined, async () => {
           await clearAndAdd(STORE_COLLECTED_LETTERS, data.collectedLetters, '来信收藏', false);
+          // 同上：信是礼物，镜像与 IDB 必须一致，避免旧镜像回填覆盖
+          writeLetterMirror(Array.isArray(data.collectedLetters) ? data.collectedLetters : []);
           data.collectedLetters = undefined as any;
       }, data.collectedLetters?.length || 0);
       await runSection('彼方小说库', data.vrNovels !== undefined, async () => {
