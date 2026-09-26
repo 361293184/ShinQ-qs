@@ -597,11 +597,10 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
                         <p className="text-xs text-[#9A9A9A] mt-1">AI 会接着正文末尾继续写，保持人物与文风。可填续写走向（可选）：</p>
                         <textarea
                             value={continueDirection}
-                            onChange={e => setContinueDirection(e.target.value.slice(0, 100))}
-                            placeholder="例：他们后来一起去旅行…（留空则自然接续前文）"
-                            className="mt-3 w-full h-20 rounded-xl border border-[#E5E5E5] bg-[#FAFBFF] p-3 text-[13px] text-[#1F1F1F] resize-none outline-none focus:border-[#4F7CFF]/60"
+                            onChange={e => setContinueDirection(e.target.value)}
+                            placeholder="例：他们后来一起去旅行…（留空则自然接续前文；可粘贴整段续写要求，不限字数）"
+                            className="mt-3 w-full h-40 rounded-xl border border-[#E5E5E5] bg-[#FAFBFF] p-3 text-[13px] text-[#1F1F1F] resize-none outline-none focus:border-[#4F7CFF]/60"
                         />
-                        <div className="mt-2 text-right text-[10px] text-[#9A9A9A]">{continueDirection.length}/100</div>
                         <div className="mt-3 flex gap-2">
                             <button onClick={() => setShowContinueModal(false)} className="flex-1 rounded-xl bg-white border border-[#E5E5E5] py-2.5 text-xs font-bold text-[#666666] active:scale-[0.98] transition-transform cursor-pointer">
                                 取消

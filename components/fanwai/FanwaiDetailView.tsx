@@ -201,11 +201,10 @@ const FanwaiDetailView: React.FC<FanwaiDetailViewProps> = ({
                         <p className="text-xs text-[#8A7A6C] mt-1">AI 会接着正文末尾继续写，保持人物与文风。可填续写走向（可选）：</p>
                         <textarea
                             value={continueDirection}
-                            onChange={e => setContinueDirection(e.target.value.slice(0, 100))}
-                            placeholder="例：他们后来一起去旅行…（留空则自然接续前文）"
-                            className="mt-3 w-full h-20 rounded-xl border border-[#F0E4D2] bg-white p-3 text-[13px] text-[#4A3F35] resize-none outline-none focus:border-[#E8845A]/60"
+                            onChange={e => setContinueDirection(e.target.value)}
+                            placeholder="例：他们后来一起去旅行…（留空则自然接续前文；可粘贴整段续写要求，不限字数）"
+                            className="mt-3 w-full h-40 rounded-xl border border-[#F0E4D2] bg-white p-3 text-[13px] text-[#4A3F35] resize-none outline-none focus:border-[#E8845A]/60"
                         />
-                        <div className="mt-2 text-right text-[10px] text-[#B5A89A]">{continueDirection.length}/100</div>
                         <div className="mt-3 flex gap-2">
                             <button
                                 type="button"
