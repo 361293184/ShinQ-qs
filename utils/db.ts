@@ -96,6 +96,11 @@ const STORE_STORY_THEATER_MASKS = 'story_theater_masks'; // 剧场原创人物�
 const API_CALL_LOG_MAX_AGE_MS = 5 * 24 * 60 * 60 * 1000;
 const API_CALL_LOG_MAX_ENTRIES = 2000;
 
+// 批量删除相册照片的分块大小：单块一个 readwrite 事务，块与块之间让出主线程。
+// 取值权衡：太小则事务 round-trip 开销累积，太大则单次提交占用主线程过久，
+// 删几千张时会把触屏交互卡住。300 是「一次事务装得下、又远小于长任务阈值」的量级。
+const GALLERY_DELETE_CHUNK_SIZE = 300;
+
 export interface ScheduledMessage {
     id: string;
     charId: string;
@@ -1702,17 +1707,58 @@ export const DB = {
       });
   },
 
-  deleteGalleryImage: async (id: string): Promise<void> => {
+  /**
+   * 批量删除相册照片。
+   *
+   * 与单张删除的差别只在「批量」，三处体现：
+   *  1. 空数组直接返回，不开任何事务；
+   *  2. 收藏保留只调用一次（入参本就是 { ids } 数组形态），而非每张一次
+   *     —— 这是 utils/contentFavorites.test.ts 钉住的不变量，必须继续成立；
+   *  3. 删除按 GALLERY_DELETE_CHUNK_SIZE 分块，每块一个 readwrite 事务，
+   *     块间让出主线程，避免一次性提交上千条删除把触屏交互卡死。
+   *
+   * 单块失败不回滚已成功的块（IndexedDB 本来就是逐块提交），失败张数计入
+   * 返回值，由调用方如实提示，而不是假装整体成功。
+   */
+  deleteGalleryImages: async (ids: string[]): Promise<{ deleted: number; failed: number }> => {
+      // 去重：同一张被重复提交会让计数虚高，也平白多删一次
+      const unique = [...new Set(ids)];
+      if (unique.length === 0) return { deleted: 0, failed: 0 };
+
       const { preserveContentFavoritesBeforeGalleryDeletion } = await import('./contentFavorites');
-      await preserveContentFavoritesBeforeGalleryDeletion({ ids: [id] });
+      await preserveContentFavoritesBeforeGalleryDeletion({ ids: unique });
+
       const db = await openDB();
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_GALLERY, 'readwrite');
-          transaction.objectStore(STORE_GALLERY).delete(id);
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error('deleteGalleryImage aborted'));
-      });
+      let deleted = 0;
+      let failed = 0;
+
+      for (let start = 0; start < unique.length; start += GALLERY_DELETE_CHUNK_SIZE) {
+          const chunk = unique.slice(start, start + GALLERY_DELETE_CHUNK_SIZE);
+          try {
+              await new Promise<void>((resolve, reject) => {
+                  const transaction = db.transaction(STORE_GALLERY, 'readwrite');
+                  const store = transaction.objectStore(STORE_GALLERY);
+                  for (const id of chunk) store.delete(id);
+                  transaction.oncomplete = () => resolve();
+                  transaction.onerror = () => reject(transaction.error);
+                  transaction.onabort = () => reject(transaction.error || new Error('deleteGalleryImages aborted'));
+              });
+              deleted += chunk.length;
+          } catch (error) {
+              failed += chunk.length;
+              console.error(`[DB] 批量删除相册照片失败：本块 ${chunk.length} 张`, error);
+          }
+          // 让出主线程：不 yield 的话连续几百个事务会把点击排队到删除结束
+          if (start + GALLERY_DELETE_CHUNK_SIZE < unique.length) {
+              await new Promise<void>(resolve => { setTimeout(resolve, 0); });
+          }
+      }
+
+      return { deleted, failed };
+  },
+
+  deleteGalleryImage: async (id: string): Promise<void> => {
+      await DB.deleteGalleryImages([id]);
   },
 
   // --- XHS Stock Images ---
