@@ -18,6 +18,13 @@
  *     `os_collected_letters_v1` —— 只是 IndexedDB 丢写时的**本机镜像**，非权威源；
  *                                  随备份迁移反而可能用陈旧镜像覆盖新数据
  *   - `os_weread_profile`      —— 旧键，真值已在 os_realtime_config 内
+ *   - `sully_music_api_cache_v1` —— 代码注释明写「不参与 backup/import-export」
+ *
+ * ⚠️ 两个前缀只差两个字母，务必分清（历史上整批键就是栽在这儿）：
+ *   - `sullyos_`（带 os）—— exportSystem 已有前缀扫描，**不要**在本表重复登记；
+ *   - `sully_`（不带 os）—— **没有**任何前缀扫描，必须逐条登记，或按其真实前缀
+ *     （如 `sully_char_lyric_v1_` / `sully_last_innerstate_`）登记。
+ *     通话设置、音乐配置、CSS 预设、Firecrawl/视频解析 Key 都是这样漏掉的。
  *
  * 值的形状：localStorage 里全部是字符串，这里原样搬运（无损往返），
  * 不做解析再序列化 —— 那会让「裸字符串」与「JSON 字符串字面量」无法区分。
@@ -127,6 +134,48 @@ export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
         label: '视频通话·假摄像头机位图',
         content: true,
     },
+    {
+        // 权威定义：utils/techoStore.ts:13 `PREFIX = 'techo_'`
+        // 整套手账数据：每日日程 / 习惯打卡 / 碎碎念 / 大事记 / 目标 /
+        // 周月备注 / 生理期 / 下周池 / 角色收集 / 天气缓存。
+        // 全部以 localStorage 为权威源，没有任何 IndexedDB 通道 —— 漏登记即整站丢失。
+        key: 'techo_',
+        prefix: true,
+        label: '手账（日程/打卡/碎碎念/大事记/目标/生理期等）',
+        content: true,
+    },
+    {
+        // 权威定义：context/MusicContext.tsx:74 `LS_LOCAL_ALBUM_KEY`
+        // 本机导入 / AI 生成的歌曲专辑，内含指向本机音频资源的引用
+        key: 'sully_music_local_album_v1',
+        label: '音乐·本机导入与生成的歌曲专辑',
+        content: true,
+    },
+    {
+        // 权威定义：components/chat/ChromeCssEditor.tsx:10 `PRESET_STORE_KEY`
+        // 用户自己写的聊天白框 CSS 预设（可能内嵌图片资源）
+        key: 'sully_chrome_css_presets_v1',
+        label: '聊天白框·自定义 CSS 预设',
+        content: true,
+    },
+    {
+        // 权威定义：components/bank/BankDollhouse.tsx:28 `CUSTOM_FURNITURE_ASSET_KEY`
+        // 用户放的银行小屋家具素材。值是 JSON，其中图片可能是 blobref 令牌；
+        // 二进制无需在此处理 —— 导出管线的 blobs/* 旁路从「真正落包的 JSON 文本」
+        // 里提取令牌（见 utils/backupBlobs.ts:11-14），键落包即自动随行。
+        key: 'bank_custom_furniture_assets_v1',
+        label: '银行小屋·自定义家具素材',
+        content: true,
+    },
+    {
+        // 权威定义：utils/charLyricCache.ts:18（`sully_char_lyric_v1_${songId}`）
+        // 按 songId 缓存歌词全文：属可重拉缓存，但重拉要联网且上游接口可能失效，
+        // 体积又小，按内容对待一并带走。索引键见下方 sully_char_lyric_meta_v1。
+        key: 'sully_char_lyric_v1_',
+        prefix: true,
+        label: 'Char 背景音·歌词全文缓存',
+        content: true,
+    },
 
     // ─────────── 配置类（丢失需重设） ───────────
     {
@@ -199,6 +248,129 @@ export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
         // 视觉（识图）可用模型列表缓存，丢了要重新拉取
         key: 'os_vision_available_models',
         label: '视觉识图·可用模型列表缓存',
+        content: false,
+    },
+    {
+        // 权威定义：utils/charLyricCache.ts:19 `META_KEY`
+        // 与上面的歌词全文成对的 LRU 索引：只带歌词不带索引会对不上账
+        key: 'sully_char_lyric_meta_v1',
+        label: 'Char 背景音·歌词缓存索引',
+        content: false,
+    },
+    {
+        // 权威定义：utils/emotionApply.ts:21 `lastInnerStateKey()`（`sully_last_innerstate_${charId}`）
+        // 角色最后一次内心独白，瞬时产物的缓存，供查手机首页等读取
+        key: 'sully_last_innerstate_',
+        prefix: true,
+        label: '角色·最后一次内心独白缓存',
+        content: false,
+    },
+
+    // ─────────── 通话 App（sully-call-* 用连字符，通用前缀扫描抓不到，逐条登记） ───────────
+    {
+        // 权威定义：utils/callPreferences.ts:8 `CALL_PREFERENCES_KEY`
+        key: 'sully-call-preferences-v1',
+        label: '通话·角色主动/语音自动播/静默催促',
+        content: false,
+    },
+    {
+        // 权威定义：utils/callPreferences.ts:9 `CALL_UPDATE_ANNOUNCEMENT_KEY`
+        key: 'sully-call-update-preferences-2026-08-v2',
+        label: '通话·设置更新公告已读标记',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:527（写）/ :904（读）
+        key: 'sully-call-mode-v1',
+        label: '通话·默认模式（语音/视频）',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:536,541
+        key: 'sully-call-theme-v1',
+        label: '通话·默认主题（亮/暗）',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:171
+        key: 'sully-call-video-layout-v1',
+        label: '通话·视频通画面布局',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:184
+        key: 'sully-call-camera-preview-size-v1',
+        label: '通话·自拍预览框尺寸',
+        content: false,
+    },
+    {
+        // 权威定义：components/call/VRMVideoCallStage.tsx:135,139
+        key: 'sully-call-action-chips-v1',
+        label: '通话·动作 chip 展开状态',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CallApp.tsx:1635
+        key: 'sully-call-setup-guide-v2',
+        label: '通话·设置向导完成标记',
+        content: false,
+    },
+
+    // ─────────── 音乐 / 抓取 / 诊断等（sully_ 前缀，与 sullyos_ 只差两个字母，勿混） ───────────
+    {
+        // 权威定义：context/MusicContext.tsx:72 `LS_CFG_KEY`
+        // 音乐工作台地址 / cookie / 音质，独立于「设置 → 网络代理」的中心地址
+        key: 'sully_music_cfg_v1',
+        label: '音乐·工作台地址与音质配置',
+        content: false,
+    },
+    {
+        // 权威定义：context/MusicContext.tsx:73 `LS_STATE_KEY`
+        key: 'sully_music_state_v1',
+        label: '音乐·播放队列与进度',
+        content: false,
+    },
+    {
+        // 权威定义：utils/firecrawl.ts:10（网页抓取的兜底通道）
+        key: 'sully_firecrawl_api_key_v1',
+        label: '网页抓取·Firecrawl API Key',
+        content: false,
+    },
+    {
+        // 权威定义：utils/videoParser.ts:14 `LS_KEY`
+        key: 'sully_video_parse_key_v1',
+        label: '视频解析·apizero API Key',
+        content: false,
+    },
+    {
+        // 权威定义：utils/apiCallLog.ts:165 `API_REQUEST_CAPTURE_ARMED_KEY`
+        key: 'sully_api_request_capture_armed_v1',
+        label: '诊断·API 请求捕获开关',
+        content: false,
+    },
+    {
+        // 权威定义：utils/proxyWorker.ts:26 `SETTINGS_FOCUS_SESSION_KEY`
+        // 仅用于「跳到设置页并聚焦代理输入框」的一次性标记
+        key: 'sully_settings_focus_proxy_worker_v1',
+        label: '设置·代理输入框聚焦标记',
+        content: false,
+    },
+    {
+        // 权威定义：components/os/CompanionHome.tsx:437
+        key: 'sully-companion-wardrobe-discovery-v1',
+        label: '陪伴桌面·衣橱功能发现标记',
+        content: false,
+    },
+    {
+        // 权威定义：components/weread/WereadReader.tsx:56
+        key: 'os_weread_night',
+        label: '微信读书·阅读夜间模式',
+        content: false,
+    },
+    {
+        // 权威定义：apps/CheckPhone.tsx:332,334
+        key: 'cp_tavern_style',
+        label: '查手机·酒馆界面风格',
         content: false,
     },
 ];

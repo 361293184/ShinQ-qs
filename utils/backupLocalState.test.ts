@@ -43,7 +43,7 @@ function adaptZip(zip: JSZip): { writer: ZipFileWriter; reader: ZipFileReader } 
     return { writer, reader };
 }
 
-/** 样例覆盖：前缀项（nrcache_ / os_letter_written_）与各精确项。 */
+/** 样例覆盖：各个前缀项（nrcache_ / os_letter_written_ / techo_ / sully_char_lyric_v1_ …）与各精确项。 */
 const SAMPLE: Record<string, string> = {
     // 前缀 nrcache_
     'nrcache_nr_books': '[{"id":"b1","title":"测试书","source":"local","passages":["第一段"],"createdAt":1}]',
@@ -74,6 +74,27 @@ const SAMPLE: Record<string, string> = {
     'acnh_wallpaper_backup': 'linear-gradient(#fff, #000)',
     'sully-call-fake-camera-image-v1': 'blobref:b_def456',
     'os_vision_available_models': '["gpt-4o","qwen-vl-max"]',
+    // 前缀 techo_（整套手账：日程 / 习惯 / 生理期 … 全部同前缀）
+    'techo_2026-09-26': '{"todos":[{"id":"t1","text":"写代码","done":true}]}',
+    'techo_habits': '[{"id":"h1","name":"喝水"}]',
+    'techo_period': '{"lastStart":"2026-09-01"}',
+    // 本机音乐专辑 / 自定义 CSS 预设 / 银行家具素材（后两者内含 blobref 令牌）
+    'sully_music_local_album_v1': '[{"id":"a1","title":"本地专辑","localAssetKey":"blobref:b_mus1"}]',
+    'sully_chrome_css_presets_v1': '[{"id":"c1","name":"暗色白框","css":".chat-chrome{color:#fff}"}]',
+    'bank_custom_furniture_assets_v1': '[{"id":"f1","name":"沙发","url":"blobref:b_fur1"}]',
+    // 前缀 sully_char_lyric_v1_ + 成对的索引键
+    'sully_char_lyric_v1_song-1': '[{"t":1.2,"text":"第一句"}]',
+    'sully_char_lyric_meta_v1': '[{"songId":"song-1","ts":1}]',
+    // 前缀 sully_last_innerstate_（角色内心独白缓存）
+    'sully_last_innerstate_char-1': '今天有点想你',
+    // 通话族（连字符）/ 音乐配置 / 各类 Key / 界面偏好
+    'sully-call-preferences-v1': '{"characterInitiative":true,"voiceAutoPlay":true,"idleNudgeEnabled":false}',
+    'sully-call-mode-v1': 'video',
+    'sully_music_cfg_v1': '{"workerUrl":"https://m.example.com","quality":"lossless"}',
+    'sully_firecrawl_api_key_v1': 'fc-xxxx',
+    'sully_video_parse_key_v1': 'vp-xxxx',
+    'os_weread_night': 'true',
+    'cp_tavern_style': 'tavern',
 };
 
 describe('backupLocalState', () => {
@@ -164,6 +185,46 @@ describe('backupLocalState', () => {
         }
     });
 
+    it('登记表覆盖了穷尽排查补入的「techo_ / sully_ / sully-」系列键', () => {
+        // 这批键的共同特征：既不落在 sullyos_ 前缀扫描里，也不在既有显式字段里。
+        // 它们曾整批漏出备份（换设备必丢），这里钉住，防止日后被误删。
+        const expected = [
+            // techo_ 前缀族（整套手账：日程 / 习惯 / 生理期 … 全部同前缀）
+            'techo_2026-09-26',
+            'techo_habits',
+            // 用户内容类
+            'sully_music_local_album_v1',
+            'sully_chrome_css_presets_v1',
+            'bank_custom_furniture_assets_v1',
+            'sully_char_lyric_v1_song-1',
+            'sully_char_lyric_meta_v1',
+            // sully_ 前缀族（注意不是 sullyos_，没有通用前缀扫描）
+            'sully_last_innerstate_char-1',
+            'sully_music_cfg_v1',
+            'sully_music_state_v1',
+            'sully_firecrawl_api_key_v1',
+            'sully_video_parse_key_v1',
+            'sully_api_request_capture_armed_v1',
+            'sully_settings_focus_proxy_worker_v1',
+            // sully-call-* 连字符族（前缀扫描抓不到，逐条登记）
+            'sully-call-preferences-v1',
+            'sully-call-update-preferences-2026-08-v2',
+            'sully-call-mode-v1',
+            'sully-call-theme-v1',
+            'sully-call-video-layout-v1',
+            'sully-call-camera-preview-size-v1',
+            'sully-call-action-chips-v1',
+            'sully-call-setup-guide-v2',
+            // 其它
+            'sully-companion-wardrobe-discovery-v1',
+            'os_weread_night',
+            'cp_tavern_style',
+        ];
+        for (const key of expected) {
+            expect(isRegisteredLocalStateKey(key), key).toBe(true);
+        }
+    });
+
     it('登记表不得收录已由既有通道覆盖的键（避免互相覆盖）', () => {
         // 这几个 key 分别由 sullyos_ 前缀扫描、访问器、realtimeConfig 通道处理，
         // 若在此重复登记，导入顺序不同会导致同一份数据被写两遍甚至写坏。
@@ -173,6 +234,8 @@ describe('backupLocalState', () => {
             'sullyos_shelf_persona_v1',
             'os_fanwai_stories_v1',
             'os_collected_letters_v1',
+            // 代码注释明写「不参与 backup/import-export」，且不能被 sully_ 前缀误抓
+            'sully_music_api_cache_v1',
         ]) {
             expect(isRegisteredLocalStateKey(key), key).toBe(false);
         }
