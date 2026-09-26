@@ -355,6 +355,9 @@ async function sendText(baseUrl, botToken, toUserId, contextToken, text) {
   }
 }
 
+// utils/amsgLimits.ts
+var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
+
 // utils/amsgFirePack.ts
 var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
 var amsgStateNamespace = (charId) => `${AMSG_STATE_NAMESPACE_PREFIX}${charId}`;
