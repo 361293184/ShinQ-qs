@@ -1,3 +1,4 @@
+import EmojiExportDialog from '../components/chat/EmojiExportDialog';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
@@ -75,7 +76,9 @@ import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatC
 import { resolveChatTheme } from '../utils/groupChat/theme';
 import ChatHeader from '../components/chat/ChatHeaderShell';
 import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
-import ChromeCssEditor from '../components/chat/ChromeCssEditor';
+import {resolveDecorationTheme} from '../utils/chatDecoration';
+import ChatDecorationAnnouncement from '../components/chat/ChatDecorationAnnouncement';
+import ChatDecorationPanel, {DecorationTab} from '../components/chat/ChatDecorationPanel';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
@@ -114,6 +117,7 @@ import { resolveTtsProvider } from '../utils/ttsProvider';
 import { isInstantConfigReady, loadInstantConfig } from '../utils/instantPushClient';
 import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteboxSound, upsertWhiteboxSound, stripWhiteboxSoundDirective, WhiteboxSound } from '../utils/whiteboxSound';
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
+import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import { normalizeTranslationLangLabel, isTranslationLangPreset } from '../utils/translationLang';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trackEvent, noteMessageSent, presetOrCustom } from '../utils/analytics';
@@ -161,7 +165,8 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, addCollectedLetter, collectedLetters, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
+    const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, addCollectedLetter, collectedLetters, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
+    const osTheme = useMemo(()=>resolveDecorationTheme(baseOsTheme,characters.find(c=>c.id===activeCharacterId)||characters[0]),[baseOsTheme,characters,activeCharacterId]);
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -246,6 +251,7 @@ const Chat: React.FC = () => {
     const [categories, setCategories] = useState<EmojiCategory[]>([]);
     const [activeCategory, setActiveCategory] = useState<string>('default');
     const [newCategoryName, setNewCategoryName] = useState('');
+    const [emojiExport, setEmojiExport] = useState<{ emojis: Emoji[]; title: string } | null>(null);
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
 
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -275,12 +281,14 @@ const Chat: React.FC = () => {
     // Reply Logic
     const [replyTarget, setReplyTarget] = useState<Message | null>(null);
 
-    const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
+    const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
     // 「聊天装扮」悬浮态：不走全屏 modal——圆气泡挂在聊天上，点开小面板边看真聊天边调。
+    const [decorationTab, setDecorationTab] = useState<DecorationTab>('layout');
+    // 自研：聊天装扮悬浮气泡（与上游 decorationTab 面板并存，各自独立）
     const [fineTuneOpen, setFineTuneOpen] = useState(false);          // 圆气泡在场
     const [fineTunePanelOpen, setFineTunePanelOpen] = useState(false); // 小面板展开/收起
-    // 切换角色时收掉装扮气泡：定制是 per-character 的，避免误改到下一个角色
     useEffect(() => { setFineTuneOpen(false); setFineTunePanelOpen(false); }, [activeCharacterId]);
+    // 切换角色时收掉装扮气泡：定制是 per-character 的，避免误改到下一个角色
     const [scheduleData, setScheduleData] = useState<DailySchedule | null>(null);
     // 小剧场（窥视演出）：正在播放的时段索引（null = 未打开），以及生成中标志
     const [theaterSlotIdx, setTheaterSlotIdx] = useState<number | null>(null);
@@ -440,7 +448,7 @@ const Chat: React.FC = () => {
         historyContextRange?.userBreakpointExpired,
         updateCharacter,
     ]);
-    const currentThemeId = char?.bubbleStyle || 'default';
+    const currentThemeId = char?.bubbleStyle || osTheme.chatDefaultBubbleStyle || 'default';
     // 解析逻辑抽到 utils/groupChat/theme.ts（群聊共用），行为不变
     const activeTheme = useMemo(
         () => resolveChatTheme(currentThemeId, customThemes, PRESET_THEMES),
@@ -490,7 +498,7 @@ const Chat: React.FC = () => {
     }, [activeCharacterId]);
 
     // --- Initialize Hook ---
-    const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
+    const { isTyping, streamingBubbles, streamingThinking, streamingHandoverIds, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
         userProfile,
         apiConfig,
@@ -1752,8 +1760,8 @@ const Chat: React.FC = () => {
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
             case 'settings': setModalType('chat-settings'); break;
-            case 'chrome-css': setModalType('chrome-css'); break;
-            case 'chrome-sound': setModalType('chrome-sound'); break;
+            case 'chrome-css': setShowPanel('none'); setDecorationTab('layout'); setModalType('chrome-css'); break;
+            case 'chrome-sound': setShowPanel('none'); setDecorationTab('sound'); setModalType('chrome-css'); break;
             case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
             case 'location': setShowPanel('none'); setShowLocationPicker(true); break;
             case 'emoji-import': setModalType('emoji-import'); break;
@@ -2645,6 +2653,25 @@ const Chat: React.FC = () => {
         setModalType('none');
         setEmojiImportText('');
         addToast('表情包导入成功', 'success');
+    };
+
+    const handleRenameCategory = async () => {
+        if (!selectedCategory || selectedCategory.isSystem || selectedCategory.id === 'default') return;
+        const name = newCategoryName.trim();
+        if (!name) { addToast('分类名称不能为空', 'error'); return; }
+        try {
+            await DB.saveEmojiCategory({ ...selectedCategory, name });
+            await loadEmojiData();
+            markEmojiLibraryChanged();
+            setModalType('none'); setSelectedCategory(null); setNewCategoryName('');
+            addToast('分类已重命名', 'success');
+        } catch { addToast('分类重命名失败', 'error'); }
+    };
+    const handleDownloadCategory = () => {
+        if (!selectedCategory) return;
+        const items = emojis.filter(e => selectedCategory.id === 'default' ? !e.categoryId || e.categoryId === 'default' : e.categoryId === selectedCategory.id);
+        setEmojiExport({ emojis: items, title: selectedCategory.name });
+        setModalType('none');
     };
 
     const handleDeleteCategory = async () => {
@@ -3798,6 +3825,14 @@ const Chat: React.FC = () => {
         return base.slice(-visibleCount);
     }, [messages, char?.id, char?.hideSystemLogs, visibleCount, windowedFocusMsgId]);
 
+    // 预览整组交接前，不把同一批逐条落库的正式气泡再画一遍。
+    // 仅处理本轮已匹配的 ID；旧回复、未预览的卡片和二次回复仍正常显示。
+    const renderedMessages = useMemo(() => {
+        if (selectionMode || (!streamingBubbles.length && !streamingThinking)) return displayMessages;
+        const pending = new Set(streamingHandoverIds);
+        return displayMessages.filter(message => !pending.has(message.id));
+    }, [displayMessages, streamingBubbles, streamingThinking, streamingHandoverIds, selectionMode]);
+
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
 
     // 角色心声：只有「当前对话最新一条带 innerVoice 的角色消息」的头像可点
@@ -3874,7 +3909,7 @@ const Chat: React.FC = () => {
         active: activeApp === AppID.Chat && !!char,
         blocked: isInputFocused || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
             || selectionMode || isSummarizing || collaborationOpen || memoryRepairOpen || favoritesOpen
-            || fineTunePanelOpen || showProactiveModal || showActiveMsg2Modal || showThinkingChainModal
+            || showProactiveModal || showActiveMsg2Modal || showThinkingChainModal
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
@@ -3882,7 +3917,7 @@ const Chat: React.FC = () => {
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
     // hook 必须在下面的空态早退之前调用，所以用可选链读 char。
-    const resolvedChatBackground = useBlobRefUrl(char?.chatBackground);
+    const resolvedChatBackground = useBlobRefUrl(char?.chatBackground ?? osTheme.chatBackground);
     // 兜底：正常情况下 OSContext 启动时一定会保底一个角色，char 不该为空。
     // 但若 init 期间某个 store 读取失败（数据其实还在 IndexedDB 里），characters 可能暂时为空，
     // 此时下面 char.chatBackground 会直接抛 "undefined is not an object" 把整个 App 崩到错误页。
@@ -3890,6 +3925,7 @@ const Chat: React.FC = () => {
     if (!char) {
         return (
             <div className="flex flex-col items-center justify-center h-full bg-[#f1f5f9] text-center px-8 gap-3">
+                <ChatDecorationAnnouncement surface="chat"/>
                 <div className="text-4xl">💤</div>
                 <div className="text-slate-600 text-sm font-medium">暂时没有可用的角色</div>
                 <div className="text-slate-400 text-xs leading-relaxed">数据可能未加载完成。请退回桌面后重新进入；若仍为空，重启应用即可恢复。</div>
@@ -3975,9 +4011,11 @@ const Chat: React.FC = () => {
             className={`sully-chat-root ${finalRootClass}`}
             style={finalRootStyle}
         >
+             <ChatDecorationAnnouncement surface="chat"/>
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
              {chatFineTuneCss && <style>{chatFineTuneCss}</style>}
+             {char.chatAppearance?.chatEmojiSize && char.chatFineTune?.enabled !== false && <style>{`.sully-chat-root { --sully-emoji-size: ${{small:96,medium:128,large:160}[osTheme.chatEmojiSize || 'small']}px; }`}</style>}
              {/* 白框自定义 CSS：全局默认在前、角色专属在后（后者叠加覆盖）。作用于 .sully-chat-* 各零件。
                  守护样式统一放在气泡主题 customCss 之后（见下），保证对所有用户 CSS 都能兜底。 */}
              {osTheme.chatChromeCustomCss && <style>{osTheme.chatChromeCustomCss}</style>}
@@ -4177,7 +4215,8 @@ const Chat: React.FC = () => {
              )}
 
              {showHistoryCleanup && <ChatHistoryCleanupModal key={char.id} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
-             <ChatModals
+             {emojiExport && <EmojiExportDialog {...emojiExport} onClose={() => setEmojiExport(null)} />}
+            <ChatModals
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
                 transferNote={transferNote} setTransferNote={setTransferNote}
@@ -4207,7 +4246,7 @@ const Chat: React.FC = () => {
 
                 onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
                 onImportEmoji={handleImportEmoji}
-                onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
+                onSaveSettings={saveSettings}
                 onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
@@ -4215,6 +4254,7 @@ const Chat: React.FC = () => {
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onRecallMessage={handleRecallMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
                 onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
+                onRenameCategory={handleRenameCategory} onDownloadCategory={handleDownloadCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}
@@ -4486,9 +4526,9 @@ const Chat: React.FC = () => {
                     </div>
                 )}
 
-                {displayMessages.map((m, i) => {
-                    const prevMessage = i > 0 ? displayMessages[i - 1] : null;
-                    const nextMessage = i < displayMessages.length - 1 ? displayMessages[i + 1] : null;
+                {renderedMessages.map((m, i) => {
+                    const prevMessage = i > 0 ? renderedMessages[i - 1] : null;
+                    const nextMessage = i < renderedMessages.length - 1 ? renderedMessages[i + 1] : null;
                     const messageGroupGapMs = 30 * 60 * 1000;
                     const breaksWithPrevious =
                         !prevMessage ||
@@ -4640,11 +4680,11 @@ const Chat: React.FC = () => {
 
                 {/* 流式预览直接复用正式 MessageItem：气泡变体、主题背景图/装饰、头像框、
                     grouped/every_message、消息间距、时间戳、Markdown 与所有自定义 CSS 天然一致。
-                    落库时 useChatAI 会登记接棒 id，正式消息首帧不再重播 fade-in。 */}
+                    整轮落库完成后一起交接，已登记接棒 id 的正式消息首帧不再重播 fade-in。 */}
                 {streamingBubbles.length > 0 && !selectionMode && (
                     <>
                         {streamingBubbles.map((bubble, i) => (
-                            <div key={`stream-preview-${i}`} className="transition-all duration-300">
+                            <div key={`stream-preview-${i}`} data-stream-preview={i} className="transition-all duration-300">
                                 <MessageItem
                                     msg={{
                                         id: -(i + 1),
@@ -5332,6 +5372,14 @@ const Chat: React.FC = () => {
                     </div>
                 );
             })()}
+            {char && modalType === 'chrome-css' && <ChatDecorationPanel
+                key={char.id}
+                character={char} theme={baseOsTheme} onSaveBubble={addCustomTheme} themes={[...Object.values(PRESET_THEMES), ...customThemes]}
+                initialTab={decorationTab} updateCharacter={patch=>updateCharacter(char.id,patch)}
+                updateTheme={updateTheme} onBgUpload={handleBgUpload} backgroundUrl={resolvedChatBackground}
+                onOpenWorkshop={()=>{setModalType('none');openApp(AppID.ThemeMaker);}}
+                onClose={()=>setModalType('none')}
+            />}
 
             {/* 情绪设置已嵌入日程 Modal（与日程强制同步开/关），不再单独渲染 */}
 

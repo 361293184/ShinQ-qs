@@ -72,8 +72,6 @@ interface ChatModalsProps {
     onTransfer: () => void;
     onImportEmoji: () => void;
     onSaveSettings: () => void;
-    onBgUpload: (file: File) => void;
-    onRemoveBg: () => void;
     onOpenHistoryCleanup?: () => void;
     onArchive: () => void;
     onCreatePrompt: () => void;
@@ -95,6 +93,8 @@ interface ChatModalsProps {
     messageFavorited?: boolean;
     onDeleteEmoji: () => void;
     onDeleteCategory: () => void;
+    onRenameCategory: () => void;
+    onDownloadCategory: () => void;
     // Category Visibility
     allCharacters?: CharacterProfile[];
     onSaveCategoryVisibility?: (categoryId: string, allowedCharacterIds: string[] | undefined) => void;
@@ -278,9 +278,9 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     allHistoryMessages = [],
     contextRangeSnapshot,
     onTransfer, onImportEmoji, onSaveSettings,
-    onBgUpload, onRemoveBg, onOpenHistoryCleanup,
+    onOpenHistoryCleanup,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onRecallMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory,
+    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onRecallMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory, onRenameCategory, onDownloadCategory,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
@@ -297,7 +297,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     letterEnabled, onToggleLetter, letterTone, onSetLetterTone, onComposeLetter, letterComposing,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs,
 }) => {
-    const bgInputRef = useRef<HTMLInputElement>(null);
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
@@ -433,17 +432,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     <ChatSettingsSection title="输入与发送" summary="表情联想、回车与自动回复">
                         <ChatInputSettings value={settingsInputPreferences} onChange={setSettingsInputPreferences} />
                     </ChatSettingsSection>
-                    <ChatSettingsSection title="聊天外观" summary="聊天背景与系统日志">
-                        <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">聊天背景</label>
-                            <div onClick={() => bgInputRef.current?.click()} className="h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-primary/50 overflow-hidden relative">
-                                {activeCharacter.chatBackground ? <TokenImg value={activeCharacter.chatBackground} className="w-full h-full object-cover opacity-60" /> : <span className="text-xs text-slate-400">点击上传图片 (原画质)</span>}
-                                {activeCharacter.chatBackground && <span className="absolute z-10 text-xs bg-white/80 px-2 py-1 rounded">更换</span>}
-                            </div>
-                            <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && onBgUpload(e.target.files[0])} />
-                            {activeCharacter.chatBackground && <button onClick={onRemoveBg} className="text-[10px] text-red-400 mt-1">移除背景</button>}
-                        </div>
-
+                    <ChatSettingsSection title="消息显示" summary="系统日志显示设置">
                         <div className="pt-2 border-t border-slate-100">
                             <div className="flex justify-between items-center cursor-pointer" onClick={() => setSettingsHideSysLogs(!settingsHideSysLogs)}>
                                 <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">隐藏系统日志</label>
@@ -568,6 +557,9 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                         </div>
 
                         {/* 记忆宫殿：一键向量化所有聊天记录 */}
+                        {isMemoryPalaceEnabled && <p className="mt-3 rounded-xl bg-violet-50 p-3 text-xs leading-relaxed text-violet-700">
+                            全自动记忆用户大部分时候无需操作下方的一键向量化等手动工具。日常聊天会按条件自动整理；这些不是常规必点按钮，仅在明确了解用途与影响时使用。查看和修改记忆可前往「神经链接」中的角色记忆页。
+                        </p>}
                         {isMemoryPalaceEnabled && onForceVectorize && (
                             <div className="pt-2 border-t border-slate-100">
                                 <button
@@ -1199,9 +1191,15 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 </div>
             </Modal>
 
+            <Modal isOpen={modalType === 'rename-category'} title="重命名分类" onClose={() => setModalType('none')}
+                footer={<button onClick={onRenameCategory} className="w-full py-3 bg-primary text-white rounded-2xl">保存</button>}>
+                <input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} placeholder="输入分类名称" autoFocus className="w-full p-3 bg-slate-50 rounded-xl" />
+            </Modal>
             {/* Category Options Modal (shown on long-press) */}
             <Modal isOpen={modalType === 'category-options'} title="分类操作" onClose={() => setModalType('none')}>
                 <div className="space-y-3">
+                    <button onClick={onDownloadCategory} className="w-full py-3 bg-slate-50 text-slate-700 rounded-2xl">下载分类全部原图</button>
+                    {selectedCategory && !selectedCategory.isSystem && selectedCategory.id !== 'default' && <button onClick={() => { setNewCategoryName(selectedCategory.name); setModalType('rename-category'); }} className="w-full py-3 bg-slate-50 text-slate-700 rounded-2xl">重命名分类</button>}
                     <button onClick={openVisibilityModal} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
