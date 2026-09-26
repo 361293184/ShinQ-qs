@@ -1481,8 +1481,11 @@ describe('云端思考链随首条 push 回客户端', () => {
    * 跑一次即时对话的 fire，可以连喂好几轮（工具循环）；返回最后一轮的 decision。
    * 走即时对话是因为思考链只在这条路回传——定时任务那条见下面单独一条用例。
    */
+  /** 最近一次 instantFire 用的 store：要看旁路存储写了什么的用例从这里读。 */
+  let lastInstantStore: ReturnType<typeof makeFireStore> | null = null;
   const instantFire = async (rounds: Round[], extraMeta: Record<string, unknown> = {}) => {
     const store = makeFireStore(CHAT_MESSAGES);
+    lastInstantStore = store;
     const scratch: Record<string, unknown> = {};
     const metadata = {
       charId: CHAR_ID,
@@ -1641,6 +1644,119 @@ describe('云端思考链随首条 push 回客户端', () => {
     expect(meta.amsgReasoning).toContain('他终于开口了');
     expect(meta.amsgEmotionUpdate).toContain('EVAL-RAW-MARKER');
     expect(meta.amsgEmotionDone).toBe(true);
+  });
+
+  // SAR 临时模块生效时模型回的是一个信封。worker 要在分段之前拆开：只有真意进分段，
+  // 外显逐段挂回、横幅跟着换，快照和用户外显只随最后一条回去（线协议见
+  // plans/amsg2-instant-chat-contract.md 的「push metadata 扩展字段」）。
+  describe('SAR 信封', () => {
+    const SAR_SNAPSHOT = {
+      v: 1,
+      character: { runId: 'run-c', moduleId: 'mod-c', moduleTitle: '反话模块', target: 'character', phase: 'active' },
+      user: { runId: 'run-u', moduleId: 'mod-u', moduleTitle: '夹子音', target: 'user', phase: 'active' },
+      events: [{
+        version: 1, runId: 'run-c', moduleId: 'mod-c', moduleTitle: '反话模块', target: 'character',
+        source: 'user', phase: 'active', moment: 'active',
+      }],
+      userMessageId: 11,
+      userSurfaceTargetIds: [11],
+      reroll: false,
+    };
+    const sarOutput = (userSurface: string) => [
+      '<SAR_MODULE_OUTPUT>',
+      '<CHAR_TRUE>\n想你了。\n早点睡\n</CHAR_TRUE>',
+      '<CHAR_SURFACE>\n一点都不想你。\n熬通宵吧\n</CHAR_SURFACE>',
+      `<USER_SURFACE>\n${userSurface}\n</USER_SURFACE>`,
+      '</SAR_MODULE_OUTPUT>',
+    ].join('\n');
+
+    it('任务带 amsgSar → 只有真意成 push，外显逐段挂上、横幅用外显，快照与用户外显只在末条', async () => {
+      const decision = await instantFire(
+        [{ output: sarOutput('人家好想你嘛～') }],
+        { amsgSar: SAR_SNAPSHOT },
+      );
+
+      expect(decision.decision).toBe('finish');
+      const payloads = decision.pushPayloads as Array<Record<string, any>>;
+      expect(payloads.map((p) => p.message)).toEqual(['想你了。', '早点睡']);
+      expect(JSON.stringify(payloads.map((p) => [p.message, p.notification])))
+        .not.toMatch(/SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE/);
+      expect(payloads.map((p) => p.metadata.amsgSarSurface?.surface)).toEqual(['一点都不想你。', '熬通宵吧']);
+      expect(payloads[0].metadata.amsgSarSurface.runId).toBe('run-c');
+      // 通知策略照常叠上去，但横幅正文还是外显，不被覆盖回真意。
+      expect(payloads.map((p) => p.notification.body)).toEqual(['一点都不想你。', '熬通宵吧']);
+      expect(payloads[0].notification.tag).toBe(`amsg-instant-${CHAR_ID}`);
+
+      expect(payloads[0].metadata.amsgSar).toBeUndefined();
+      expect(payloads[0].metadata.amsgSarUserSurface).toBeUndefined();
+      expect(payloads[1].metadata.amsgSar).toEqual(SAR_SNAPSHOT);
+      expect(payloads[1].metadata.amsgSarUserSurface).toBe('人家好想你嘛～');
+    });
+
+    it('用户外显撑爆一条 push → 旁路存到 sar_user_surface:<clientTaskId>，末条只留 amsgSarUserSurfaceRef', async () => {
+      const longSurface = '人家真的好想好想你'.repeat(200);
+      const decision = await instantFire(
+        [{ output: sarOutput(longSurface) }],
+        { amsgSar: SAR_SNAPSHOT },
+      );
+
+      expect(decision.decision).toBe('finish');
+      const payloads = decision.pushPayloads as Array<Record<string, any>>;
+      const last = payloads[payloads.length - 1].metadata;
+      const key = `sar_user_surface:${CLIENT_TASK_ID}`;
+      expect(last.amsgSarUserSurfaceRef).toBe(key);
+      expect(last.amsgSarUserSurface).toBeUndefined();
+      expect(lastInstantStore?.rows.get(key)).toBe(longSurface);
+      // 挪的顺序里快照排在用户外显前面：用户外显都得挪了，快照已经先挪走了。
+      expect(last.amsgSarRef).toBe(`sar_snapshot:${CLIENT_TASK_ID}`);
+      expect(last.amsgSar).toBeUndefined();
+      expect(JSON.parse(lastInstantStore!.rows.get(`sar_snapshot:${CLIENT_TASK_ID}`)!)).toEqual(SAR_SNAPSHOT);
+      for (const payload of payloads) {
+        expect(new TextEncoder().encode(JSON.stringify(payload)).length)
+          .toBeLessThanOrEqual(MAX_PUSH_PAYLOAD_BYTES);
+      }
+    });
+
+    // SAR 回合一条 push 要同时装真意、外显横幅、外显 meta、快照，长台词很容易超 4KB。
+    // 每条 push 的外显 meta 各自可挪，键里带段序号——同一轮几条不能互相覆盖。
+    it('外显 meta 撑爆 push → 按段号分别旁路到 sar_surface:<clientTaskId>:<i>，各条只留 amsgSarSurfaceRef', async () => {
+      const truthA = '真'.repeat(700);
+      const truthB = '意'.repeat(700);
+      const surfaceA = '外'.repeat(700);
+      const surfaceB = '显'.repeat(700);
+      const output = [
+        '<SAR_MODULE_OUTPUT>',
+        `<CHAR_TRUE>\n${truthA}\n${truthB}\n</CHAR_TRUE>`,
+        `<CHAR_SURFACE>\n${surfaceA}\n${surfaceB}\n</CHAR_SURFACE>`,
+        '</SAR_MODULE_OUTPUT>',
+      ].join('\n');
+      const decision = await instantFire([{ output }], { amsgSar: SAR_SNAPSHOT });
+
+      expect(decision.decision).toBe('finish');
+      const payloads = decision.pushPayloads as Array<Record<string, any>>;
+      expect(payloads.map((p) => p.message)).toEqual([truthA, truthB]);
+      const keys = [0, 1].map((i) => `sar_surface:${CLIENT_TASK_ID}:${i}`);
+      payloads.forEach((payload, i) => {
+        expect(payload.metadata.amsgSarSurface).toBeUndefined();
+        expect(payload.metadata.amsgSarSurfaceRef).toBe(keys[i]);
+        expect(new TextEncoder().encode(JSON.stringify(payload)).length)
+          .toBeLessThanOrEqual(MAX_PUSH_PAYLOAD_BYTES);
+      });
+      expect(JSON.parse(lastInstantStore!.rows.get(keys[0])!).surface).toBe(surfaceA);
+      expect(JSON.parse(lastInstantStore!.rows.get(keys[1])!).surface).toBe(surfaceB);
+      // 横幅截短了，但仍是外显。
+      expect(payloads[0].notification.body.startsWith('外外外')).toBe(true);
+    });
+
+    it('amsgSar 形状不对 → 当没有：不拆信封也不回传', async () => {
+      const decision = await instantFire(
+        [{ output: '直接说话。\n不带信封' }],
+        { amsgSar: { ...SAR_SNAPSHOT, v: 2 } },
+      );
+      const payloads = decision.pushPayloads as Array<Record<string, any>>;
+      expect(payloads.map((p) => p.message)).toEqual(['直接说话。', '不带信封']);
+      for (const payload of payloads) expect(payload.metadata.amsgSar).toBeUndefined();
+    });
   });
 });
 
@@ -4561,6 +4677,45 @@ describe('即时对话的接线', () => {
     // 中间态的长相：路由在、版本号也是新的，唯独这条路跑不动。
     expect(body.data.instantChat).toBe(true);
     expect(typeof body.data.workerVersion).toBe('string');
+  });
+
+  it('/config-check 报自更新能力：配了 CF_API_TOKEN 才算有，检查过没有从诊断表读', async () => {
+    const without = await (await call('https://w.example/config-check')).json();
+    expect(without.data.selfUpdate).toEqual({ supported: false, state: null });
+    const withToken = { ...fullEnv, CF_API_TOKEN: 'cf' };
+    const body = await (await call('https://w.example/config-check', {}, withToken)).json();
+    expect(body.data.selfUpdate.supported).toBe(true);
+    // 桩出来的 DB 读不了诊断表 → 从没查过
+    expect(body.data.selfUpdate.state).toBeNull();
+  });
+
+  describe('/self-update/check（冷启动顺手问一句该更新了没）', () => {
+    const checkEnv = { ...fullEnv, AMSG_SERVER_TOKEN: 'shared', CF_API_TOKEN: 'cf', CF_SCRIPT_NAME: 'w' };
+    const post = (env: any, headers: Record<string, string> = { 'X-Client-Token': 'shared' }, ctx?: any) =>
+      (worker as any).fetch(new Request('https://w.example/self-update/check', { method: 'POST', headers }), env, ctx ?? { waitUntil: () => {} });
+
+    it('门跟 /self-update 一样高：共享密钥对不上 401、没配 CF_API_TOKEN 400', async () => {
+      expect((await post(checkEnv, { 'X-Client-Token': 'wrong' })).status).toBe(401);
+      expect((await post({ ...checkEnv, AMSG_SERVER_TOKEN: undefined })).status).toBe(401);
+      const noToken = await post({ ...checkEnv, CF_API_TOKEN: undefined });
+      expect(noToken.status).toBe(400);
+      expect((await noToken.json()).error.code).toBe('CF_TOKEN_MISSING');
+    });
+
+    it('过了门就回 202 走人，检查本身塞进 waitUntil 跑', async () => {
+      const waited: Promise<unknown>[] = [];
+      const response = await post(checkEnv, undefined, { waitUntil: (p: Promise<unknown>) => waited.push(p) });
+      expect(response.status).toBe(202);
+      expect((await response.json()).data.accepted).toBe(true);
+      expect(waited).toHaveLength(1);
+      // 桩 DB 上跑不动，但必须吞掉而不是让 waitUntil 里的 promise 拒绝
+      await expect(waited[0]).resolves.toBeUndefined();
+    });
+
+    it('预检要放行，否则带自定义头的正式请求根本发不出去', async () => {
+      const response = await (worker as any).fetch(new Request('https://w.example/self-update/check', { method: 'OPTIONS' }), checkEnv);
+      expect(response.status).toBe(204);
+    });
   });
 
   it('/config-check 绑定在就是 true', async () => {

@@ -79,10 +79,13 @@ describe('parseAndroidUpdateManifest', () => {
 });
 
 describe('downloadAndVerifyAndroidUpdate', () => {
+  // 下载函数只接收解析过的清单，原始的 validManifest 故意混了脏数据给解析测试用
+  const manifest = parseAndroidUpdateManifest(validManifest);
+
   it('creates the nested cache directory before the first download', async () => {
     filesystemMocks.deleteFile.mockRejectedValueOnce(new Error('file does not exist'));
 
-    await expect(downloadAndVerifyAndroidUpdate(validManifest)).resolves.toBe(
+    await expect(downloadAndVerifyAndroidUpdate(manifest)).resolves.toBe(
       'file:///cache/updates/SullyOS-update.apk',
     );
 
@@ -108,7 +111,7 @@ describe('downloadAndVerifyAndroidUpdate', () => {
       { code: 'DirectoryExists' },
     ));
 
-    await expect(downloadAndVerifyAndroidUpdate(validManifest)).resolves.toBe(
+    await expect(downloadAndVerifyAndroidUpdate(manifest)).resolves.toBe(
       'file:///cache/updates/SullyOS-update.apk',
     );
 
@@ -122,7 +125,7 @@ describe('downloadAndVerifyAndroidUpdate', () => {
   it('does not hide real cache directory creation failures', async () => {
     filesystemMocks.mkdir.mockRejectedValueOnce(new Error('Permission denied'));
 
-    await expect(downloadAndVerifyAndroidUpdate(validManifest)).rejects.toThrow('Permission denied');
+    await expect(downloadAndVerifyAndroidUpdate(manifest)).rejects.toThrow('Permission denied');
     expect(filesystemMocks.downloadFile).not.toHaveBeenCalled();
   });
 });

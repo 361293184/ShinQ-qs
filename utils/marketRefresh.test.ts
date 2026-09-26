@@ -31,9 +31,9 @@ describe('布告板多人路人',()=>{
   const actions=dialogue(snapshot.visitors.map(v=>v.id));actions[0]={actorId:'wanderer:0',action:'comment',targetId:input.requests[0].id,words:'看鱼愿不愿意。'} as any;actions.forEach(a=>{if('targetId' in a)a.targetId=input.requests[0].id;});
   const state=applyMarketNPCs(input,snapshot,plan(snapshot,actions)).state;expect(state.requests[0].body).toBe('真的能砍价吗？');expect(state.requests[0].comments).toHaveLength(3);expect(snapshot.prompt).toContain('真的能砍价吗');
  });
- it('rejects impersonation, bad refs, excessive actions and multiple transactions before any write',()=>{
+ it('rejects impersonation, bad refs, excessive actions and duplicate references before any write',()=>{
   const snapshot=prepareMarketNPCs(initial(),()=>.1),actions=dialogue(snapshot.visitors.map(v=>v.id));
-  for(const wrong of [[{...actions[0],actorId:'user'},...actions.slice(1)],[actions[0],{...actions[1],targetId:'invented'},actions[2]],Array(9).fill(actions[1]),[actions[0],actions[1],{...actions[0],ref:'n2'}]])expect(()=>plan(snapshot,wrong)).toThrow();
+  for(const wrong of [[{...actions[0],actorId:'user'},...actions.slice(1)],[actions[0],{...actions[1],targetId:'invented'},actions[2]],Array(9).fill(actions[1]),[actions[0],actions[1],{...actions[0],ref:'n1'}]])expect(()=>plan(snapshot,wrong)).toThrow();
   expect(()=>parseMarketNPCs('随口一说',snapshot)).toThrow();
  });
  it('rechecks funds and keeps unrelated fresh edits when a purchase can no longer happen',()=>{
@@ -105,12 +105,12 @@ describe('路人一次模型调用',()=>{
  });
 
  it.each([
-  ['duplicate', '重复发帖或交易'], ['target', 'targetId'], ['price', 'price'],
+  ['target', 'targetId'], ['price', 'price'],
  ])('identifies the exact seventh action failure: %s', (kind, expected) => {
    const snapshot=prepareMarketNPCs(initial(),()=>.1),ids=snapshot.visitors.map(v=>v.id);
    const actions:any[]=dialogue(ids);
    while(actions.length<6)actions.push({actorId:ids[1],action:'comment',targetId:'n1',words:'有效回复'});
-   const bad=kind==='duplicate'?{...actions[0],ref:'n2'}:kind==='length'?{actorId:ids[1],action:'comment',targetId:'n1',words:'密'.repeat(601)}:kind==='target'?{actorId:ids[1],action:'comment',targetId:'unknown',words:'正文'}:{actorId:ids[1],action:'list',ref:'n2',title:'标题',words:'正文',price:'10'};
+   const bad=kind==='target'?{actorId:ids[1],action:'comment',targetId:'unknown',words:'正文'}:{actorId:ids[1],action:'list',ref:'n2',title:'标题',words:'正文',price:'10'};
    actions.push(bad);
    expect(()=>plan(snapshot,actions)).toThrow('动作 7');
    expect(()=>plan(snapshot,actions)).toThrow(expected);
@@ -138,4 +138,24 @@ describe('路人一次模型调用',()=>{
    expect(JSON.parse(caught.responseText).content).toBe(original);
    expect(caught.responseText).not.toContain('Authorization');expect(caught.responseText).not.toContain(api.baseUrl);
    expect(localStorage.getItem('vr_fishing_market_v1')).not.toContain(original);
+ });
+
+ it('allows the reported combination of a free encounter followed by a fish listing from the same visitor',()=>{
+   const input=initial(),snapshot=prepareMarketNPCs(input,()=>.1),[a,b]=snapshot.visitors.map(v=>v.id);
+   const fish=snapshot.stock.find(c=>c.ownerId===a)!;
+   const actions=parseMarketNPCs(JSON.stringify({personas:[{actorId:a,name:'路人甲',identity:'卖鱼的'},{actorId:b,name:'路人乙',identity:'围观的'}],actions:[
+      {actorId:a,action:'encounter',ref:'n1',mode:'free',price:0,title:'免费鉴定',words:'来看看。',event:{story:'{{participant}}发现这是赠品鳞片。'}},
+      {actorId:b,action:'comment',targetId:'n1',words:'我看看。'},
+      {actorId:a,action:'list',ref:'n2',catchId:fish.id,price:30,title:'挂售鱼获',words:'这条三十。'},
+   ]}),snapshot);
+   const result=applyMarketNPCs(input,snapshot,actions);
+   expect(result.applied).toBe(3);expect(result.skipped).toEqual([]);
+   expect(result.state.listings).toHaveLength(2);
+   expect(result.state.listings[0].encounter).toBeDefined();
+   expect(result.state.listings[1].catchId).toBe(fish.id);
+   expect(result.state.accounts.user).toBe(input.accounts.user);
+   // A second attempt to list the same stock is rejected by the real market executor.
+   const duplicate=applyMarketNPCs(input,snapshot,[...actions,{...actions[2],ref:'n3'}]);
+   expect(duplicate.applied).toBe(3);expect(duplicate.skipped).toHaveLength(1);
+   expect(duplicate.state.listings).toHaveLength(2);
  });

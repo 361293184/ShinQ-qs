@@ -1107,12 +1107,12 @@ function assertValidDecision(decision, options = {}) {
   if (!decision || typeof decision !== "object") {
     throw new TypeError(`onLLMOutput returned invalid decision: ${stringifyDecisionForError(decision)}`);
   }
-  const tag = (
+  const tag2 = (
     /** @type {{ decision?: unknown }} */
     decision.decision
   );
-  if (typeof tag !== "string" || !VALID_DECISIONS.has(tag)) {
-    throw new TypeError(`onLLMOutput returned invalid decision tag: ${stringifyDecisionForError(tag)}`);
+  if (typeof tag2 !== "string" || !VALID_DECISIONS.has(tag2)) {
+    throw new TypeError(`onLLMOutput returned invalid decision tag: ${stringifyDecisionForError(tag2)}`);
   }
   const hasSingular = Object.prototype.hasOwnProperty.call(decision, "pushPayload");
   const hasPlural = Object.prototype.hasOwnProperty.call(decision, "pushPayloads");
@@ -1121,7 +1121,7 @@ function assertValidDecision(decision, options = {}) {
       hasPlural ? "pushPayload (singular) is removed in 0.8.0, use pushPayloads" : "pushPayload (singular) is removed in 0.8.0, use pushPayloads: [yourPayload]"
     );
   }
-  if (tag === "continue") {
+  if (tag2 === "continue") {
     if (!Array.isArray(
       /** @type {{ nextHistory?: unknown }} */
       decision.nextHistory
@@ -1130,10 +1130,10 @@ function assertValidDecision(decision, options = {}) {
     }
     return;
   }
-  if (tag === "skip-push") {
+  if (tag2 === "skip-push") {
     return;
   }
-  if (tag === "tool-request" && inlineToolCalls && Object.prototype.hasOwnProperty.call(decision, "toolCalls")) {
+  if (tag2 === "tool-request" && inlineToolCalls && Object.prototype.hasOwnProperty.call(decision, "toolCalls")) {
     const toolCalls = (
       /** @type {{ toolCalls?: unknown }} */
       decision.toolCalls
@@ -1153,7 +1153,7 @@ function assertValidDecision(decision, options = {}) {
     /** @type {{ pushPayloads?: unknown }} */
     decision.pushPayloads
   )) {
-    throw new TypeError(`decision:"${tag}" requires a pushPayloads array`);
+    throw new TypeError(`decision:"${tag2}" requires a pushPayloads array`);
   }
   const pushes = (
     /** @type {Array<unknown>} */
@@ -7629,7 +7629,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-09-22";
+var AMSG_BUNDLE_VERSION = "2026-09-25.3";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -9892,6 +9892,9 @@ var handleInstantChat = async (args) => {
   if (!isEncryptedEnvelope2(body.taskPayload)) {
     return fail3(400, "INVALID_TASK_PAYLOAD", "taskPayload \u5FC5\u987B\u662F\u52A0\u5BC6\u4FE1\u5C01\uFF08iv / authTag / encryptedData\uFF09");
   }
+  if (body.credPayload !== void 0 && !isEncryptedEnvelope2(body.credPayload)) {
+    return fail3(400, "INVALID_CRED_PAYLOAD", "credPayload \u5FC5\u987B\u662F\u52A0\u5BC6\u4FE1\u5C01\uFF08iv / authTag / encryptedData\uFF09");
+  }
   const requestUrl = new URL(request.url);
   const mountPath = requestUrl.pathname.replace(/\/+$/, "").replace(/\/instant-chat$/, "");
   const internalUrl = (path) => {
@@ -9914,26 +9917,34 @@ var handleInstantChat = async (args) => {
       return null;
     }
   };
-  let stateResponse;
-  let stateBody = null;
-  let stateCause = null;
-  for (let attempt = 0; attempt < stateBackoffMs.length; attempt += 1) {
-    if (attempt > 0) {
-      console.warn(`[amsg:instant-chat] \u4E91\u7AEF\u72B6\u6001\u7B2C ${attempt} \u6B21\u6CA1\u5199\u8FDB\u53BB\uFF08${stateCause ?? stateResponse.status}\uFF09\uFF0C\u91CD\u8BD5`);
-      await sleep(stateBackoffMs[attempt]);
+  const forwardIdempotentPut = async (path, envelope, label) => {
+    let response;
+    let responseBody = null;
+    let cause = null;
+    for (let attempt = 0; attempt < stateBackoffMs.length; attempt += 1) {
+      if (attempt > 0) {
+        console.warn(`[amsg:instant-chat] ${label}\u7B2C ${attempt} \u6B21\u6CA1\u5199\u8FDB\u53BB\uFF08${cause ?? response.status}\uFF09\uFF0C\u91CD\u8BD5`);
+        await sleep(stateBackoffMs[attempt]);
+      }
+      response = await upstream2.fetch(
+        new Request(internalUrl(path), {
+          method: "PUT",
+          headers: encryptedHeaders,
+          body: JSON.stringify(envelope)
+        }),
+        env
+      );
+      responseBody = await readBody(response);
+      cause = readUpstreamCause(response.status, responseBody);
+      if (response.status < 500) break;
     }
-    stateResponse = await upstream2.fetch(
-      new Request(internalUrl("/client-state"), {
-        method: "PUT",
-        headers: encryptedHeaders,
-        body: JSON.stringify(body.statePayload)
-      }),
-      env
-    );
-    stateBody = await readBody(stateResponse);
-    stateCause = readUpstreamCause(stateResponse.status, stateBody);
-    if (stateResponse.status < 500) break;
-  }
+    return { response, body: responseBody, cause };
+  };
+  const {
+    response: stateResponse,
+    body: stateBody,
+    cause: stateCause
+  } = await forwardIdempotentPut("/client-state", body.statePayload, "\u4E91\u7AEF\u72B6\u6001");
   if (!stateResponse.ok) {
     return json(stateResponse.status, {
       success: false,
@@ -9956,6 +9967,26 @@ var handleInstantChat = async (args) => {
         step: "client-state"
       }
     });
+  }
+  const credPayload = body.credPayload;
+  if (credPayload !== void 0) {
+    const {
+      response: credResponse,
+      body: credBody,
+      cause: credCause
+    } = await forwardIdempotentPut("/llm-credentials", credPayload, "LLM \u51ED\u636E");
+    if (!credResponse.ok || credBody?.success === false) {
+      return json(credResponse.ok ? 502 : credResponse.status, {
+        success: false,
+        error: {
+          code: "INSTANT_CHAT_CREDENTIALS_FAILED",
+          message: "\u8FD9\u4E00\u8F6E\u7684 API \u51ED\u636E\u6CA1\u4F20\u4E0A\u53BB\uFF0C\u8FD9\u6761\u6CA1\u53D1\u51FA\u53BB",
+          step: "llm-credentials",
+          upstream: credBody,
+          ...credCause ? { upstreamLog: credCause } : {}
+        }
+      });
+    }
   }
   const taskResponse = await upstream2.fetch(
     new Request(internalUrl("/schedule-message"), {
@@ -10001,12 +10032,27 @@ var handleInstantChat = async (args) => {
   if (!kicked.ok) {
     console.warn("[amsg:instant-chat] \u53EB\u9192 DO \u5931\u8D25\uFF08\u7B49 cron \u515C\u5E95\uFF09", kicked.error);
   }
-  return json(202, { status: "accepted", uuid });
+  return json(202, {
+    status: "accepted",
+    uuid,
+    ...credPayload !== void 0 ? { credentialsSynced: true } : {}
+  });
 };
 
 // worker/amsg/src/selfUpdate.ts
 var CF_API = "https://api.cloudflare.com/client/v4";
 var BUNDLE_URL = "https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js";
+function resolveBundleUrl(env) {
+  const configured = env.AMSG_BUNDLE_URL?.trim();
+  if (!configured) return BUNDLE_URL;
+  try {
+    const url = new URL(configured);
+    if (url.protocol === "https:") return url.toString();
+  } catch {
+  }
+  console.warn("[amsg:self-update] AMSG_BUNDLE_URL \u4E0D\u662F https \u5730\u5740\uFF0C\u6539\u7528\u9ED8\u8BA4\u6210\u54C1\u5305");
+  return BUNDLE_URL;
+}
 var MAIN_MODULE = "worker.bundle.js";
 var FALLBACK_COMPATIBILITY_DATE = "2026-01-01";
 var FALLBACK_COMPATIBILITY_FLAGS = ["global_fetch_strictly_public"];
@@ -10093,10 +10139,18 @@ async function locateScript(env, token, scriptName) {
     message: `\u5728\u8FD9\u679A token \u80FD\u78B0\u5230\u7684 ${accounts.length} \u4E2A\u8D26\u53F7\u91CC\u90FD\u6CA1\u627E\u5230\u540D\u4E3A ${scriptName} \u7684 Worker\u3002\u8981\u4E48 token \u7684\u6743\u9650\u6CA1\u8986\u76D6\u5230\u5B83\u6240\u5728\u7684\u8D26\u53F7\uFF0C\u8981\u4E48 Worker \u540D\u5B57\u5BF9\u4E0D\u4E0A\uFF08\u53EF\u7528 CF_SCRIPT_NAME \u6307\u5B9A\uFF09\u3002`
   };
 }
-async function fetchLatestBundle() {
+function bundleFetchUrl(base, nowMs = Date.now()) {
+  const url = new URL(base);
+  url.searchParams.set("t", String(nowMs));
+  return url.toString();
+}
+async function fetchLatestBundle(env = {}) {
   let res;
   try {
-    res = await fetch(BUNDLE_URL, { headers: { "User-Agent": "sullyos-amsg-self-update" } });
+    res = await fetch(bundleFetchUrl(resolveBundleUrl(env)), {
+      headers: { "User-Agent": "sullyos-amsg-self-update" },
+      cache: "no-store"
+    });
   } catch (err6) {
     return { ok: false, message: `\u53D6\u4E0D\u5230\u6700\u65B0\u4EE3\u7801\uFF1A${err6.message}` };
   }
@@ -10109,7 +10163,8 @@ async function fetchLatestBundle() {
   if (!code.includes(BUNDLE_FINGERPRINT)) {
     return { ok: false, message: "\u53D6\u56DE\u6765\u7684\u6587\u4EF6\u4E0D\u50CF amsg \u7684 worker \u4EE3\u7801\uFF0C\u6CA1\u6709\u8986\u76D6\uFF0C\u5F53\u524D\u7248\u672C\u4E0D\u52A8\u3002" };
   }
-  return { ok: true, code };
+  const hash = (await sha256Hex(code)).slice(0, 12);
+  return { ok: true, bundle: { code, hash, bytes } };
 }
 function rebuildBindings(existing, env) {
   const bindings = [];
@@ -10146,7 +10201,7 @@ function buildDurableObjectPlan(existing) {
     migrations: { new_tag: INSTANT_TICK_MIGRATION_TAG, new_sqlite_classes: [INSTANT_TICK_CLASS] }
   };
 }
-async function handleSelfUpdate(request, env) {
+async function authorizeSelfUpdate(request, env) {
   const serverToken = env.AMSG_SERVER_TOKEN?.trim();
   if (!serverToken) {
     return fail(
@@ -10165,19 +10220,13 @@ async function handleSelfUpdate(request, env) {
       "\u6CA1\u914D CF_API_TOKEN\uFF0C\u6CA1\u6CD5\u81EA\u5DF1\u66F4\u65B0\u3002\u53BB Cloudflare \u5EFA\u4E00\u679A\u53EA\u52FE Workers Scripts \u2192 Edit \u7684 API Token\uFF0C\u52A0\u8FDB\u8FD9\u4E2A Worker \u7684\u53D8\u91CF\u91CC\u3002"
     );
   }
-  const scriptName = resolveScriptName(env, request.url);
-  if (!scriptName) {
-    return fail(
-      "SCRIPT_NAME_UNKNOWN",
-      "\u8BA4\u4E0D\u51FA\u8FD9\u4E2A Worker \u53EB\u4EC0\u4E48\uFF08\u591A\u534A\u662F\u5957\u4E86\u4EE3\u7406\u57DF\u540D\uFF09\u3002\u7ED9\u5B83\u52A0\u4E00\u6761 CF_SCRIPT_NAME \u53D8\u91CF\uFF0C\u503C\u586B Worker \u7684\u540D\u5B57\u3002"
-    );
-  }
+  return { ok: true, token };
+}
+async function performSelfUpdate(env, token, scriptName, bundle) {
   const located = await locateScript(env, token, scriptName);
   if (!located.ok) return fail("SCRIPT_NOT_LOCATED", located.message);
   const account = { id: located.accountId };
   const settings = { result: located.settings };
-  const bundle = await fetchLatestBundle();
-  if (!bundle.ok) return fail("BUNDLE_INVALID", bundle.message);
   const rebuilt = rebuildBindings(
     settings.result?.bindings ?? [],
     env
@@ -10217,17 +10266,496 @@ async function handleSelfUpdate(request, env) {
   if (!uploaded.ok) {
     return fail("UPLOAD_FAILED", `\u4E0A\u4F20\u5931\u8D25\uFF08${uploaded.detail}\uFF09\u3002\u5F53\u524D\u7248\u672C\u4E0D\u52A8\u3002`);
   }
-  const hash = (await sha256Hex(bundle.code)).slice(0, 12);
-  const bytes = new TextEncoder().encode(bundle.code).length;
   return {
     ok: true,
     code: "UPDATED",
     message: "\u5DF2\u7ECF\u66F4\u65B0\u5230\u6700\u65B0\u7248\u672C\u3002",
-    bundleHash: hash,
-    bundleBytes: bytes,
+    bundleHash: bundle.hash,
+    bundleBytes: bundle.bytes,
     scriptName
   };
 }
+async function handleSelfUpdate(request, env) {
+  const gate = await authorizeSelfUpdate(request, env);
+  if (!gate.ok) return gate;
+  const scriptName = resolveScriptName(env, request.url);
+  if (!scriptName) {
+    return fail(
+      "SCRIPT_NAME_UNKNOWN",
+      "\u8BA4\u4E0D\u51FA\u8FD9\u4E2A Worker \u53EB\u4EC0\u4E48\uFF08\u591A\u534A\u662F\u5957\u4E86\u4EE3\u7406\u57DF\u540D\uFF09\u3002\u7ED9\u5B83\u52A0\u4E00\u6761 CF_SCRIPT_NAME \u53D8\u91CF\uFF0C\u503C\u586B Worker \u7684\u540D\u5B57\u3002"
+    );
+  }
+  const fetched = await fetchLatestBundle(env);
+  if (!fetched.ok) return fail("BUNDLE_INVALID", fetched.message);
+  return performSelfUpdate(env, gate.token, scriptName, fetched.bundle);
+}
+
+// utils/amsgSelfUpdateState.ts
+var OUTCOMES = /* @__PURE__ */ new Set(["updated", "up_to_date", "failed"]);
+var SOURCES = /* @__PURE__ */ new Set(["cron", "client", "manual"]);
+var parseAmsgSelfUpdateState = (raw) => {
+  const value = raw;
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.lastCheckAt !== "string" || Number.isNaN(Date.parse(value.lastCheckAt))) return null;
+  if (typeof value.lastOutcome !== "string" || !OUTCOMES.has(value.lastOutcome)) return null;
+  const error = value.lastError;
+  return {
+    lastCheckAt: value.lastCheckAt,
+    lastSource: typeof value.lastSource === "string" && SOURCES.has(value.lastSource) ? value.lastSource : "cron",
+    lastOutcome: value.lastOutcome,
+    bundleHash: typeof value.bundleHash === "string" && value.bundleHash ? value.bundleHash : null,
+    lastUpdatedAt: typeof value.lastUpdatedAt === "string" ? value.lastUpdatedAt : null,
+    lastError: error && typeof error === "object" && typeof error.code === "string" ? { code: error.code, message: typeof error.message === "string" ? error.message : "" } : null
+  };
+};
+
+// utils/amsgTickReport.ts
+var TICK_STALL_MS = 5 * 6e4;
+var LATE_START_MS = 3 * 6e4;
+var SAME_WRITE_TOLERANCE_MS = 5e3;
+var TICK_FAILURE_SERIES_GAP_MS = 3 * 6e4;
+var classifyOverdueTasks = (tasks, nowMs) => {
+  const verdicts = tasks.map((task) => {
+    const state = task.leaseUntilMs !== null && task.leaseUntilMs > nowMs ? "sending" : task.retryAfterMs !== null && task.retryAfterMs > nowMs ? "retry-wait" : "ready";
+    const readySinceMs = Math.max(task.nextSendAtMs, task.retryAfterMs ?? -Infinity);
+    const lastSettledMs = Math.max(
+      task.nextSendAtMs,
+      (task.createdAtMs ?? -Infinity) + SAME_WRITE_TOLERANCE_MS,
+      (task.currentErrorAtMs ?? -Infinity) + SAME_WRITE_TOLERANCE_MS
+    );
+    const lastStartedAtMs = task.updatedAtMs !== null && task.updatedAtMs > lastSettledMs ? task.updatedAtMs : null;
+    const unfinishedAttempt = state === "ready" && lastStartedAtMs !== null;
+    const lateStart = state === "sending" && lastStartedAtMs !== null && lastStartedAtMs - readySinceMs > LATE_START_MS;
+    const waitedTooLong = state === "ready" && nowMs - readySinceMs >= TICK_STALL_MS;
+    return {
+      state,
+      readySinceMs,
+      lastStartedAtMs,
+      unfinishedAttempt,
+      lateStart,
+      queuedBehind: false,
+      stuck: unfinishedAttempt || waitedTooLong
+    };
+  });
+  return verdicts.map(({ readySinceMs: _readySinceMs, ...verdict }, index) => {
+    if (verdict.state !== "ready" || verdict.unfinishedAttempt) return verdict;
+    const key = tasks[index].serializeKey;
+    if (!key) return verdict;
+    const blocked = verdicts.some((other, otherIndex) => otherIndex !== index && other.state === "sending" && tasks[otherIndex].serializeKey === key);
+    return blocked ? { ...verdict, queuedBehind: true, stuck: false } : verdict;
+  });
+};
+var judgeOverdueTasks = (tasks) => {
+  if (tasks.some((task) => task.verdict.stuck)) return "stalled";
+  if (tasks.some((task) => task.hasCurrentError || task.verdict.lateStart)) return "failing";
+  return "healthy";
+};
+
+// worker/amsg/src/tickReport.ts
+var MAX_OVERDUE_TASKS = 50;
+var MAX_RECENT_FAILURES = 10;
+var RECENT_FAILURE_WINDOW_MS = 24 * 60 * 6e4;
+var TASK_COLUMNS = `uuid, user_id, encrypted_payload, message_type, status, next_send_at,
+       retry_count, retry_after, lease_until, created_at, updated_at, last_error`;
+var parseMs = (value) => {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+};
+var toIso = (ms) => ms === null ? null : new Date(ms).toISOString();
+var parseLastError = (raw) => {
+  if (!raw) return null;
+  let value = null;
+  try {
+    const parsed = JSON.parse(raw);
+    value = parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return { at: null, occurrence: null, reason: raw, errorCode: null, pushStatus: null };
+  }
+  if (!value) return null;
+  const pick = (key) => typeof value?.[key] === "string" && value[key] ? value[key] : null;
+  const pushStatus = Number(value.pushStatus);
+  return {
+    at: pick("at"),
+    occurrence: pick("occurrence"),
+    reason: pick("reason") || "",
+    errorCode: pick("errorCode"),
+    pushStatus: Number.isFinite(pushStatus) && pushStatus > 0 ? pushStatus : null
+  };
+};
+var isCurrentOccurrence = (error, nextSendAtMs) => {
+  const occurrenceMs = parseMs(error.occurrence);
+  if (occurrenceMs !== null) return occurrenceMs === nextSendAtMs;
+  const atMs = parseMs(error.at);
+  return atMs !== null && atMs >= nextSendAtMs;
+};
+var createIdentityReader = (masterKey, serializeKeyOf) => {
+  const userKeys = /* @__PURE__ */ new Map();
+  return async (row) => {
+    const unknown = { charId: null, contactName: null, kind: null, serializeKey: null };
+    if (!masterKey || !row.user_id || !row.encrypted_payload) return unknown;
+    try {
+      let userKey = userKeys.get(row.user_id);
+      if (!userKey) {
+        userKey = deriveUserEncryptionKey(row.user_id, masterKey);
+        userKeys.set(row.user_id, userKey);
+      }
+      const payload = JSON.parse(await decryptFromStorage(row.encrypted_payload, await userKey));
+      const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : null;
+      return {
+        charId: typeof metadata?.charId === "string" ? metadata.charId : null,
+        contactName: typeof payload.contactName === "string" && payload.contactName ? payload.contactName : null,
+        kind: readTaskKind(metadata),
+        serializeKey: serializeKeyOf({ metadata })
+      };
+    } catch {
+      return unknown;
+    }
+  };
+};
+var readOverdueTasks = async (db, options) => {
+  const nowMs = options.nowMs ?? Date.now();
+  const rows = (await db.prepare(
+    `SELECT ${TASK_COLUMNS}
+         FROM scheduled_messages
+        WHERE status = 'pending' AND next_send_at <= ?
+        ORDER BY next_send_at ASC
+        LIMIT ?`
+  ).bind(new Date(nowMs).toISOString(), MAX_OVERDUE_TASKS + 1).all()).results || [];
+  const truncated = rows.length > MAX_OVERDUE_TASKS;
+  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
+  const prepared = (await Promise.all(rows.slice(0, MAX_OVERDUE_TASKS).map(async (row) => {
+    const nextSendAtMs = parseMs(row.next_send_at);
+    if (!row.uuid || nextSendAtMs === null) return null;
+    const lastError = parseLastError(row.last_error);
+    const currentError = lastError && isCurrentOccurrence(lastError, nextSendAtMs) ? lastError : null;
+    const identity = await readIdentity(row);
+    const facts = {
+      nextSendAtMs,
+      createdAtMs: parseMs(row.created_at),
+      updatedAtMs: parseMs(row.updated_at),
+      retryAfterMs: parseMs(row.retry_after),
+      leaseUntilMs: parseMs(row.lease_until),
+      currentErrorAtMs: currentError ? parseMs(currentError.at) : null,
+      serializeKey: identity.serializeKey
+    };
+    return { row: { ...row, uuid: row.uuid }, nextSendAtMs, currentError, identity, facts };
+  }))).filter((item) => item !== null);
+  const verdicts = classifyOverdueTasks(prepared.map((item) => item.facts), nowMs);
+  const tasks = prepared.map(({ row, nextSendAtMs, currentError, identity, facts }, index) => {
+    const verdict = verdicts[index];
+    return {
+      uuid: row.uuid,
+      charId: identity.charId,
+      contactName: identity.contactName,
+      kind: identity.kind,
+      messageType: row.message_type,
+      nextSendAt: new Date(nextSendAtMs).toISOString(),
+      state: verdict.state,
+      stuck: verdict.stuck,
+      retryCount: Number(row.retry_count) || 0,
+      retryAfter: toIso(facts.retryAfterMs),
+      lastStartedAt: toIso(verdict.lastStartedAtMs),
+      unfinishedAttempt: verdict.unfinishedAttempt,
+      lateStart: verdict.lateStart,
+      queuedBehind: verdict.queuedBehind,
+      lastError: currentError
+    };
+  });
+  return {
+    tasks,
+    truncated,
+    verdict: judgeOverdueTasks(tasks.map((task, index) => ({
+      verdict: verdicts[index],
+      hasCurrentError: task.lastError !== null
+    })))
+  };
+};
+var readRecentFailures = async (db, options) => {
+  const nowMs = options.nowMs ?? Date.now();
+  const sinceMs = nowMs - RECENT_FAILURE_WINDOW_MS;
+  const rows = (await db.prepare(
+    `SELECT ${TASK_COLUMNS}
+         FROM scheduled_messages
+        WHERE last_error IS NOT NULL
+          AND updated_at >= ?
+          AND message_type != 'instant'
+          AND (status = 'failed' OR (status = 'pending' AND next_send_at > ?))
+        ORDER BY updated_at DESC
+        LIMIT ?`
+  ).bind(new Date(sinceMs).toISOString(), new Date(nowMs).toISOString(), MAX_RECENT_FAILURES).all()).results || [];
+  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
+  const failures = await Promise.all(rows.map(async (row) => {
+    const error = parseLastError(row.last_error);
+    const atMs = parseMs(error?.at);
+    if (!row.uuid || !error || atMs === null || atMs < sinceMs) return null;
+    const identity = await readIdentity(row);
+    return {
+      uuid: row.uuid,
+      charId: identity.charId,
+      contactName: identity.contactName,
+      kind: identity.kind,
+      messageType: row.message_type,
+      outcome: row.status === "failed" ? "failed" : "skipped",
+      error
+    };
+  }));
+  return failures.filter((item) => item !== null);
+};
+var DIAGNOSTICS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS worker_diagnostics (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+)`;
+var readDiagnosticValue = async (db, key) => {
+  if (typeof db?.prepare !== "function") return null;
+  try {
+    const row = await db.prepare("SELECT value FROM worker_diagnostics WHERE key = ?").bind(key).first();
+    return typeof row?.value === "string" ? row.value : null;
+  } catch {
+    return null;
+  }
+};
+var writeDiagnosticValue = async (db, key, value, nowMs = Date.now()) => {
+  await db.prepare(DIAGNOSTICS_TABLE_SQL).run();
+  await db.prepare(
+    `INSERT INTO worker_diagnostics (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).bind(key, value, nowMs).run();
+};
+var TICK_FAILURE_KEY = "tick_failure";
+var TASK_WRITE_FAILURE_STATUSES = /* @__PURE__ */ new Set([
+  "claim_failed",
+  "retry_update_failed",
+  "stale_update_failed",
+  "post_send_cleanup_failed"
+]);
+var pickTickFailure = (outcome) => {
+  const value = outcome;
+  if (!value || typeof value !== "object") return null;
+  if (value.ok === false) {
+    const cause2 = value.cause;
+    return {
+      stage: typeof cause2?.stage === "string" && cause2.stage ? cause2.stage : "tick",
+      name: typeof cause2?.name === "string" && cause2.name ? cause2.name : "Error",
+      message: typeof cause2?.message === "string" ? cause2.message : "",
+      code: typeof cause2?.code === "string" && cause2.code ? cause2.code : null
+    };
+  }
+  const failedTasks = value.summary?.details?.failedTasks;
+  if (!Array.isArray(failedTasks)) return null;
+  const hit = failedTasks.find((entry) => TASK_WRITE_FAILURE_STATUSES.has(entry?.status));
+  if (!hit) return null;
+  const reason = typeof hit.reason === "string" ? hit.reason : "";
+  const updateError = typeof hit.updateError === "string" ? hit.updateError : "";
+  const rawMessage = updateError ? `${updateError}\uFF08\u672C\u6765\u8981\u8BB0\u4E0B\u7684\u5931\u8D25\u539F\u56E0\uFF1A${reason || "\u65E0"}\uFF09` : reason;
+  const cause = summarizeErrorCause({ name: "TaskWriteFailed", message: rawMessage }, "tick");
+  return { stage: hit.status, name: cause.name, message: cause.message ?? "", code: null };
+};
+var recordTickOutcome = async (db, outcome, nowMs = Date.now()) => {
+  const failure = pickTickFailure(outcome);
+  if (!failure || typeof db?.prepare !== "function") return;
+  try {
+    const previous = parseStoredTickFailure(await readDiagnosticValue(db, TICK_FAILURE_KEY));
+    const sameSeries = previous && previous.stage === failure.stage && previous.name === failure.name && nowMs - Date.parse(previous.lastAt) <= TICK_FAILURE_SERIES_GAP_MS;
+    const nowIso = new Date(nowMs).toISOString();
+    const record = {
+      ...failure,
+      firstAt: sameSeries ? previous.firstAt : nowIso,
+      lastAt: nowIso,
+      count: sameSeries ? previous.count + 1 : 1
+    };
+    await writeDiagnosticValue(db, TICK_FAILURE_KEY, JSON.stringify(record), nowMs);
+  } catch (error) {
+    console.warn("[amsg:tick-report] \u8FD9\u4E00\u8DF3\u7684\u62A5\u9519\u6CA1\u8BB0\u8FDB\u5E93", error);
+  }
+};
+var parseStoredTickFailure = (raw) => {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    if (!value || typeof value.stage !== "string" || typeof value.firstAt !== "string" || typeof value.lastAt !== "string") {
+      return null;
+    }
+    return {
+      stage: value.stage,
+      name: typeof value.name === "string" ? value.name : "Error",
+      message: typeof value.message === "string" ? value.message : "",
+      code: typeof value.code === "string" ? value.code : null,
+      firstAt: value.firstAt,
+      lastAt: value.lastAt,
+      count: Number(value.count) || 1
+    };
+  } catch {
+    return null;
+  }
+};
+var readTickFailure = async (db, nowMs = Date.now()) => {
+  const record = parseStoredTickFailure(await readDiagnosticValue(db, TICK_FAILURE_KEY));
+  if (!record) return null;
+  return { ...record, ongoing: nowMs - Date.parse(record.lastAt) <= TICK_FAILURE_SERIES_GAP_MS };
+};
+var buildTickReport = async (db, options) => {
+  const nowMs = options.nowMs ?? Date.now();
+  const scoped = { ...options, nowMs };
+  const [overdue, recentFailures, tickFailure] = await Promise.all([
+    readOverdueTasks(db, scoped),
+    readRecentFailures(db, scoped),
+    readTickFailure(db, nowMs)
+  ]);
+  return {
+    now: new Date(nowMs).toISOString(),
+    tasks: overdue.tasks,
+    recentFailures,
+    tickFailure,
+    truncated: overdue.truncated
+  };
+};
+
+// worker/amsg/src/autoUpdate.ts
+var AUTO_UPDATE_CRON_INTERVAL_MS = 6 * 60 * 6e4;
+var AUTO_UPDATE_CLIENT_INTERVAL_MS = 30 * 6e4;
+var SELF_UPDATE_KEY = "self_update";
+var SCHEMA_ENSURED_KEY = "schema_ensured";
+var SCHEMA_ENSURE_RETRY_MS = 60 * 6e4;
+var readSelfUpdateState = async (db) => {
+  const raw = await readDiagnosticValue(db, SELF_UPDATE_KEY);
+  if (!raw) return null;
+  try {
+    return parseAmsgSelfUpdateState(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+};
+var writeSelfUpdateState = async (db, state, nowMs) => {
+  await writeDiagnosticValue(db, SELF_UPDATE_KEY, JSON.stringify(state), nowMs);
+};
+var markSchemaUnverified = async (db, nowMs) => {
+  await writeDiagnosticValue(db, SCHEMA_ENSURED_KEY, "", nowMs);
+};
+var applySelfUpdateResult = (previous, source, result, nowMs) => {
+  const nowIso = new Date(nowMs).toISOString();
+  if (result.ok) {
+    return {
+      lastCheckAt: nowIso,
+      lastSource: source,
+      lastOutcome: "updated",
+      bundleHash: result.bundleHash ?? previous?.bundleHash ?? null,
+      lastUpdatedAt: nowIso,
+      lastError: null
+    };
+  }
+  return {
+    lastCheckAt: nowIso,
+    lastSource: source,
+    lastOutcome: "failed",
+    bundleHash: previous?.bundleHash ?? null,
+    lastUpdatedAt: previous?.lastUpdatedAt ?? null,
+    lastError: { code: result.code, message: result.message }
+  };
+};
+var recordManualSelfUpdate = async (db, result, nowMs = Date.now()) => {
+  if (typeof db?.prepare !== "function") return;
+  try {
+    const previous = await readSelfUpdateState(db);
+    await writeSelfUpdateState(db, applySelfUpdateResult(previous, "manual", result, nowMs), nowMs);
+    if (result.ok) await markSchemaUnverified(db, nowMs);
+  } catch (error) {
+    console.warn("[amsg:auto-update] \u624B\u52A8\u66F4\u65B0\u7684\u7ED3\u679C\u6CA1\u8BB0\u8FDB\u5E93", error);
+  }
+};
+var runAutoUpdate = async (env, db, options) => {
+  const token = env.CF_API_TOKEN?.trim();
+  if (!token) return { action: "unsupported" };
+  const nowMs = options.nowMs ?? Date.now();
+  const previous = await readSelfUpdateState(db);
+  const minInterval = options.source === "cron" ? AUTO_UPDATE_CRON_INTERVAL_MS : AUTO_UPDATE_CLIENT_INTERVAL_MS;
+  if (previous && nowMs - Date.parse(previous.lastCheckAt) < minInterval) {
+    return { action: "throttled", state: previous };
+  }
+  const claimed = {
+    lastCheckAt: new Date(nowMs).toISOString(),
+    lastSource: options.source,
+    lastOutcome: previous?.lastOutcome ?? "up_to_date",
+    bundleHash: previous?.bundleHash ?? null,
+    lastUpdatedAt: previous?.lastUpdatedAt ?? null,
+    lastError: previous?.lastError ?? null
+  };
+  await writeSelfUpdateState(db, claimed, nowMs);
+  const settle = async (result2) => {
+    const state = applySelfUpdateResult(previous, options.source, result2, nowMs);
+    await writeSelfUpdateState(db, state, nowMs);
+    if (result2.ok) await markSchemaUnverified(db, nowMs);
+    return { action: state.lastOutcome, state };
+  };
+  if (!options.scriptName) {
+    return settle({
+      ok: false,
+      code: "SCRIPT_NAME_UNKNOWN",
+      message: "\u8BA4\u4E0D\u51FA\u8FD9\u4E2A Worker \u53EB\u4EC0\u4E48\u3002\u7ED9\u5B83\u52A0\u4E00\u6761 CF_SCRIPT_NAME \u53D8\u91CF\uFF0C\u503C\u586B Worker \u7684\u540D\u5B57\uFF0C\u81EA\u52A8\u66F4\u65B0\u624D\u77E5\u9053\u8BE5\u66F4\u65B0\u8C01\u3002"
+    });
+  }
+  const fetched = await fetchLatestBundle(env);
+  if (!fetched.ok) return settle({ ok: false, code: "BUNDLE_INVALID", message: fetched.message });
+  const bindingsComplete = Boolean(env.INSTANT_TICK);
+  if (previous?.bundleHash === fetched.bundle.hash && bindingsComplete) {
+    const state = {
+      ...claimed,
+      lastOutcome: "up_to_date",
+      bundleHash: fetched.bundle.hash,
+      lastError: null
+    };
+    await writeSelfUpdateState(db, state, nowMs);
+    return { action: "up_to_date", state };
+  }
+  if (previous?.bundleHash === fetched.bundle.hash) {
+    console.log("[amsg:auto-update] \u4EE3\u7801\u6CA1\u53D8\u4F46 INSTANT_TICK \u7ED1\u5B9A\u4E0D\u5728\uFF0C\u518D\u4F20\u4E00\u6B21\u628A\u7ED1\u5B9A\u8865\u4E0A");
+  }
+  const result = await performSelfUpdate(env, token, options.scriptName, fetched.bundle);
+  if (result.ok) {
+    console.log(`[amsg:auto-update] \u5DF2\u6362\u4E0A\u65B0\u4EE3\u7801 ${result.bundleHash}\uFF08${options.source} \u89E6\u53D1\uFF09`);
+  } else {
+    console.warn(`[amsg:auto-update] \u66F4\u65B0\u5931\u8D25 ${result.code}\uFF1A${result.message}`);
+  }
+  return settle(result);
+};
+var readSchemaMarker = async (db) => {
+  const raw = await readDiagnosticValue(db, SCHEMA_ENSURED_KEY);
+  if (!raw) return { ensuredFor: "", failedAtMs: null };
+  try {
+    const value = JSON.parse(raw);
+    return {
+      ensuredFor: typeof value?.ensuredFor === "string" ? value.ensuredFor : "",
+      failedAtMs: typeof value?.failedAtMs === "number" ? value.failedAtMs : null
+    };
+  } catch {
+    return { ensuredFor: "", failedAtMs: null };
+  }
+};
+var ensureSchemaOnce = async (db, schemaVersion, ensure, nowMs = Date.now()) => {
+  if (typeof db?.prepare !== "function") return "skipped";
+  const marker = await readSchemaMarker(db);
+  if (marker.ensuredFor === schemaVersion) return "skipped";
+  if (marker.failedAtMs !== null && nowMs - marker.failedAtMs < SCHEMA_ENSURE_RETRY_MS) return "skipped";
+  try {
+    const result = await ensure();
+    if (result.migrated) console.log(`[amsg:auto-update] \u8868\u7ED3\u6784\u5DF2\u6309 ${schemaVersion} \u8865\u9F50`);
+    if (!result.ok) {
+      console.warn(`[amsg:auto-update] \u8868\u7ED3\u6784\u8865\u4E0D\u9F50\uFF0C\u8FD8\u7F3A\uFF1A${result.missing.join("\u3001")}`);
+      await writeDiagnosticValue(db, SCHEMA_ENSURED_KEY, JSON.stringify({ ensuredFor: "", failedAtMs: nowMs }), nowMs);
+      return "failed";
+    }
+    await writeDiagnosticValue(db, SCHEMA_ENSURED_KEY, JSON.stringify({ ensuredFor: schemaVersion, failedAtMs: null }), nowMs);
+    return "ok";
+  } catch (error) {
+    console.warn("[amsg:auto-update] \u8868\u7ED3\u6784\u81EA\u67E5\u6CA1\u8DD1\u6210", error);
+    try {
+      await writeDiagnosticValue(db, SCHEMA_ENSURED_KEY, JSON.stringify({ ensuredFor: "", failedAtMs: nowMs }), nowMs);
+    } catch {
+    }
+    return "failed";
+  }
+};
 
 // worker/amsg/src/cronTrigger.ts
 var AMSG_CRON_EXPRESSION = "* * * * *";
@@ -12804,24 +13332,24 @@ function normalizeVoiceTags(t) {
   result = result.replace(/＜\s*[/／]\s*([语語]音|字幕)\s*＞/g, "</$1>");
   result = result.replace(/＜\s*((?:[语語]音|字幕)[^<>＜＞]*?)\s*＞/g, "<$1>");
   result = result.replace(/<\s*[/／]\s*([语語]音|字幕)\s*>/g, "</$1>");
-  result = result.replace(/<([语語]音|字幕)\s*([^<>]*?)\s*>/g, (_m, tag, attrs) => {
-    if (!attrs) return `<${tag}>`;
+  result = result.replace(/<([语語]音|字幕)\s*([^<>]*?)\s*>/g, (_m, tag2, attrs) => {
+    if (!attrs) return `<${tag2}>`;
     const fixed = attrs.replace(/[“”＂]/g, '"').replace(/[‘’]/g, "'").replace(/＝/g, "=").trim();
-    return `<${tag} ${fixed}>`;
+    return `<${tag2} ${fixed}>`;
   });
   result = repairPairedTag(result, /<\/?[语語]音[^>]*>/g, (tok) => /語/.test(tok) ? "\u8A9E\u97F3" : "\u8BED\u97F3", true);
   result = repairPairedTag(result, /<\/?字幕[^>]*>/g, () => "\u5B57\u5E55", false);
   return result;
 }
-var simpTransTag = (tag) => tag.replace(/譯/g, "\u8BD1");
+var simpTransTag = (tag2) => tag2.replace(/譯/g, "\u8BD1");
 function normalizeTranslationTags(t) {
   if (!/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)/.test(t)) return t;
   let result = t;
-  result = result.replace(/[<＜]\s*[/／]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag) => `</${simpTransTag(tag)}>`);
-  result = result.replace(/[<＜]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag) => `<${simpTransTag(tag)}>`);
+  result = result.replace(/[<＜]\s*[/／]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `</${simpTransTag(tag2)}>`);
+  result = result.replace(/[<＜]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `<${simpTransTag(tag2)}>`);
   result = result.replace(
     /[<＜]\s*([/／]?)\s*(翻[译譯]|原文|[译譯]文)\s*(?=$|\n|[<＜])/g,
-    (_m, slash, tag) => `<${slash ? "/" : ""}${simpTransTag(tag)}>`
+    (_m, slash, tag2) => `<${slash ? "/" : ""}${simpTransTag(tag2)}>`
   );
   result = repairPairedTag(result, /<\/?原文[^>]*>/g, () => "\u539F\u6587", false);
   result = repairPairedTag(result, /<\/?译文[^>]*>/g, () => "\u8BD1\u6587", false);
@@ -13420,6 +13948,205 @@ function classifyLLMOutput(text) {
   return { kind: "finish", cleanedText, sanitizedBody, directives: dedupedDirectives };
 }
 
+// utils/vrWorld/sarEnvelopeCore.ts
+var planFromSARModuleSnapshot = (snapshot) => {
+  if (!snapshot || !snapshot.character && !snapshot.user) return null;
+  const character = snapshot.character;
+  const user = snapshot.user;
+  const hasActiveEffect = character?.phase === "active" || user?.phase === "active";
+  const hasAfterglow = character?.phase === "afterglow" || user?.phase === "afterglow";
+  return { character, user, hasActiveEffect, hasAfterglow, requiresEnvelope: hasActiveEffect };
+};
+var isPlainSARChatActionOnlyChunk = (text) => {
+  const clean = text.trim();
+  if (!clean) return false;
+  return /^(?:(?:（[^（）]*）|\([^()]*\)|\*[^*\n]+\*)\s*)+[。！？!?…～~—-]*$/s.test(clean);
+};
+var isSARChatActionOnlyChunk = (text) => {
+  const bilingualParts = text.split(/%%BILINGUAL%%/i).map((part) => part.trim()).filter(Boolean);
+  return bilingualParts.length > 0 && bilingualParts.every(isPlainSARChatActionOnlyChunk);
+};
+var isSARChatHtmlPlaceholder = (text) => /^\[HTML\s*卡片\]$/i.test(text.trim());
+var consumeSARChatSurfaceChunk = (canonicalChunk, surfaceChunks, startIndex) => {
+  let index = Math.max(0, startIndex);
+  if (isSARChatHtmlPlaceholder(canonicalChunk)) {
+    if (surfaceChunks[index] && isSARChatHtmlPlaceholder(surfaceChunks[index])) index += 1;
+    return { nextIndex: index };
+  }
+  if (isSARChatActionOnlyChunk(canonicalChunk)) {
+    if (surfaceChunks[index] && isSARChatActionOnlyChunk(surfaceChunks[index])) index += 1;
+    return { nextIndex: index };
+  }
+  while (surfaceChunks[index] && (isSARChatActionOnlyChunk(surfaceChunks[index]) || isSARChatHtmlPlaceholder(surfaceChunks[index]))) index += 1;
+  const surface = surfaceChunks[index];
+  return { surface, nextIndex: surface === void 0 ? index : index + 1 };
+};
+var tag = (raw, name) => {
+  const match = raw.match(new RegExp(`<${name}>\\s*([\\s\\S]*?)\\s*</${name}>`, "i"));
+  const value = match?.[1]?.trim();
+  return value || void 0;
+};
+var parseSARModuleReply = (raw, plan) => {
+  if (!plan.requiresEnvelope) return { canonical: raw, enveloped: false };
+  const body = tag(raw, "SAR_MODULE_OUTPUT") || raw;
+  const canonical = tag(body, "CHAR_TRUE");
+  if (!canonical) return { canonical: raw.trim(), enveloped: false };
+  return {
+    canonical,
+    assistantSurface: plan.character?.phase === "active" ? tag(body, "CHAR_SURFACE") : void 0,
+    userSurface: plan.user?.phase === "active" ? tag(body, "USER_SURFACE") : void 0,
+    enveloped: true
+  };
+};
+var createSARModuleSurfaceMeta = (state, surface) => {
+  const clean = surface.trim();
+  if (!clean || state.phase !== "active") return void 0;
+  return {
+    version: 1,
+    runId: state.runId,
+    moduleId: state.moduleId,
+    moduleTitle: state.moduleTitle,
+    target: state.target,
+    phase: "active",
+    surface: clean,
+    canonicalField: "content",
+    surfaceField: "metadata.sarModuleSurface.surface"
+  };
+};
+
+// worker/amsg/src/sarEnvelope.ts
+var AMSG_SAR_META_KEY = "amsgSar";
+var amsgSarUserSurfaceKey = (clientTaskId) => `sar_user_surface:${clientTaskId}`;
+var amsgSarSnapshotKey = (clientTaskId) => `sar_snapshot:${clientTaskId}`;
+var amsgSarSurfaceKey = (clientTaskId, segmentIndex) => `sar_surface:${clientTaskId}:${segmentIndex}`;
+var SAR_SURFACE_BANNER_MAX = 100;
+var clipSarSurfaceBanner = (banner) => {
+  const chars = Array.from(banner);
+  return chars.length <= SAR_SURFACE_BANNER_MAX ? banner : `${chars.slice(0, SAR_SURFACE_BANNER_MAX - 1).join("")}\u2026`;
+};
+var isPlainObject2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+var isSurfaceSource = (value) => isPlainObject2(value) && typeof value.phase === "string";
+var readSarSnapshot = (metadata) => {
+  const raw = metadata?.[AMSG_SAR_META_KEY];
+  if (!isPlainObject2(raw) || raw.v !== 1) return null;
+  if (raw.character !== void 0 && !isSurfaceSource(raw.character)) return null;
+  if (raw.user !== void 0 && !isSurfaceSource(raw.user)) return null;
+  return raw;
+};
+var stripSarSnapshot = (metadata) => {
+  const { [AMSG_SAR_META_KEY]: _snapshot, ...rest } = metadata ?? {};
+  return rest;
+};
+var SURFACE_BLOCK_RE = /<(CHAR_SURFACE|USER_SURFACE)>[\s\S]*?(?:<\/\1>|(?=<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>)|$)/gi;
+var PLACEHOLDER = String.fromCharCode(5);
+var PLACEHOLDER_RE = new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, "g");
+var maskSarSurfaceBlocks = (text) => {
+  const blocks = [];
+  const masked = text.replace(SURFACE_BLOCK_RE, (block) => {
+    blocks.push(block);
+    return `${PLACEHOLDER}${blocks.length - 1}${PLACEHOLDER}`;
+  });
+  return {
+    masked,
+    restore: (value) => blocks.length === 0 ? value : value.replace(PLACEHOLDER_RE, (_m, n) => blocks[Number(n)] ?? "")
+  };
+};
+var ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
+var stripEnvelopeTags = (text) => text.replace(ENVELOPE_TAG_RE, "").trim();
+var closeOpenTag = (text, name, stoppers) => {
+  const open = new RegExp(`<${name}>`, "i").exec(text);
+  if (!open || new RegExp(`</${name}>`, "i").test(text)) return text;
+  const after = open.index + open[0].length;
+  const stop = new RegExp(stoppers.join("|"), "i").exec(text.slice(after));
+  const at = stop ? after + stop.index : text.length;
+  return `${text.slice(0, at)}</${name}>${text.slice(at)}`;
+};
+var repairEnvelope = (text) => {
+  let repaired = closeOpenTag(text, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  return repaired;
+};
+var parseSarEnvelopeRounds = (rounds, plan) => {
+  const texts = rounds.filter((round) => round.trim().length > 0);
+  if (!plan.requiresEnvelope) return { canonical: texts.join("\n"), enveloped: false, pieces: [] };
+  const pieces = [];
+  let enveloped = false;
+  let userSurface;
+  for (const text of texts) {
+    const parsed = parseSARModuleReply(repairEnvelope(text), plan);
+    if (parsed.enveloped) {
+      enveloped = true;
+      if (parsed.userSurface) userSurface = parsed.userSurface;
+    }
+    const canonical = stripEnvelopeTags(parsed.canonical);
+    if (!canonical) continue;
+    const surface = parsed.enveloped && parsed.assistantSurface ? stripEnvelopeTags(parsed.assistantSurface) : "";
+    pieces.push({ canonical, ...surface ? { surface } : {} });
+  }
+  return {
+    canonical: pieces.map((p) => p.canonical).join("\n"),
+    enveloped,
+    pieces,
+    ...userSurface ? { userSurface } : {}
+  };
+};
+var isEmojiSegment = (seg) => /^\[\[SEND_EMOJI[:：]/i.test(seg.raw.trim());
+var isHtmlSegment = (seg) => /^\[html\][\s\S]*\[\/html\]$/i.test(seg.raw.trim());
+var TRANSLATION_BLOCK_RE = /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*<\/翻译>/;
+var alignKey = (seg) => {
+  const translation = seg.raw.match(TRANSLATION_BLOCK_RE);
+  if (translation) {
+    const original = translation[1].trim();
+    const translated = translation[2].trim();
+    return original && translated ? `${original}
+%%BILINGUAL%%
+${translated}` : original || translated;
+  }
+  return seg.sanitized;
+};
+var segmentSurface = (surfaceText) => {
+  const prepared = surfaceText.replace(/\[html\][\s\S]*?\[\/html\]/gi, "\n").replace(/\[\[[\s\S]*?\]\]/g, "");
+  return sanitizeIntoSegments(prepared).filter((seg) => !isEmojiSegment(seg) && !isHtmlSegment(seg));
+};
+var alignSarSurfaceSegments = (canonicalSegments, surfaceText) => {
+  const surfaceSegs = segmentSurface(surfaceText);
+  const surfaceKeys = surfaceSegs.map(alignKey);
+  let index = 0;
+  return canonicalSegments.map((seg) => {
+    if (isEmojiSegment(seg) || isHtmlSegment(seg)) return void 0;
+    const consumed = consumeSARChatSurfaceChunk(alignKey(seg), surfaceKeys, index);
+    index = consumed.nextIndex;
+    if (consumed.surface === void 0) return void 0;
+    const matched = surfaceSegs[consumed.nextIndex - 1];
+    return matched ? { surface: matched.raw, banner: matched.sanitized } : void 0;
+  });
+};
+var segmentCanonical = (text) => {
+  const scan = classifyLLMOutput(text);
+  return sanitizeIntoSegments(scan.kind === "finish" ? scan.cleanedText : scan.prefix);
+};
+var buildSarSurfaceSlots = (parse, segments) => {
+  const none = segments.map(() => void 0);
+  if (!parse.pieces.some((p) => p.surface)) return none;
+  if (parse.pieces.length === 1) return alignSarSurfaceSegments(segments, parse.pieces[0].surface ?? "");
+  const counts = parse.pieces.map((p) => segmentCanonical(p.canonical).length);
+  if (counts.reduce((a, b) => a + b, 0) !== segments.length) {
+    return alignSarSurfaceSegments(
+      segments,
+      parse.pieces.map((p) => p.surface).filter((s) => !!s).join("\n")
+    );
+  }
+  const slots = [];
+  let offset = 0;
+  parse.pieces.forEach((piece, i) => {
+    const slice = segments.slice(offset, offset + counts[i]);
+    offset += counts[i];
+    slots.push(...piece.surface ? alignSarSurfaceSegments(slice, piece.surface) : slice.map(() => void 0));
+  });
+  return slots;
+};
+
 // worker/amsg/src/agentic.ts
 var createFireSessionState = () => ({
   narrations: [],
@@ -13490,13 +14217,17 @@ var classifyNativeToolCalls = (rawToolCalls, manageToolNames, mcpResolve) => {
 };
 function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, maxToolIterations = DEFAULT_TOOL_ITERATIONS) {
   const isFinalRound = typeof iteration === "number" && iteration >= maxToolIterations - 1;
+  const sarPlan = planFromSARModuleSnapshot(build.sar ?? null);
+  const sarMask = sarPlan?.requiresEnvelope ? maskSarSurfaceBlocks(llmOutputText) : null;
+  const roundText = sarMask ? sarMask.masked : llmOutputText;
+  const restoreSurfaces = (text) => sarMask ? sarMask.restore(text) : text;
   const nativeToolCalls = mcp?.nativeToolCalls ?? [];
-  const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(llmOutputText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
+  const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(roundText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
   const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
   const hasNativeSchedule = nativeScheduleCalls.some(
     (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL
   );
-  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(llmOutputText) : [];
+  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(roundText) : [];
   const scheduleCalls = [
     ...nativeScheduleCalls,
     ...(hasNativeSchedule ? [] : scheduleTextCalls).map((c) => ({
@@ -13505,7 +14236,7 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
       function: { name: AMSG_FIRE_SCHEDULE_TOOL, arguments: JSON.stringify(c.args) }
     }))
   ];
-  const strippedText = scheduleTextCalls.length ? stripTextFakedMcpCalls(llmOutputText, scheduleTextCalls) : llmOutputText;
+  const strippedText = scheduleTextCalls.length ? stripTextFakedMcpCalls(roundText, scheduleTextCalls) : roundText;
   const scanText = textCalls.length ? stripTextFakedMcpCalls(strippedText, textCalls) : strippedText;
   const mcpToolCalls = nativeToolCalls.length > 0 ? nativeToolCalls : textCalls.map((c) => ({
     // id 只需在一轮的 assistant/tool 消息配对里唯一；本次 fire 内自增，绝不重号。
@@ -13520,7 +14251,7 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
   if (isToolRound) {
     const narration = result.kind === "tool-request" ? result.prefix : scanText;
     if (state.duplicateToolCalls < MAX_DUPLICATE_TOOL_CALLS && !isFinalRound) {
-      if (narration.trim()) state.narrations.push(narration);
+      if (narration.trim()) state.narrations.push(restoreSurfaces(narration));
       if (state.xhsShareNotes === null && XHS_SHARE_TAG_RE.test(narration)) {
         state.xhsShareNotes = [...build.xhsNotes ?? []];
       }
@@ -13530,9 +14261,11 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
       };
     }
   }
-  const thisRound = isToolRound ? "" : scanText;
-  const fullText = [...state.narrations, thisRound].filter((part) => part.trim().length > 0).join("\n");
-  const finalScan = fullText === scanText ? result : classifyLLMOutput(fullText);
+  const thisRound = isToolRound ? "" : restoreSurfaces(scanText);
+  const rounds = [...state.narrations, thisRound].filter((part) => part.trim().length > 0);
+  const fullText = rounds.join("\n");
+  const sarParse = sarPlan?.requiresEnvelope ? parseSarEnvelopeRounds(rounds, sarPlan) : null;
+  const finalScan = sarParse ? classifyLLMOutput(sarParse.canonical) : fullText === scanText ? result : classifyLLMOutput(fullText);
   const cleanedText = finalScan.kind === "finish" ? finalScan.cleanedText : finalScan.prefix;
   const directives = attachSceneSong(
     finalScan.kind === "finish" ? finalScan.directives : [],
@@ -13553,12 +14286,31 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
       ...scheduleChanges.length > 0 ? { scheduleChanges } : {}
     };
   }
+  const sarCharacter = build.sar?.character;
+  const surfaceSlots = sarParse && sarCharacter?.phase === "active" ? buildSarSurfaceSlots(sarParse, segments) : [];
+  const sarLastMeta = {
+    ...build.sar ? { [AMSG_SAR_META_KEY]: build.sar } : {},
+    ...sarParse?.userSurface ? { amsgSarUserSurface: sarParse.userSurface } : {}
+  };
+  const lastMeta = finishMeta || Object.keys(sarLastMeta).length > 0 ? { ...finishMeta ?? {}, ...sarLastMeta } : void 0;
   const lastIdx = segments.length - 1;
   return {
     decision: "finish",
-    pushPayloads: segments.map(
-      (seg, i) => buildScheduledPush(seg.raw, build, i === lastIdx ? finishMeta : void 0, seg.sanitized)
-    )
+    pushPayloads: segments.map((seg, i) => {
+      const slot = surfaceSlots[i];
+      const surfaceMeta = slot && sarCharacter ? createSARModuleSurfaceMeta(sarCharacter, slot.surface) : void 0;
+      const extra = {
+        ...surfaceMeta ? { amsgSarSurface: surfaceMeta } : {},
+        ...i === lastIdx ? lastMeta ?? {} : {}
+      };
+      return buildScheduledPush(
+        seg.raw,
+        build,
+        Object.keys(extra).length > 0 ? extra : void 0,
+        // 外显横幅截短：这条 push 还要装外显 meta，别把单段正文的字节预算吃掉一半。
+        surfaceMeta && slot ? clipSarSurfaceBanner(slot.banner) : seg.sanitized
+      );
+    })
   };
 }
 function buildScheduledPush(message, build, extraMeta, bannerBody) {
@@ -13574,7 +14326,8 @@ function buildScheduledPush(message, build, extraMeta, bannerBody) {
     messageSubtype: "chat",
     taskId: build.taskId,
     metadata: {
-      ...build.metadata,
+      // SAR 快照不许摊进每一条（它只随最后一条经 extraMeta 回去）；调用方已摘过，这里兜一道。
+      ...stripSarSnapshot(build.metadata),
       amsgOccurrenceMs: build.occurrenceMs,
       ...extraMeta ?? {}
     },
@@ -13720,303 +14473,6 @@ function buildScheduleChangeResult(args) {
     directives: args.directives.map((d) => ({ startTime: d.startTime, activity: d.activity }))
   };
 }
-
-// utils/amsgTickReport.ts
-var TICK_STALL_MS = 5 * 6e4;
-var LATE_START_MS = 3 * 6e4;
-var SAME_WRITE_TOLERANCE_MS = 5e3;
-var TICK_FAILURE_SERIES_GAP_MS = 3 * 6e4;
-var classifyOverdueTasks = (tasks, nowMs) => {
-  const verdicts = tasks.map((task) => {
-    const state = task.leaseUntilMs !== null && task.leaseUntilMs > nowMs ? "sending" : task.retryAfterMs !== null && task.retryAfterMs > nowMs ? "retry-wait" : "ready";
-    const readySinceMs = Math.max(task.nextSendAtMs, task.retryAfterMs ?? -Infinity);
-    const lastSettledMs = Math.max(
-      task.nextSendAtMs,
-      (task.createdAtMs ?? -Infinity) + SAME_WRITE_TOLERANCE_MS,
-      (task.currentErrorAtMs ?? -Infinity) + SAME_WRITE_TOLERANCE_MS
-    );
-    const lastStartedAtMs = task.updatedAtMs !== null && task.updatedAtMs > lastSettledMs ? task.updatedAtMs : null;
-    const unfinishedAttempt = state === "ready" && lastStartedAtMs !== null;
-    const lateStart = state === "sending" && lastStartedAtMs !== null && lastStartedAtMs - readySinceMs > LATE_START_MS;
-    const waitedTooLong = state === "ready" && nowMs - readySinceMs >= TICK_STALL_MS;
-    return {
-      state,
-      readySinceMs,
-      lastStartedAtMs,
-      unfinishedAttempt,
-      lateStart,
-      queuedBehind: false,
-      stuck: unfinishedAttempt || waitedTooLong
-    };
-  });
-  return verdicts.map(({ readySinceMs: _readySinceMs, ...verdict }, index) => {
-    if (verdict.state !== "ready" || verdict.unfinishedAttempt) return verdict;
-    const key = tasks[index].serializeKey;
-    if (!key) return verdict;
-    const blocked = verdicts.some((other, otherIndex) => otherIndex !== index && other.state === "sending" && tasks[otherIndex].serializeKey === key);
-    return blocked ? { ...verdict, queuedBehind: true, stuck: false } : verdict;
-  });
-};
-var judgeOverdueTasks = (tasks) => {
-  if (tasks.some((task) => task.verdict.stuck)) return "stalled";
-  if (tasks.some((task) => task.hasCurrentError || task.verdict.lateStart)) return "failing";
-  return "healthy";
-};
-
-// worker/amsg/src/tickReport.ts
-var MAX_OVERDUE_TASKS = 50;
-var MAX_RECENT_FAILURES = 10;
-var RECENT_FAILURE_WINDOW_MS = 24 * 60 * 6e4;
-var TASK_COLUMNS = `uuid, user_id, encrypted_payload, message_type, status, next_send_at,
-       retry_count, retry_after, lease_until, created_at, updated_at, last_error`;
-var parseMs = (value) => {
-  if (!value) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
-};
-var toIso = (ms) => ms === null ? null : new Date(ms).toISOString();
-var parseLastError = (raw) => {
-  if (!raw) return null;
-  let value = null;
-  try {
-    const parsed = JSON.parse(raw);
-    value = parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return { at: null, occurrence: null, reason: raw, errorCode: null, pushStatus: null };
-  }
-  if (!value) return null;
-  const pick = (key) => typeof value?.[key] === "string" && value[key] ? value[key] : null;
-  const pushStatus = Number(value.pushStatus);
-  return {
-    at: pick("at"),
-    occurrence: pick("occurrence"),
-    reason: pick("reason") || "",
-    errorCode: pick("errorCode"),
-    pushStatus: Number.isFinite(pushStatus) && pushStatus > 0 ? pushStatus : null
-  };
-};
-var isCurrentOccurrence = (error, nextSendAtMs) => {
-  const occurrenceMs = parseMs(error.occurrence);
-  if (occurrenceMs !== null) return occurrenceMs === nextSendAtMs;
-  const atMs = parseMs(error.at);
-  return atMs !== null && atMs >= nextSendAtMs;
-};
-var createIdentityReader = (masterKey, serializeKeyOf) => {
-  const userKeys = /* @__PURE__ */ new Map();
-  return async (row) => {
-    const unknown = { charId: null, contactName: null, kind: null, serializeKey: null };
-    if (!masterKey || !row.user_id || !row.encrypted_payload) return unknown;
-    try {
-      let userKey = userKeys.get(row.user_id);
-      if (!userKey) {
-        userKey = deriveUserEncryptionKey(row.user_id, masterKey);
-        userKeys.set(row.user_id, userKey);
-      }
-      const payload = JSON.parse(await decryptFromStorage(row.encrypted_payload, await userKey));
-      const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : null;
-      return {
-        charId: typeof metadata?.charId === "string" ? metadata.charId : null,
-        contactName: typeof payload.contactName === "string" && payload.contactName ? payload.contactName : null,
-        kind: readTaskKind(metadata),
-        serializeKey: serializeKeyOf({ metadata })
-      };
-    } catch {
-      return unknown;
-    }
-  };
-};
-var readOverdueTasks = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
-  const rows = (await db.prepare(
-    `SELECT ${TASK_COLUMNS}
-         FROM scheduled_messages
-        WHERE status = 'pending' AND next_send_at <= ?
-        ORDER BY next_send_at ASC
-        LIMIT ?`
-  ).bind(new Date(nowMs).toISOString(), MAX_OVERDUE_TASKS + 1).all()).results || [];
-  const truncated = rows.length > MAX_OVERDUE_TASKS;
-  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
-  const prepared = (await Promise.all(rows.slice(0, MAX_OVERDUE_TASKS).map(async (row) => {
-    const nextSendAtMs = parseMs(row.next_send_at);
-    if (!row.uuid || nextSendAtMs === null) return null;
-    const lastError = parseLastError(row.last_error);
-    const currentError = lastError && isCurrentOccurrence(lastError, nextSendAtMs) ? lastError : null;
-    const identity = await readIdentity(row);
-    const facts = {
-      nextSendAtMs,
-      createdAtMs: parseMs(row.created_at),
-      updatedAtMs: parseMs(row.updated_at),
-      retryAfterMs: parseMs(row.retry_after),
-      leaseUntilMs: parseMs(row.lease_until),
-      currentErrorAtMs: currentError ? parseMs(currentError.at) : null,
-      serializeKey: identity.serializeKey
-    };
-    return { row: { ...row, uuid: row.uuid }, nextSendAtMs, currentError, identity, facts };
-  }))).filter((item) => item !== null);
-  const verdicts = classifyOverdueTasks(prepared.map((item) => item.facts), nowMs);
-  const tasks = prepared.map(({ row, nextSendAtMs, currentError, identity, facts }, index) => {
-    const verdict = verdicts[index];
-    return {
-      uuid: row.uuid,
-      charId: identity.charId,
-      contactName: identity.contactName,
-      kind: identity.kind,
-      messageType: row.message_type,
-      nextSendAt: new Date(nextSendAtMs).toISOString(),
-      state: verdict.state,
-      stuck: verdict.stuck,
-      retryCount: Number(row.retry_count) || 0,
-      retryAfter: toIso(facts.retryAfterMs),
-      lastStartedAt: toIso(verdict.lastStartedAtMs),
-      unfinishedAttempt: verdict.unfinishedAttempt,
-      lateStart: verdict.lateStart,
-      queuedBehind: verdict.queuedBehind,
-      lastError: currentError
-    };
-  });
-  return {
-    tasks,
-    truncated,
-    verdict: judgeOverdueTasks(tasks.map((task, index) => ({
-      verdict: verdicts[index],
-      hasCurrentError: task.lastError !== null
-    })))
-  };
-};
-var readRecentFailures = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
-  const sinceMs = nowMs - RECENT_FAILURE_WINDOW_MS;
-  const rows = (await db.prepare(
-    `SELECT ${TASK_COLUMNS}
-         FROM scheduled_messages
-        WHERE last_error IS NOT NULL
-          AND updated_at >= ?
-          AND message_type != 'instant'
-          AND (status = 'failed' OR (status = 'pending' AND next_send_at > ?))
-        ORDER BY updated_at DESC
-        LIMIT ?`
-  ).bind(new Date(sinceMs).toISOString(), new Date(nowMs).toISOString(), MAX_RECENT_FAILURES).all()).results || [];
-  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
-  const failures = await Promise.all(rows.map(async (row) => {
-    const error = parseLastError(row.last_error);
-    const atMs = parseMs(error?.at);
-    if (!row.uuid || !error || atMs === null || atMs < sinceMs) return null;
-    const identity = await readIdentity(row);
-    return {
-      uuid: row.uuid,
-      charId: identity.charId,
-      contactName: identity.contactName,
-      kind: identity.kind,
-      messageType: row.message_type,
-      outcome: row.status === "failed" ? "failed" : "skipped",
-      error
-    };
-  }));
-  return failures.filter((item) => item !== null);
-};
-var DIAGNOSTICS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS worker_diagnostics (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-)`;
-var TICK_FAILURE_KEY = "tick_failure";
-var TASK_WRITE_FAILURE_STATUSES = /* @__PURE__ */ new Set([
-  "claim_failed",
-  "retry_update_failed",
-  "stale_update_failed",
-  "post_send_cleanup_failed"
-]);
-var pickTickFailure = (outcome) => {
-  const value = outcome;
-  if (!value || typeof value !== "object") return null;
-  if (value.ok === false) {
-    const cause2 = value.cause;
-    return {
-      stage: typeof cause2?.stage === "string" && cause2.stage ? cause2.stage : "tick",
-      name: typeof cause2?.name === "string" && cause2.name ? cause2.name : "Error",
-      message: typeof cause2?.message === "string" ? cause2.message : "",
-      code: typeof cause2?.code === "string" && cause2.code ? cause2.code : null
-    };
-  }
-  const failedTasks = value.summary?.details?.failedTasks;
-  if (!Array.isArray(failedTasks)) return null;
-  const hit = failedTasks.find((entry) => TASK_WRITE_FAILURE_STATUSES.has(entry?.status));
-  if (!hit) return null;
-  const reason = typeof hit.reason === "string" ? hit.reason : "";
-  const updateError = typeof hit.updateError === "string" ? hit.updateError : "";
-  const rawMessage = updateError ? `${updateError}\uFF08\u672C\u6765\u8981\u8BB0\u4E0B\u7684\u5931\u8D25\u539F\u56E0\uFF1A${reason || "\u65E0"}\uFF09` : reason;
-  const cause = summarizeErrorCause({ name: "TaskWriteFailed", message: rawMessage }, "tick");
-  return { stage: hit.status, name: cause.name, message: cause.message ?? "", code: null };
-};
-var recordTickOutcome = async (db, outcome, nowMs = Date.now()) => {
-  const failure = pickTickFailure(outcome);
-  if (!failure || typeof db?.prepare !== "function") return;
-  try {
-    await db.prepare(DIAGNOSTICS_TABLE_SQL).run();
-    const existing = await db.prepare("SELECT value FROM worker_diagnostics WHERE key = ?").bind(TICK_FAILURE_KEY).first();
-    const previous = parseStoredTickFailure(existing?.value);
-    const sameSeries = previous && previous.stage === failure.stage && previous.name === failure.name && nowMs - Date.parse(previous.lastAt) <= TICK_FAILURE_SERIES_GAP_MS;
-    const nowIso = new Date(nowMs).toISOString();
-    const record = {
-      ...failure,
-      firstAt: sameSeries ? previous.firstAt : nowIso,
-      lastAt: nowIso,
-      count: sameSeries ? previous.count + 1 : 1
-    };
-    await db.prepare(
-      `INSERT INTO worker_diagnostics (key, value, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    ).bind(TICK_FAILURE_KEY, JSON.stringify(record), nowMs).run();
-  } catch (error) {
-    console.warn("[amsg:tick-report] \u8FD9\u4E00\u8DF3\u7684\u62A5\u9519\u6CA1\u8BB0\u8FDB\u5E93", error);
-  }
-};
-var parseStoredTickFailure = (raw) => {
-  if (!raw) return null;
-  try {
-    const value = JSON.parse(raw);
-    if (!value || typeof value.stage !== "string" || typeof value.firstAt !== "string" || typeof value.lastAt !== "string") {
-      return null;
-    }
-    return {
-      stage: value.stage,
-      name: typeof value.name === "string" ? value.name : "Error",
-      message: typeof value.message === "string" ? value.message : "",
-      code: typeof value.code === "string" ? value.code : null,
-      firstAt: value.firstAt,
-      lastAt: value.lastAt,
-      count: Number(value.count) || 1
-    };
-  } catch {
-    return null;
-  }
-};
-var readTickFailure = async (db, nowMs = Date.now()) => {
-  try {
-    const row = await db.prepare("SELECT value FROM worker_diagnostics WHERE key = ?").bind(TICK_FAILURE_KEY).first();
-    const record = parseStoredTickFailure(row?.value);
-    if (!record) return null;
-    return { ...record, ongoing: nowMs - Date.parse(record.lastAt) <= TICK_FAILURE_SERIES_GAP_MS };
-  } catch {
-    return null;
-  }
-};
-var buildTickReport = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
-  const scoped = { ...options, nowMs };
-  const [overdue, recentFailures, tickFailure] = await Promise.all([
-    readOverdueTasks(db, scoped),
-    readRecentFailures(db, scoped),
-    readTickFailure(db, nowMs)
-  ]);
-  return {
-    now: new Date(nowMs).toISOString(),
-    tasks: overdue.tasks,
-    recentFailures,
-    tickFailure,
-    truncated: overdue.truncated
-  };
-};
 
 // worker/amsg/src/nativeFcm.ts
 var accessTokenCache = null;
@@ -14212,13 +14668,31 @@ var OFFLOAD_BATONS = [
     log: "[amsg:emotion] \u8BC4\u4F30\u7ED3\u679C\u65C1\u8DEF\u5B58\u50A8"
   },
   {
+    field: "amsgSar",
+    refField: "amsgSarRef",
+    key: amsgSarSnapshotKey,
+    log: "[amsg:sar] \u6A21\u5757\u5FEB\u7167\u65C1\u8DEF\u5B58\u50A8"
+  },
+  {
+    field: "amsgSarUserSurface",
+    refField: "amsgSarUserSurfaceRef",
+    key: amsgSarUserSurfaceKey,
+    log: "[amsg:sar] \u7528\u6237\u5916\u663E\u65C1\u8DEF\u5B58\u50A8"
+  },
+  {
+    field: "amsgSarSurface",
+    refField: "amsgSarSurfaceRef",
+    key: amsgSarSurfaceKey,
+    log: "[amsg:sar] \u672C\u6BB5\u5916\u663E\u65C1\u8DEF\u5B58\u50A8"
+  },
+  {
     field: "xhsSession",
     refField: "xhsSessionRef",
     key: amsgXhsSessionKey,
     log: "[amsg:agentic] XHS \u4F1A\u8BDD\u6570\u636E\u65C1\u8DEF\u5B58\u50A8"
   }
 ];
-var offloadOversizedPush = async (payload, writeState, charId, clientTaskId) => {
+var offloadOversizedPush = async (payload, writeState, charId, clientTaskId, segmentIndex = 0) => {
   if (pushFits(payload)) return payload;
   if (!clientTaskId) {
     console.warn("[amsg:offload] push \u8D85\u9650\u5374\u6CA1\u6709 clientTaskId\uFF0C\u65C1\u8DEF\u5B58\u50A8\u7528\u4E0D\u4E0A", {
@@ -14238,7 +14712,7 @@ var offloadOversizedPush = async (payload, writeState, charId, clientTaskId) => 
     const meta = readMeta(current);
     const value = meta[baton.field];
     if (!hasOffloadable(value)) continue;
-    const key = baton.key(clientTaskId);
+    const key = baton.key(clientTaskId, segmentIndex);
     await writeState(amsgStateNamespace(charId), [
       { key, value: typeof value === "string" ? value : JSON.stringify(value) }
     ]);
@@ -15180,7 +15654,10 @@ var amsgHooks = {
         messageType,
         // 摘掉评估配置再交出去：它里头是用户副 API 的 apiKey，而 metadata 会被整个
         // 摊进每条 push 的 payload（见 agentic 的 buildScheduledPush）。见 stripEmotionEvalSpec。
-        metadata: stripEmotionEvalSpec(ctx.metadata),
+        // SAR 快照同样摘掉，单独经 sar 传入：它只随最后一条 push 原样回去一次。
+        metadata: stripSarSnapshot(stripEmotionEvalSpec(ctx.metadata)),
+        // SAR 临时模块快照（形状不对就当没有）。要求信封时 processLLMRound 在分段前拆信封。
+        sar: readSarSnapshot(ctx.metadata),
         occurrenceMs: stash.occurrenceMs,
         // round 1 XHS 工具抓到的笔记 / xsecToken 快照：finish 时按 directive 引用
         // 挑选后随最后一条 push 带回客户端（客户端离线跑不了 round 1，缺这份
@@ -15330,12 +15807,13 @@ var amsgHooks = {
       }
       if (stash.charId) {
         const budgeted = [];
-        for (const payload of payloads) {
+        for (const [index, payload] of payloads.entries()) {
           budgeted.push(await offloadOversizedPush(
             payload,
             ctx.writeState,
             stash.charId,
-            stash.clientTaskId
+            stash.clientTaskId,
+            index
           ));
         }
         payloads = budgeted;
@@ -15696,7 +16174,7 @@ var readServerVersion = async (request, env) => {
   }
 };
 var src_default = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
     const method = request.method.toUpperCase();
     if (pathname.endsWith("/config-check")) {
@@ -15713,9 +16191,47 @@ var src_default = {
           // 正常，而门牌永远不更新。报的是**这份代码有没有**，不是版本号：自更新永远由
           // 旧代码执行，版本号对上了不代表新逻辑真的在跑。
           backgroundJobs: true,
-          workerVersion: AMSG_BUNDLE_VERSION
+          workerVersion: AMSG_BUNDLE_VERSION,
+          // 自动更新：有没有这个能力（配没配 CF_API_TOKEN，不回值）+ 最近一次检查的结果。
+          // 读的是诊断表，D1 没绑上时读不到就是 null，不影响上面那些照常回答。
+          selfUpdate: {
+            supported: Boolean(env.CF_API_TOKEN?.trim()),
+            state: await readSelfUpdateState(env.DB)
+          }
         }
       });
+    }
+    if (pathname.endsWith("/self-update/check")) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (method !== "POST") {
+        return jsonWithCors(405, {
+          success: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "/self-update/check \u53EA\u63A5\u53D7 POST" }
+        });
+      }
+      const gate = await authorizeSelfUpdate(request, env);
+      if (!gate.ok) {
+        return jsonWithCors(gate.code === "CF_TOKEN_MISSING" ? 400 : 401, {
+          success: false,
+          error: { code: gate.code, message: gate.message }
+        });
+      }
+      const db = env.DB;
+      if (typeof db?.prepare !== "function") {
+        return jsonWithCors(503, {
+          success: false,
+          error: { code: "WORKER_CONFIG_MISSING", message: "\u6CA1\u7ED1 D1\uFF0C\u8BB0\u4E0D\u4E0B\u68C0\u67E5\u7ED3\u679C\uFF0C\u5148\u628A DB \u7ED1\u4E0A\u3002" }
+        });
+      }
+      const check = runAutoUpdate(env, db, {
+        source: "client",
+        scriptName: resolveScriptName(env, request.url)
+      }).catch((error) => {
+        console.warn("[amsg:auto-update] \u51B7\u542F\u52A8\u89E6\u53D1\u7684\u68C0\u67E5\u6CA1\u8DD1\u5B8C", error);
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(check);
+      else await check;
+      return jsonWithCors(202, { success: true, data: { accepted: true } });
     }
     if (pathname.endsWith("/debug")) {
       if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -15743,6 +16259,7 @@ var src_default = {
         });
       }
       const result = await handleSelfUpdate(request, env);
+      await recordManualSelfUpdate(env.DB, result);
       return jsonWithCors(result.ok ? 200 : 400, {
         success: result.ok,
         data: result.ok ? result : void 0,
@@ -15842,8 +16359,17 @@ var src_default = {
       console.error(`[amsg] \u5B9A\u65F6\u4EFB\u52A1\u6574\u8F6E\u8DF3\u8FC7\uFF1A${report.message}`);
       return;
     }
+    await ensureSchemaOnce(env.DB, SCHEMA_VERSION, () => upstream.ensureSchema(env));
     const outcome = await upstream.scheduled(event, env);
     await recordTickOutcome(env.DB, outcome);
+    try {
+      await runAutoUpdate(env, env.DB, {
+        source: "cron",
+        scriptName: env.CF_SCRIPT_NAME?.trim() || null
+      });
+    } catch (error) {
+      console.warn("[amsg:auto-update] \u8FD9\u4E00\u8DF3\u7684\u81EA\u52A8\u66F4\u65B0\u68C0\u67E5\u6CA1\u8DD1\u5B8C", error);
+    }
   }
 };
 export {

@@ -145,6 +145,9 @@ export interface OSTheme {
   launcherAppOrder?: string[];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 默认桌面组件可见性；旧存档未设置时保持显示。随主题备份。 */
+  launcherMusicVisible?: boolean;
+  launcherImageVisible?: boolean;
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
@@ -387,6 +390,17 @@ export interface ActiveMsg2GlobalConfig {
    * 而不是知道它不行；握手时会补探一次，之后就有准数了。
    */
   instantChatSupported?: boolean;
+  /**
+   * 上一次探到的「那台 Worker 贴的是哪一版 bundle」（GET /config-check 的 workerVersion，
+   * 由 ActiveMsgClient.probeInstantChatSupportDetailed / probeWorkerVersion 顺手记下）。
+   *
+   * 和 AMSG_BUNDLE_VERSION 相等 = 那台 Worker 跑的就是本 App 认的这份代码。即时对话里
+   * 需要新协议的回合（SAR 模块生效期的信封回复）靠它判断能不能上云。
+   *
+   * null = 问到了，但老 bundle 不报这个字段（确实旧）；undefined = 还没探过，按放行处理。
+   * 和 instantChatSupported 一样只记探测结果，备份还原时不抄回来。
+   */
+  workerBundleVersion?: string | null;
   /**
    * 上一次探到的「这台 Worker 能不能把 LLM 凭据存成表里的一行」
    * （GET /capabilities 的 features 含 'llm-credentials'，见 ActiveMsgClient.probeLlmCredentialsSupport）。

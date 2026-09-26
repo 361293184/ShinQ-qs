@@ -1274,6 +1274,10 @@ const Appearance: React.FC = () => {
                 {/* Desktop Music Widget Style */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">桌面组件</h2>
+                    <label className="flex items-center gap-2 mb-4 text-sm text-slate-700">
+                        <input type="checkbox" checked={theme.launcherMusicVisible !== false} onChange={e => updateTheme({ launcherMusicVisible: e.target.checked })} />
+                        显示音乐组件
+                    </label>
                     <div className="flex items-center justify-between">
                         <div>
                             <div className="text-sm font-medium text-slate-700">音乐卡片浅色系</div>
@@ -1473,7 +1477,11 @@ const Appearance: React.FC = () => {
                 {/* Page 1 Desktop Square Image */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">首页方形图片</h2>
-                    <p className="text-[10px] text-slate-400 mb-4">桌面首页右下角的方形图片槽位，长按移除</p>
+                    <label className="flex items-center gap-2 mb-3 text-sm text-slate-700">
+                        <input type="checkbox" checked={theme.launcherImageVisible !== false} onChange={e => updateTheme({ launcherImageVisible: e.target.checked })} />
+                        显示图片组件
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-4">桌面第二页的方形图片，长按下方预览可清除图片；取消勾选可隐藏组件。</p>
                     <div className="flex justify-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
                         {(() => {
                             const slot = 'dsq';

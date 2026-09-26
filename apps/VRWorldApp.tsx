@@ -5,7 +5,7 @@ import { trackSARFeature } from '../utils/sarAnalytics';
 import { SARFamiliarityDialog } from './vrWorld/SARFamiliarityDialog';
 import { flushFishingDeliveries } from '../utils/vrWorld/fishingDelivery';
 import { flushMarketReceipts } from '../utils/vrWorld/fishingCharacter';
-import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import { loadCharacterContextMessageIds } from '../utils/chatContextRange';
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { useOS } from '../context/OSContext';
 import {
@@ -164,6 +164,9 @@ const VRWorldApp: React.FC = () => {
     const [feed, setFeed] = useState<FeedItem[]>([]);
     const [poBadge, setPoBadge] = useState<{ toSend: number; toCollect: number }>({ toSend: 0, toCollect: 0 });
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const feedLoadGeneration = useRef(0);
+    useEffect(() => () => { feedLoadGeneration.current++; }, []);
 
     // 邮局徽标：本地待寄出/待发送 + 后端待收取的回信（best-effort 探测）
     const refreshPoBadge = useCallback(async () => {
@@ -345,9 +348,10 @@ const VRWorldApp: React.FC = () => {
         setNovels(books); setLibraryCategories(categories);
     }, []);
     const loadFeed = useCallback(async () => {
+        const generation = ++feedLoadGeneration.current;
         const items: FeedItem[] = [];
         for (const c of characters) {
-            // 彼方动态取数走 getVRCardsByCharId：全量捞该角色的 vr_card，不受"最近 N 条窗口"、
+            // 首页只展示最近 50 条动态，按角色限量读取；不受聊天的"最近 N 条窗口"、
             // 记忆宫殿高水位线（mp_lastMsgId_<charId>）、归档隐藏起点（hideBeforeMessageId）影响。
             // 这些机制只管「LLM 上下文能不能看到」——而彼方动态是用户自己的浏览界面，
             // 只要消息还在 IndexedDB 里就该一直能看到：
@@ -355,9 +359,12 @@ const VRWorldApp: React.FC = () => {
             //   · 角色记忆归档把旧聊天标记为"对 AI 隐藏" → 这些动态依旧存在，用户仍要能回看；
             //   · 聊天攒多了把旧 vr_card 挤出最近窗口 → 不该因此从动态流消失。
             // （清空聊天会真删消息，删掉就没了——那是预期行为，逻辑不变。）
-            const msgs = await DB.getVRCardsByCharId(c.id);
+            const msgs = await DB.getVRCardsByCharId(c.id, 50, m => !m.metadata?.userBoardPost);
+            if (generation !== feedLoadGeneration.current) return;
+            if (!msgs.length) continue;
             // 可见性与实际发送的自适应/手动范围保持一致。
-            const visibleIds = new Set((await loadCharacterContextMessages(c)).map(message => message.id));
+            const visibleIds = await loadCharacterContextMessageIds(c, msgs);
+            if (generation !== feedLoadGeneration.current) return;
             for (const m of msgs) {
                 // 用户在留言簿的发言会广播进每个角色的 vr_card（供 LLM 上下文用），
                 // 但它不是"角色自己的动态"——不进动态流，也不当作 chibi 气泡。
@@ -373,7 +380,8 @@ const VRWorldApp: React.FC = () => {
     const reloadAll = useCallback(async () => {
         // Background refresh must not unmount the library and reset its filter/selection.
         // Initial loading is already true until the first load finishes.
-        await Promise.all([loadNovels(), loadFeed()]);
+        const results = await Promise.allSettled([loadNovels(), loadFeed()]);
+        setLoadError(results.some(result => result.status === 'rejected'));
         setLoading(false);
     }, [loadNovels, loadFeed]);
 
@@ -577,6 +585,10 @@ const VRWorldApp: React.FC = () => {
 
             {/* 滚动容器不同于浮动 dock：滚到底时最后一条内容贴 viewport bottom = 屏幕底，必须 + safe-bottom 让位 home 条，否则翻页按钮被压（即原 #158 报的问题）。 */}
             <div className="vr-world-scroll relative flex-1 overflow-y-auto vr-reader-scroll px-4 z-10" style={{ paddingTop: '1rem', paddingBottom: `calc(1rem + ${VR_SAFE_BOTTOM})` }}>
+                {loadError && <div role="alert" className="px-5 py-3 text-center text-xs text-white/70">
+                    部分本地数据读取失败，请重试。已有数据不会被清除。
+                    <button className="ml-3 underline" onClick={() => void reloadAll()}>重新载入</button>
+                </div>}
                 {loading ? (
                     <div className="text-center text-white/40 text-[13px] tracking-[0.2em] py-12" style={{ fontFamily: `'Noto Serif SC',serif` }}>载入彼方…</div>
                 ) : tab === 'sar' ? (

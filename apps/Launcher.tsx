@@ -478,7 +478,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const pagedEvents = upcomingEvents.slice(eventPage * EVENTS_PER_PAGE, eventPage * EVENTS_PER_PAGE + EVENTS_PER_PAGE);
 
     return (
-        <div className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
+        <div className="launcher-page w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
               <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
                       <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
@@ -601,6 +601,7 @@ const Launcher: React.FC = () => {
 
   const [activePageIndex, setActivePageIndex] = useState(_lastPageIndex);
   const activePageIndexRef = useRef(_lastPageIndex);
+  const pageWidthRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Mouse Drag Logic refs
@@ -794,18 +795,26 @@ const Launcher: React.FC = () => {
   // Restore scroll position BEFORE paint to avoid visible flash/slide
   useLayoutEffect(() => {
       const el = scrollContainerRef.current;
-      if (el && _lastPageIndex > 0) {
-          // Temporarily disable smooth scroll so jump is instant
+      if (!el) return;
+      let frame = 0;
+      const alignPage = () => {
+          if (!el.clientWidth || pageWidthRef.current === el.clientWidth) return;
+          pageWidthRef.current = el.clientWidth;
           el.style.scrollBehavior = 'auto';
-          el.scrollLeft = el.clientWidth * _lastPageIndex;
-          // Re-enable on next frame
-          requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
-      }
+          el.scrollLeft = el.clientWidth * activePageIndexRef.current;
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+      };
+      alignPage();
+      const observer = new ResizeObserver(alignPage);
+      observer.observe(el);
+      return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = () => {
       if (scrollContainerRef.current) {
           const width = scrollContainerRef.current.clientWidth;
+          if (!width || width !== pageWidthRef.current) return;
           const scrollLeft = scrollContainerRef.current.scrollLeft;
           const index = Math.round(scrollLeft / width);
           setActivePageIndex(index);
@@ -961,6 +970,7 @@ const Launcher: React.FC = () => {
   }, [clearLayoutPageTurn, clearLayoutPressTimer]);
 
   const handleLayoutPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      if ((e.target as HTMLElement).closest('[data-launcher-control]')) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const launcherRoot = e.currentTarget;
       const item = (e.target as HTMLElement).closest<HTMLElement>('[data-launcher-item]');
@@ -1080,7 +1090,7 @@ const Launcher: React.FC = () => {
 
   return (
     <div
-      className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
+      className={`launcher-desktop h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none ${layoutEditing ? 'launcher-editing' : ''}`}
       onPointerDown={handleLayoutPointerDown}
       onPointerMove={handleLayoutPointerMove}
       onPointerUp={finishLayoutPointer}
@@ -1090,6 +1100,31 @@ const Launcher: React.FC = () => {
       }}
     >
       <style>{`
+        .launcher-pages { min-height: 0; }
+        .launcher-page {
+          overflow-y: auto;
+          overscroll-behavior-y: contain;
+          padding-top: max(3rem, calc(var(--chrome-top, 24px) + 12px));
+          padding-left: max(1.5rem, env(safe-area-inset-left));
+          padding-right: max(1.5rem, env(safe-area-inset-right));
+        }
+        .launcher-page > * { flex-shrink: 0; }
+        .launcher-pinwheel-content { flex: 0 0 auto; margin-block: auto; }
+        .launcher-editing .launcher-page { padding-top: max(5rem, calc(var(--safe-top, 0px) + 4rem)); }
+        .launcher-widget-remove {
+          position: absolute; top: 0; right: 0; z-index: 30;
+          min-width: 44px; min-height: 44px; border-radius: 999px;
+          background: #fffdf8; color: #a93232; box-shadow: 0 2px 8px #0003;
+          font-size: 12px; touch-action: manipulation;
+        }
+        @media (orientation: landscape) {
+          .launcher-page > * { width: 100%; max-width: 680px; margin-left: auto; margin-right: auto; }
+          .launcher-page > .launcher-pinwheel-content { max-width: 480px; }
+        }
+        @media (orientation: landscape) and (min-width: 1000px) {
+          .launcher-page > .launcher-pinwheel-content { max-width: 1100px; }
+          .launcher-pinwheel-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
         .launcher-edit-item {
           touch-action: none;
           cursor: grab;
@@ -1141,12 +1176,12 @@ const Launcher: React.FC = () => {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onClickCapture={handleClickCapture}
-        className="flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
+        className="launcher-pages flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
         style={{
             scrollBehavior: 'smooth',
             overscrollBehaviorX: 'contain',
             overscrollBehaviorY: 'none',
-            touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
+            touchAction: layoutEditing ? 'pan-y' : 'pan-x pan-y',
             willChange: 'scroll-position',
             contain: 'layout paint',
             transform: 'translateZ(0)',
@@ -1157,7 +1192,7 @@ const Launcher: React.FC = () => {
           {appPages.map((pageApps, idx) => (
               <div
                 key={idx}
-                className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-12 pb-8 h-full"
+                className="launcher-page w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-12 pb-8 h-full"
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
               >
                   {idx === 0 ? (
@@ -1178,7 +1213,7 @@ const Launcher: React.FC = () => {
                       </>
                   ) : idx === 1 ? (
                       // Page 2: Schedule 4x2 widget on top + Pinwheel (Music / 2x2 icons / 2x2 icons / Image) below
-                      <div className="flex-1 min-h-0 w-full flex flex-col gap-5 justify-center">
+                      <div className="launcher-pinwheel-content w-full flex flex-col gap-5">
                           {scheduleChar && (
                               <ScheduleHomeWidget
                                   schedule={scheduleData}
@@ -1189,14 +1224,22 @@ const Launcher: React.FC = () => {
                                   paper={paper}
                               />
                           )}
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-5 w-full">
-                              {pinwheelOrder.map(cell => (
+                          <div className="launcher-pinwheel-grid grid grid-cols-2 gap-x-3 gap-y-5 w-full">
+                              {pinwheelOrder.filter(cell => cell === 'music' ? theme.launcherMusicVisible !== false : cell === 'image' ? theme.launcherImageVisible !== false : true).map(cell => (
                                   <div
                                       key={cell}
                                       data-launcher-item={cell}
                                       data-launcher-kind="widget"
-                                      className={`aspect-square min-w-0 ${layoutEditing ? 'launcher-edit-item' : ''}`}
+                                      className={`relative aspect-square min-w-0 ${layoutEditing ? 'launcher-edit-item' : ''}`}
                                   >
+                                      {layoutEditing && (cell === 'music' || cell === 'image') && (
+                                          <button type="button" data-launcher-control className="launcher-widget-remove"
+                                              aria-label={cell === 'music' ? '删除音乐组件' : '删除图片组件'}
+                                              onClick={e => {
+                                                  e.stopPropagation();
+                                                  updateTheme(cell === 'music' ? { launcherMusicVisible: false } : { launcherImageVisible: false });
+                                              }}>删除</button>
+                                      )}
                                       {cell === 'music' ? (
                                           <NowPlayingSquareWidget contentColor={contentColor} />
                                       ) : cell === 'appsA' ? (
