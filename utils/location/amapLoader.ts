@@ -13,7 +13,7 @@ let loadedKey = '';
 
 /** 当前正在注入的 script URL（便于调试 / 移除） */
 export const getAmapScriptUrl = (key: string) =>
-    `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.PlaceSearch,AMap.Geocoder,AMap.AutoComplete`;
+    `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.PlaceSearch,AMap.Geocoder,AMap.AutoComplete,AMap.Geolocation`;
 
 /**
  * 加载高德 JS API。同一 key 只加载一次；换 key 前先 reset。

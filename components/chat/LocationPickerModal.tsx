@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { RealtimeConfig } from '../../types';
 import { loadAmap } from '../../utils/location/amapLoader';
-import { geolocate, toGcj02 } from '../../utils/location/coordinate';
-import { searchAroundPois, toLocationFields } from '../../utils/location/poi';
+import { geolocate, geolocateViaAmap, reverseGeocodeAmap, toGcj02 } from '../../utils/location/coordinate';
+import { searchAroundPois, searchPlaceSuggestions, toLocationFields } from '../../utils/location/poi';
 
 /**
  * 定位分享弹窗（两层结构）：
@@ -37,6 +37,10 @@ export default function LocationPickerModal(props: {
     const centerMarkerRef = useRef<any>(null);
     const searchTimerRef = useRef<number | null>(null);
     const keywordTimerRef = useRef<number | null>(null);
+    // 当前城市码（逆地理获得，供关键词搜索锁定城市）。用 ref 而非 state：变更不需要重渲染
+    const cityCodeRef = useRef<string>('');
+    // 定位精度圈（可视化定位误差范围），重新定位时清除重建
+    const accuracyCircleRef = useRef<any>(null);
 
     const amapKey = realtimeConfig?.amapKey?.trim() || '';
     const securityJsCode = realtimeConfig?.amapSecurityJsCode?.trim() || '';
@@ -50,6 +54,7 @@ export default function LocationPickerModal(props: {
             try { amapMapRef.current?.destroy?.(); } catch (e) { /* noop */ }
             amapMapRef.current = null;
             centerMarkerRef.current = null;
+            accuracyCircleRef.current = null; // circle 挂在地图上，随 destroy 一并释放
         };
     }, []);
 
@@ -123,19 +128,64 @@ export default function LocationPickerModal(props: {
         return () => { cancelled = true; };
     }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // 定位 + 纠偏 + 落点 + 搜周边（供初始化与「重新定位」复用）
+    // 画定位精度圈：让用户直观看到这次定位到底准不准（accuracy 拿不到/太糊时放弃）
+    const drawAccuracyCircle = (map: any, center: { lng: number; lat: number }, accuracy: number) => {
+        try {
+            const AMap = (window as any).AMap;
+            if (accuracyCircleRef.current) {
+                map.remove(accuracyCircleRef.current);
+                accuracyCircleRef.current = null;
+            }
+            if (!AMap || !accuracy || accuracy <= 0 || accuracy > 5000) return; // 缺失/误差超 5km 画了也没意义
+            accuracyCircleRef.current = new AMap.Circle({
+                center: [center.lng, center.lat],
+                radius: Math.min(accuracy, 5000),
+                map,
+                strokeColor: '#4F7CFF',
+                strokeWeight: 1,
+                strokeOpacity: 0.4,
+                fillColor: '#4F7CFF',
+                fillOpacity: 0.12,
+                bubble: true, // 不挡地图拖动/点击
+            });
+        } catch (e) { /* 精度圈画不出来不影响主流程 */ }
+    };
+
+    const accuracyLabel = (m: number) =>
+        `定位精度 ±${m >= 1000 ? (m / 1000).toFixed(1) + 'km' : Math.round(m) + 'm'}`;
+
+    // 定位 + 落点 + 搜周边（供初始化与「重新定位」复用）。
+    // 双通道：优先高德自家定位插件（GCJ-02 直出、15s 等 GPS 收敛，国产无谷歌机型精度远好于
+    // WebView 的 IP 定位）；插件不可用/失败再回退旧链路（WebView 定位 → convertFrom 纠偏）。
     const locateAndSearch = async (map: any, marker: any) => {
         setLocatingNow(true);
         try {
-            const geo = await geolocate();
-            const gcj = await toGcj02(geo.lng, geo.lat);
+            let gcj: { lng: number; lat: number };
+            let accuracy: number;
+            try {
+                const viaAmap = await geolocateViaAmap();
+                gcj = { lng: viaAmap.lng, lat: viaAmap.lat };
+                accuracy = viaAmap.accuracy;
+            } catch {
+                const geo = await geolocate();
+                gcj = await toGcj02(geo.lng, geo.lat);
+                accuracy = geo.accuracy;
+            }
             map.setCenter([gcj.lng, gcj.lat]);
             marker.setPosition(new (window as any).AMap.LngLat(gcj.lng, gcj.lat));
+            drawAccuracyCircle(map, gcj, accuracy);
+
+            // 逆地理：拿城市码（搜索锁定城市用）+ 真实地址（「当前位置」显示用）。
+            // 失败不阻塞定位流程：降级为不限城市、显示精度。
+            const rev = await reverseGeocodeAmap(gcj.lng, gcj.lat);
+            if (rev?.citycode) cityCodeRef.current = rev.citycode;
+
             await refreshPois(gcj);
-            // 默认选中「当前位置」
+            // 默认选中「当前位置」：有真实地址就显示地址，精度作为补充
+            const locLabel = `（${accuracyLabel(accuracy)}）`;
             setSelected({
                 name: '当前位置',
-                address: `定位精度 ±${geo.accuracy >= 1000 ? (geo.accuracy / 1000).toFixed(1) + 'km' : Math.round(geo.accuracy) + 'm'}`,
+                address: rev?.address ? `${rev.address}${locLabel}` : locLabel.trim(),
                 lat: gcj.lat,
                 lng: gcj.lng,
                 isCur: true,
@@ -148,13 +198,27 @@ export default function LocationPickerModal(props: {
     };
 
     // 搜 POI（支持关键词搜索/周边搜索）
-    // - 有关键词：按关键词搜（PlaceSearch.search 全国范围，中心点作为偏好但非必需）
+    // - 有关键词：优先 AutoComplete 输入联想（全类别、按城市过滤、快，公寓/小店/学校都搜得到），
+    //   联想空结果再回退全类别 PlaceSearch（锁定城市 + 中心点距离加权）
     // - 无关键词：按中心点搜周边
     const refreshPois = async (center: { lng: number; lat: number }, kw?: string) => {
         const isKeyword = !!(kw && kw.trim());
         if (isKeyword) setSearching(true);
         try {
-            const list = await searchAroundPois({ center, keyword: isKeyword ? kw : undefined });
+            let list: any[] = [];
+            if (isKeyword) {
+                list = await searchPlaceSuggestions(kw!.trim(), cityCodeRef.current || undefined);
+                if (list.length === 0) {
+                    list = await searchAroundPois({
+                        center,
+                        keyword: kw!.trim(),
+                        city: cityCodeRef.current || undefined,
+                        location: center,
+                    });
+                }
+            } else {
+                list = await searchAroundPois({ center });
+            }
             // 预处理成展示/发送字段
             const mapped = list.map((p: any) => ({ ...toLocationFields(p) }));
             setPois(mapped);
