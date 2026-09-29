@@ -1233,6 +1233,8 @@ interface MessageItemProps {
     onToggleThinkingSelect?: (id: number) => void;
     // Translation (AI messages only, bilingual content parsed from %%BILINGUAL%%)
     translationEnabled?: boolean;
+    /** 「直接展开」模式：原文与译文同时显示（按角色保存，见 chat_translate_expanded_*） */
+    translationExpanded?: boolean;
     isShowingTarget?: boolean;
     onTranslateToggle?: (msgId: number) => void;
     // Voice TTS
@@ -1301,6 +1303,7 @@ const MessageItem = React.memo(({
     isThinkingSelected,
     onToggleThinkingSelect,
     translationEnabled,
+    translationExpanded,
     isShowingTarget,
     onTranslateToggle,
     voiceData,
@@ -3554,7 +3557,7 @@ const MessageItem = React.memo(({
     if (m.type === 'emoji') {
         return commonLayout(
             m.content ? (
-                <img src={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
+                <TokenImg value={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
             ) : (
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
             )
@@ -3571,15 +3574,17 @@ const MessageItem = React.memo(({
                 {commonLayout(
                     <div className="relative group">
                 {m.content ? (
-                    <img
-                        src={m.content}
-                        className="max-w-[200px] max-h-[300px] rounded-2xl cursor-zoom-in hover:opacity-95 transition-opacity"
-                        alt="Uploaded"
-                        loading={isLatestMessage ? 'eager' : 'lazy'}
-                        decoding="async"
-                        onClick={() => setPreviewSrc(m.content)}
-                        onLoad={() => onMediaLoad?.(m.id)}
-                    />
+                    // 走 ChatImage：内部按 blobref 令牌解析、eager 解码最新图并把最终高度回报给聊天列表
+                    // 用于贴底校正（见 utils/chatImageScrollRuntimeReferences.test.ts 钉住的契约）。
+                    // 外面包一层只为了保留自研的「点图全屏预览」。
+                    <div onClick={() => setPreviewSrc(m.content)} className="cursor-zoom-in transition-opacity hover:opacity-95">
+                        <ChatImage
+                            value={m.content}
+                            selectionMode={selectionMode}
+                            eager={isLatestMessage}
+                            onLoad={() => onMediaLoad?.(m.id)}
+                        />
+                    </div>
                 ) : isPlaceholder ? (
                     isPending ? (
                         // 正在生成：9:16 竖版占位卡（与最终照片同比例同尺寸，切换不跳；只留跳点，隐藏文字）
@@ -3736,36 +3741,6 @@ const MessageItem = React.memo(({
                 </span>
                 <span className="block border-t border-slate-100 px-3.5 py-2 text-[9px] font-semibold tracking-[0.12em] text-slate-400">协同工作 · {isInstallable ? '可安装作品' : '原始文件'}</span>
             </button>
-        );
-    }
-
-    // 表情气泡默认尺寸 160→96（吸收社区美化的共识尺寸）。sully-emoji-msg 是给自定义 CSS 用的
-    // 稳定锚点——旧美化代码锚在 .max-w-\[160px\] 类名上，类名一变就失配（恰好无缝退休：
-    // 新默认就是它们想要的 96px）；以后想改尺寸请选择器写 .sully-emoji-msg，不再锚类名。
-    if (m.type === 'emoji') {
-        return commonLayout(
-            m.content ? (
-                <TokenImg value={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
-            ) : (
-                <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
-            )
-        );
-    }
-
-    if (m.type === 'image') {
-        return commonLayout(
-            <div className="relative group">
-                {m.content ? (
-                    <ChatImage
-                        value={m.content}
-                        selectionMode={selectionMode}
-                        eager={isLatestMessage}
-                        onLoad={() => onMediaLoad?.(m.id)}
-                    />
-                ) : (
-                    <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
-                )}
-            </div>
         );
     }
 
@@ -3937,9 +3912,13 @@ const MessageItem = React.memo(({
 
     // Display: "选" language by default, "译" language when toggled
     // 角色文本统一剥离发照片触发段（`图片- xxx`），该段只用于生图触发、不作为台词显示（用户文本不受影响）
-    const rawShown = (isShowingTarget && langBContent) ? langBContent : langAContent;
+    // Display: 默认点击切换；可选「直接展开」时，上方原文 + 下方译文同时显示。
+    const showExpandedTranslation = Boolean(translationEnabled && translationExpanded && hasBilingual && langBContent);
+    const rawShown = showExpandedTranslation
+        ? langAContent
+        : (isShowingTarget && langBContent) ? langBContent : langAContent;
     const displayContent = isUser ? rawShown : stripImageGenMarkers(rawShown);
-    const showTranslateButton = translationEnabled && hasBilingual && langBContent;
+    const showTranslateButton = translationEnabled && !showExpandedTranslation && hasBilingual && langBContent;
 
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
     // 未闭合的开标签也算 (历史坏数据: 语音块曾被 chunkText 切碎, 开标签落单) —
@@ -4171,6 +4150,12 @@ const MessageItem = React.memo(({
             {displayContent && !isForeignVoiceMsg && (
             <div className="relative z-10 text-[15px] leading-relaxed whitespace-pre-wrap break-all select-text" style={{ color: styleConfig.textColor }}>
                 {renderContent(displayContent)}
+                {showExpandedTranslation && (
+                    <div className="mt-2.5 pt-2 border-t border-current/15">
+                        <div className="mb-1 text-[9px] font-bold tracking-[0.16em] opacity-40 select-none">翻译</div>
+                        {renderContent(langBContent)}
+                    </div>
+                )}
             </div>
             )}
 
@@ -4411,6 +4396,7 @@ const MessageItem = React.memo(({
            prev.selectionMode === next.selectionMode &&
            prev.isSelected === next.isSelected &&
            prev.translationEnabled === next.translationEnabled &&
+           prev.translationExpanded === next.translationExpanded &&
            prev.isShowingTarget === next.isShowingTarget &&
            prev.avatarShape === next.avatarShape &&
            prev.avatarSize === next.avatarSize &&

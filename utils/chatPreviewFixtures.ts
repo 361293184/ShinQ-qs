@@ -32,6 +32,12 @@ export const CHAT_TYPE_SAMPLES = {
  room_card:msg(26,'room_card','给窗台的植物浇了水。',{emoji:'🌱'}),
  life_card:msg(27,'life_card','今天走了很远',{module:'exercise',summary:'散步 30 分钟',dateStr:'2026-09-26',reviewStatus:'active'}),
  group_topic_card:msg(28,'group_topic_card','群聊回忆',{groupTopicBox:{title:'周末野餐',summary:'大家约好了带上各自拿手的食物。',groupName:'朋友们',messageCount:12}}),
+ // 以下 5 类为本地自研卡片的预览样例（与上游样例保持同一份 Record 契约）
+ fanwai_card:msg(29,'fanwai_card','《海边的旧信》',{fanwai:{title:'海边的旧信',styleName:'日常甜宠',excerpt:'潮水退下去的时候，她终于把那封信读完了。'}}),
+ location_card:msg(30,'location_card','我们在这里',{location:{name:'河畔花市',address:'示例市示例区河畔路 1 号',lat:31.2304,lng:121.4737}}),
+ game_replay:msg(31,'game_replay','上一局谁赢了',{gameReplay:{gameTitle:'默契问答',result:'平局',rounds:6}}),
+ letter_card:msg(32,'letter_card','一封来信',{letter:{title:'写给你的信',occasion:{name:'日常'},from:'示例角色',excerpt:'展信佳。这几天风很软。'}}),
+ letter_reply_card:msg(33,'letter_reply_card','我的回信',{letterReply:{title:'写给你的回信',occasion:{name:'日常'},excerpt:'收到你的信了，我也有话想跟你说。'}}),
 } satisfies Record<MessageType, Message>;
 
 export interface ChatPreviewScene {id:string;label:string;messages:Message[];expanded?:boolean;voiceLoading?:boolean;voicePlaying?:boolean}

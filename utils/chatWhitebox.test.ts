@@ -39,7 +39,8 @@ describe('complete whitebox contract',()=>{
   try{const {markup}=renderChatDecorationSample(preset,id);expect(markup).toContain('sully-chat-messages');expect(markup).not.toContain('NaN');expect(fetchSpy).not.toHaveBeenCalled();}finally{fetchSpy.mockRestore();}
  });
  it('includes every message type and expanded psyche and transfer states',()=>{
-  expect(Object.keys(CHAT_TYPE_SAMPLES)).toHaveLength(28);
+  // 33 = 上游 28 类 + 本地自研 5 类（fanwai_card / location_card / game_replay / letter_card / letter_reply_card）
+  expect(Object.keys(CHAT_TYPE_SAMPLES)).toHaveLength(33);
   expect(renderChatDecorationSample(preset,'psyche-open').markup).toContain('sully-psyche-body');
   expect(renderChatDecorationSample(preset,'music_card').markup).toContain('data-card-kind="music_card"');
   expect(renderChatDecorationSample(preset,'transfer-accepted').markup).toContain('data-status="accepted"');

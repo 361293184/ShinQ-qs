@@ -91,13 +91,13 @@ describe('DB.deleteGalleryImages', () => {
     it('块内出现异常时，该块计入失败而不是假装成功', async () => {
         const ids = ['boom-1', 'boom-2', 'boom-3'];
         const original = IDBObjectStore.prototype.delete;
-        const spy = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(function (
+        const spy = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation((function (
             this: IDBObjectStore,
             key: IDBValidKey,
         ) {
             if (String(key).startsWith('boom')) throw new Error('mock: 事务内抛错');
             return original.call(this, key);
-        });
+        }) as unknown as typeof IDBObjectStore.prototype.delete);
         try {
             // 事务里抛错会 abort 掉整个块，所以这三张都不算删成功
             expect(await DB.deleteGalleryImages(ids)).toEqual({ deleted: 0, failed: 3 });
