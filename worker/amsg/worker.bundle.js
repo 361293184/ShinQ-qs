@@ -13552,6 +13552,24 @@ var buildDuplicateToolMessage = (name) => [
   "\u6216\u8005\u6362\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\u3002\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u3002]"
 ].join("\n");
 
+// utils/voiceTextDedup.ts
+function deduplicateVoiceText(text) {
+  if (/\[html\]|<翻[译譯]>|```/i.test(text)) return text;
+  const normalize2 = (s) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+  const blocks = [];
+  const spoken = [];
+  const protectedText = text.replace(/<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g, (block, voice, subtitle) => {
+    spoken.push(normalize2(voice), ...subtitle ? [normalize2(subtitle)] : []);
+    return "\nVOICE" + (blocks.push(block) - 1) + "\n";
+  });
+  if (!blocks.length) return text;
+  return protectedText.split(/\r?\n/).filter((line) => {
+    if (/[<>\[\]\u0002]/.test(line)) return true;
+    const plain = normalize2(line);
+    return plain.length < 12 || !spoken.some((voice) => voice.includes(plain));
+  }).join("\n").replace(/\u0002VOICE(\d+)\u0002/g, (_, i) => blocks[Number(i)]).trim();
+}
+
 // node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.6/node_modules/@rei-standard/amsg-instant/dist/index.mjs
 var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
 function segmentTextWithProtectedBlocks(text, options) {
@@ -13791,7 +13809,7 @@ function sanitizeForNotification(text) {
 function sanitizeIntoSegments(text) {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
-  cleaned = normalizeVoiceTags(cleaned);
+  cleaned = deduplicateVoiceText(normalizeVoiceTags(cleaned));
   cleaned = normalizeTranslationTags(cleaned);
   const ATOM_MARKER = String.fromCharCode(2);
   const atomBlocks = [];
