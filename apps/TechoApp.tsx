@@ -695,7 +695,8 @@ function MonthView(props: { theme: any; date: string; habits: TechoHabit[]; onDa
     const [selectedDay, setSelectedDay] = useState<string | null>(null);
     const year = base.getFullYear();
     const month = base.getMonth();
-    // 联网刷新该年节假日（自动更新；本地表兜底）
+    // 预取该年节假日：内置官方表的年份（当前 2026）直接短路，含调休补班、不联网；
+    // 其余年份才联网刷新一次，7 天窗口内不重复，失败静默降级到内置表/既有缓存。
     useEffect(() => { prefetchFestivals(year); }, [year]);
     const first = new Date(year, month, 1);
     const startWeekday = first.getDay(); // 0=周日
