@@ -12,6 +12,7 @@ import { applyCameraPhotoEffects, CAMERA_FILTERS, DEFAULT_CAMERA_EFFECTS } from 
 import { CAMERA_DECORATIONS } from '../../utils/cameraDecorations';
 import type { createCameraGpuEffects } from '../../utils/cameraGpuEffects';
 import { CAMERA_FRAMES as FRAMES, cameraFrameLayout, drawCameraFrame } from '../../utils/cameraFrames';
+import { cameraCaptureLayout, cameraIsPortrait } from '../../utils/cameraCapture';
 
 const Live2DAvatarCanvas = lazy(() => import('../call/Live2DAvatarCanvas'));
 
@@ -25,6 +26,8 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
     const [trackCamera] = useState(createCameraAnalytics);
     const openGallery = () => { trackCamera('gallery'); onGallery(); };
     const [facing, setFacing] = useState<'user' | 'environment'>('environment');
+    const [portrait, setPortrait] = useState(cameraIsPortrait);
+    const [viewfinder, setViewfinder] = useState({ width: 0, height: 0 });
     const [retry, setRetry] = useState(0);
     const [ready, setReady] = useState(false);
     const [error, setError] = useState('');
@@ -55,10 +58,14 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
     const dialog = useRef<HTMLDivElement>(null);
     const stickerUpload = useRef<HTMLInputElement>(null);
     const video = useRef<HTMLVideoElement>(null);
+    const view = useRef<HTMLDivElement>(null);
     const canvas = useRef<HTMLCanvasElement>(null);
+    const composite = useRef<HTMLCanvasElement | null>(null);
     const stream = useRef<MediaStream | null>(null);
     const nextId = useRef(0);
     const drag = useRef<{ id: number; dx: number; dy: number } | null>(null);
+    const dragFrame = useRef<number | null>(null);
+    const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
     const alive = useRef(true);
     const filterPreviews = useMemo(() => {
         if (!photo) return [];
@@ -72,8 +79,43 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
     const stop = () => { stream.current?.getTracks().forEach(t => t.stop()); stream.current = null; };
 
     useEffect(() => {
+        const update = () => setPortrait(cameraIsPortrait());
+        window.addEventListener('resize', update);
+        window.addEventListener('orientationchange', update);
+        screen.orientation?.addEventListener('change', update);
+        return () => {
+            window.removeEventListener('resize', update);
+            window.removeEventListener('orientationchange', update);
+            screen.orientation?.removeEventListener('change', update);
+        };
+    }, []);
+
+    useEffect(() => {
+        const element = view.current;
+        if (!element || mode !== 'camera' || photo) return;
+        const resize = () => {
+            const aspect = portrait ? 3 / 4 : 4 / 3;
+            const width = Math.min(element.clientWidth, element.clientHeight * aspect);
+            setViewfinder({ width, height: width / aspect });
+        };
+        resize();
+        const observer = new ResizeObserver(resize);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [mode, photo, portrait]);
+
+    useEffect(() => {
         lightCache.current.clear();
+        composite.current = null;
+        drag.current = null;
+        pendingDrag.current = null;
+        if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+        dragFrame.current = null;
     }, [photo]);
+
+    useEffect(() => () => {
+        if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+    }, []);
 
     useEffect(() => {
         alive.current = true;
@@ -89,7 +131,10 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
         const start = async () => {
             try {
                 if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前环境无法使用站内相机，请使用 HTTPS 浏览器打开。');
-                const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 } } });
+                const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+                    facingMode: { ideal: facing }, aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
+                    width: { ideal: portrait ? 1440 : 1920 }, height: { ideal: portrait ? 1920 : 1440 },
+                } });
                 if (cancelled) { media.getTracks().forEach(t => t.stop()); return; }
                 stream.current = media;
                 media.getVideoTracks().forEach(t => t.addEventListener('ended', () => {
@@ -112,19 +157,25 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
         };
         document.addEventListener('visibilitychange', hide);
         return () => { cancelled = true; stop(); document.removeEventListener('visibilitychange', hide); };
-    }, [mode, facing, retry, photo]);
+    }, [mode, facing, retry, photo, portrait]);
 
     useEffect(() => {
         const display = canvas.current;
         if (!photo || !display) return;
-        const output = document.createElement('canvas');
+        const output = composite.current ??= document.createElement('canvas');
         let cancelled = false;
         setRendering(false);
-        output.width = photo.width; output.height = photo.height;
+        // Interactive preview only; pointer release always redraws at original resolution.
+        const scale = drag.current ? Math.min(1, 720 / Math.max(photo.width, photo.height)) : 1;
+        const width = Math.max(1, Math.round(photo.width * scale));
+        const height = Math.max(1, Math.round(photo.height * scale));
+        if (output.width !== width) output.width = width;
+        if (output.height !== height) output.height = height;
         const ctx = output.getContext('2d');
         if (!ctx) return;
         const { width: w, height: h } = output;
-        ctx.drawImage(photo, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(photo, 0, 0, w, h);
         if (compareOriginal) { drawCameraFrame(output, display, 0); return; }
         for (const s of stickers) {
             ctx.save(); ctx.translate(s.x * w, s.y * h); ctx.rotate(s.angle * Math.PI / 180);
@@ -168,18 +219,21 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
 
     const capture = () => {
         const v = video.current;
-        if (!v || !ready || !v.videoWidth) return;
+        if (!v || !ready) return;
+        const layout = cameraCaptureLayout(v.videoWidth, v.videoHeight, portrait);
+        if (!layout) return;
         const image = document.createElement('canvas');
-        const scale = Math.min(1, 1440 / Math.max(v.videoWidth, v.videoHeight));
-        image.width = Math.round(v.videoWidth * scale); image.height = Math.round(v.videoHeight * scale);
+        image.width = layout.width; image.height = layout.height;
         const ctx = image.getContext('2d');
         if (!ctx) { setError('无法处理照片，请重试。'); return; }
         if (facing === 'user') { ctx.translate(image.width, 0); ctx.scale(-1, 1); }
-        ctx.drawImage(v, 0, 0, image.width, image.height);
+        ctx.drawImage(v, layout.x, layout.y, layout.sourceWidth, layout.sourceHeight, 0, 0, image.width, image.height);
         stop(); setPhoto(image); setError('');
     };
     const send = () => {
-        if (!canvas.current || busy || compareOriginal || rendering) return;
+        if (!photo || !canvas.current || busy || compareOriginal || rendering || drag.current) return;
+        const fullSize = cameraFrameLayout(photo.width, photo.height, frame);
+        if (canvas.current.width !== fullSize.width || canvas.current.height !== fullSize.height) return;
         setBusy(true);
         canvas.current.toBlob(blob => {
             if (!alive.current) return;
@@ -224,6 +278,19 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
         finally { URL.revokeObjectURL(url); }
     };
     const updateSticker = (patch: Partial<Sticker>) => setStickers(items => items.map(s => s.id === selected ? { ...s, ...patch } : s));
+    const flushDrag = () => {
+        dragFrame.current = null;
+        const pending = pendingDrag.current;
+        pendingDrag.current = null;
+        if (pending) setStickers(items => items.map(s => s.id === pending.id ? { ...s, x: pending.x, y: pending.y } : s));
+    };
+    const finishDrag = () => {
+        if (!drag.current) return;
+        if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+        flushDrag();
+        drag.current = null;
+        setLightRevision(n => n + 1);
+    };
     const pointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
         const bounds = e.currentTarget.getBoundingClientRect();
         const layout = cameraFrameLayout(photo!.width, photo!.height, frame);
@@ -245,9 +312,9 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
                 <button type="button" onClick={() => { trackCamera('camera'); setMode('camera'); }}><Camera size={28} /><span>拍照</span></button>
                 <button type="button" onClick={openGallery}><ImageSquare size={28} /><span>从相册选择</span></button>
             </div> : <>
-                <div className="chat-camera-view">
+                <div className="chat-camera-view" ref={view}>
                     {photo ? <canvas ref={canvas} aria-label="照片预览" onPointerDown={e => {
-                        if (compareOriginal || rendering) return;
+                        if (compareOriginal || rendering || drag.current) return;
                         const p = pointer(e), w = photo.width, h = photo.height;
                         const hit = [...stickers].reverse().find(s => {
                             const angle = -s.angle * Math.PI / 180, dx = (p.x - s.x) * w, dy = (p.y - s.y) * h;
@@ -260,9 +327,13 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
                         const moving = drag.current;
                         if (!moving) return;
                         const p = pointer(e);
-                        setStickers(items => items.map(s => s.id === moving.id ? { ...s, x: clamp(p.x - moving.dx), y: clamp(p.y - moving.dy) } : s));
-                    }} onPointerUp={() => { drag.current = null; setLightRevision(n => n + 1); }} onPointerCancel={() => { drag.current = null; setLightRevision(n => n + 1); }} />
-                        : <video ref={video} autoPlay muted playsInline onLoadedData={() => { if (stream.current?.active) setReady(true); }} style={{ transform: facing === 'user' ? 'scaleX(-1)' : undefined }} />}
+                        pendingDrag.current = { id: moving.id, x: clamp(p.x - moving.dx), y: clamp(p.y - moving.dy) };
+                        if (dragFrame.current === null) dragFrame.current = requestAnimationFrame(flushDrag);
+                    }} onPointerUp={finishDrag} onPointerCancel={finishDrag} onLostPointerCapture={finishDrag} />
+                        : <video ref={video} autoPlay muted playsInline onLoadedData={() => { if (stream.current?.active) setReady(true); }} style={{
+                            width: viewfinder.width, height: viewfinder.height, objectFit: 'cover', objectPosition: 'center',
+                            transform: facing === 'user' ? 'scaleX(-1)' : undefined,
+                        }} />}
                     {!photo && !ready && !error && <p className="chat-camera-status" role="status">正在打开相机…</p>}
                 </div>
                 {error && <div className="chat-camera-error" role="alert">{error}{photo ? <button type="button" onClick={() => setError('')}>知道了</button> : <><button type="button" onClick={() => setRetry(n => n + 1)}>重试</button><button type="button" onClick={openGallery}>从相册选择</button></>}</div>}
