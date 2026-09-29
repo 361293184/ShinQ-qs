@@ -8,7 +8,7 @@ import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot, Anniversary } from '../types';
 import { processImage, processImageToBlob } from '../utils/file';
-import { useBlobRefUrl } from '../utils/blobRef';
+import { putImageBlob, useBlobRefUrl } from '../utils/blobRef';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
@@ -2690,8 +2690,11 @@ const Chat: React.FC = () => {
 
     const handleBgUpload = async (file: File) => {
         try {
-            const dataUrl = await processImage(file, { skipCompression: true });
-            updateCharacter(char.id, { chatBackground: dataUrl });
+            // 存 Blob：原画质不重绘，二进制进 blob_assets，角色行上只留一个 blobref 令牌
+            // （不再把整张图变成 base64 常驻在角色数据里，免得同步/备份都拖着几 MB 走）。
+            const blob = await processImageToBlob(file, { skipCompression: true });
+            const ref = await putImageBlob(blob);
+            updateCharacter(char.id, { chatBackground: ref });
             addToast('聊天背景已更新', 'success');
         } catch(err: any) {
             addToast(err.message, 'error');
@@ -4063,9 +4066,12 @@ const Chat: React.FC = () => {
               : chatChromeStyle === 'floating'
                 ? 'flex flex-col h-full bg-[#eef2ff] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
                 : 'flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
+    // 拼进 CSS 必须用解析后的地址：角色字段里存的可能只是 blobref 令牌，
+    // 拿原值直接拼会得到无效地址（背景空白）。判断条件仍用角色字段本身，
+    // 保持「角色设了背景才覆盖」的既有语义不变。
     const chatRootStyle: React.CSSProperties = char.chatBackground
         ? {
-            backgroundImage: `url(${char.chatBackground})`,
+            backgroundImage: `url("${resolvedChatBackground}")`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
         }
