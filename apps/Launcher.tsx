@@ -7,7 +7,7 @@ import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
 import { processImage } from '../utils/file';
-import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
+import { isChatPreviewMessage, chatPreviewText } from '../utils/chatMessageVisibility';
 import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
 import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
@@ -566,12 +566,12 @@ let _lastPageIndex = 0;
 
 // --- Main Launcher ---
 
-const Launcher: React.FC = () => {
+const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false }) => {
   const { openApp, characters, activeCharacterId, theme, updateTheme, updateCharacter, lastMsgTimestamp, isDataLoaded, unreadMessages } = useOS();
 
   // Local state for widget data to prevent context trashing
-  const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
-  const [lastMessage, setLastMessage] = useState<string>('');
+  const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(staticPreview ? characters[0] || null : null);
+  const [lastMessage, setLastMessage] = useState<string>(staticPreview ? '今天也有想和你分享的小事。' : '');
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([]);
   const [scheduleData, setScheduleData] = useState<DailySchedule | null>(null);
   const [scheduleCharId, setScheduleCharId] = useState<string | null>(null);
@@ -614,7 +614,7 @@ const Launcher: React.FC = () => {
   // 跟随 DevDebug 可用性：prod 用户在设置页连点 5 下解锁后，CharCreatorDev 立刻出现；
   // 点「关闭」/ 刷新（prod 自动失效）也立刻消失。useMemo deps 没列 devDebugVisible
   // 会让它锁在 mount 时的初值。
-  const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
+  const [devDebugVisible, setDevDebugVisible] = useState(() => !staticPreview && isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
   const availableGridApps = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
@@ -721,8 +721,7 @@ const Launcher: React.FC = () => {
               if (cancelled) return;
               const last = recent.messages[0];
               if (last) {
-                  const cleanContent = last.content.replace(/\[.*?\]/g, '').trim();
-                  setLastMessage(cleanContent || (last.type === 'image' ? '[图片]' : '[消息]'));
+                  setLastMessage(chatPreviewText(last));
               } else {
                   setLastMessage(targetChar.description || "System Ready.");
               }

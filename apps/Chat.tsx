@@ -1,3 +1,4 @@
+import {resolvePsycheAppearance} from '../utils/psycheAppearance';
 import { startsNewMessageGroup } from '../utils/chatMessageGrouping';
 import EmojiExportDialog from '../components/chat/EmojiExportDialog';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
@@ -78,8 +79,8 @@ import { resolveChatTheme } from '../utils/groupChat/theme';
 import ChatHeader from '../components/chat/ChatHeaderShell';
 import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
 import {resolveDecorationTheme} from '../utils/chatDecoration';
-import ChatDecorationAnnouncement from '../components/chat/ChatDecorationAnnouncement';
-import ChatDecorationPanel, {DecorationTab} from '../components/chat/ChatDecorationPanel';
+import {DecorationTab} from '../components/chat/ChatDecorationPanel';
+import ChatAppearanceWardrobe from '../components/chat/ChatAppearanceWardrobe';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
@@ -90,6 +91,8 @@ import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal'
 import type { ChatCleanupPlan } from '../utils/chatHistoryCleanup';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
+import MemoryContextSelfCheck from '../components/chat/MemoryContextSelfCheck';
+import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
@@ -272,7 +275,7 @@ const Chat: React.FC = () => {
     // Reply Logic
     const [replyTarget, setReplyTarget] = useState<Message | null>(null);
 
-    const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
+    const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'archive-legacy-warning' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
     // 「聊天装扮」悬浮态：不走全屏 modal——圆气泡挂在聊天上，点开小面板边看真聊天边调。
     const [decorationTab, setDecorationTab] = useState<DecorationTab>('layout');
     // 自研：聊天装扮悬浮气泡（与上游 decorationTab 面板并存，各自独立）
@@ -1696,9 +1699,9 @@ const Chat: React.FC = () => {
             case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
-            case 'archive': setModalType('archive-settings'); break;
+            case 'archive': setModalType(char?.memoryPalaceEnabled ? 'archive-legacy-warning' : 'archive-settings'); break;
             case 'settings': setModalType('chat-settings'); break;
-            case 'chrome-css': setShowPanel('none'); setDecorationTab('layout'); setModalType('chrome-css'); break;
+            case 'chrome-css': setShowPanel('none'); setDecorationTab('library'); setModalType('chrome-css'); break;
             case 'chrome-sound': setShowPanel('none'); setDecorationTab('sound'); setModalType('chrome-css'); break;
             case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
             case 'location': setShowPanel('none'); setShowLocationPicker(true); break;
@@ -3747,6 +3750,181 @@ const Chat: React.FC = () => {
         await reloadMessages(visibleCountRef.current);
     }, [innerVoiceMsg, char, reloadMessages]);
 
+    // ── 协同工作 → 聊天转发（上游新增：独立 sidecar 只有用户点「发送给 ChatApp」时才走这个窄桥）──
+    const handleCollaborationPreviewHandled = useCallback(() => {
+        setCollaborationPreviewAssetId(null);
+    }, []);
+
+    const handleCollaborationTransfer = useCallback(async (
+        sessionTitle: string,
+        transferredMessages: CollaborationTransferMessage[],
+    ) => {
+        if (!char || transferredMessages.length === 0) return;
+        const preview = transferredMessages.slice(0, 4).map(message => {
+            const sender = message.role === 'user' ? userProfile.name : char.name;
+            return `${sender}: ${message.content.replace(/\s+/g, ' ').slice(0, 36)}`;
+        });
+        if (transferredMessages.length > 4) preview.push(`… 共 ${transferredMessages.length} 条消息`);
+        const forwardData = {
+            fromUserName: userProfile.name,
+            fromCharName: `${char.name} · 协同工作`,
+            count: transferredMessages.length,
+            preview,
+            messages: transferredMessages,
+            collaborationTitle: sessionTitle,
+        };
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'chat_forward' as MessageType,
+            content: JSON.stringify(forwardData),
+            metadata: {
+                source: 'collaboration_transfer',
+                collaborationTitle: sessionTitle,
+            },
+        });
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        await reloadMessages(visibleCountRef.current);
+    }, [char, userProfile, groups, realtimeConfig, reloadMessages]);
+
+    const handleCollaborationNotify = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        addToast(message, type);
+    }, [addToast]);
+
+    const handleCollaborationArchiveToMemory = useCallback(async (
+        summary: string,
+        occurredAt: number,
+        sourceId: string,
+    ): Promise<string> => {
+        if (!char) throw new Error('当前角色不存在');
+        const occurred = new Date(occurredAt);
+        const date = `${occurred.getFullYear()}-${String(occurred.getMonth() + 1).padStart(2, '0')}-${String(occurred.getDate()).padStart(2, '0')}`;
+        const fragmentId = `collab_archive_${sourceId}`;
+
+        if (char.memoryPalaceEnabled) {
+            const embedding = memoryPalaceConfig.embedding;
+            const lightLLM = memoryPalaceConfig.lightLLM;
+            if (!embedding?.baseUrl || !embedding?.apiKey || !embedding?.model || !lightLLM?.baseUrl || !lightLLM?.model) {
+                throw new Error('角色已开启记忆宫殿，但宫殿的向量 API 或副 LLM 还没有配置完整');
+            }
+            const { importExternalMemoryText, mergePalaceFragmentsIntoMemories } = await import('../utils/memoryPalace/pipeline');
+            const imported = await importExternalMemoryText(
+                summary,
+                char.id,
+                char.name,
+                embedding,
+                lightLLM,
+                userProfile.name,
+            );
+            if (imported.error && imported.error !== 'no_memories') {
+                throw new Error(`记忆宫殿没有存好：${imported.error}`);
+            }
+            if (imported.stored === 0 && imported.skipped === 0) {
+                throw new Error('记忆宫殿没有提取出可保存的经历');
+            }
+            const palaceFragment: { id: string; date: string; summary: string; mood: string } = {
+                id: fragmentId,
+                date,
+                summary: `- ${summary}`,
+                mood: 'palace',
+            };
+            await updateCharacter(char.id, current => ({
+                memories: (current.memories || []).some(memory => memory.id === fragmentId)
+                    ? current.memories
+                    : mergePalaceFragmentsIntoMemories(current.memories || [], [palaceFragment]),
+            }));
+            return `已把这次协作的一条总结同时存入 ${char.name} 的记忆宫殿和神经链接`;
+        }
+
+        const archiveFragment: MemoryFragment = {
+            id: fragmentId,
+            date,
+            summary,
+            mood: 'collaboration',
+        };
+        await updateCharacter(char.id, current => ({
+            memories: (current.memories || []).some(memory => memory.id === fragmentId)
+                ? current.memories
+                : [...(current.memories || []), archiveFragment],
+        }));
+        return `已把这次协作的一条总结存入 ${char.name} 的神经链接`;
+    }, [char, memoryPalaceConfig.embedding, memoryPalaceConfig.lightLLM, updateCharacter, userProfile.name]);
+
+    const handleCollaborationInstall = useCallback(async (
+        artifact: CollaborationInstallableArtifact,
+        targetCharacterId?: string,
+    ): Promise<string> => {
+        const errors = validateInstallableArtifact(artifact);
+        if (errors.length > 0) throw new Error(errors[0]);
+
+        if (artifact.kind === 'bubble-theme') {
+            const nextTheme = installableToChatTheme(artifact);
+            await addCustomTheme(nextTheme);
+            if (targetCharacterId) await updateCharacter(targetCharacterId, { bubbleStyle: nextTheme.id });
+            const target = characters.find(item => item.id === targetCharacterId);
+            return target ? `气泡主题已保存，并给 ${target.name} 穿上` : '气泡主题已保存到聊天装扮的气泡分类';
+        }
+
+        if (artifact.kind === 'whitebox-css') {
+            const css = String(artifact.payload.css || '');
+            const stored = await DB.getAssetRaw('chrome_css_presets').catch(() => null);
+            const presets = Array.isArray(stored) ? stored.filter(item => item && typeof item === 'object') : [];
+            const nextPreset = { name: artifact.title.slice(0, 50), code: css, swatch: '#e2e8f0' };
+            await DB.saveAssetRaw('chrome_css_presets', [nextPreset, ...presets.filter((item: any) => item.name !== nextPreset.name)].slice(0, 60));
+            if (targetCharacterId) await updateCharacter(targetCharacterId, { chromeCustomCss: css });
+            const target = characters.find(item => item.id === targetCharacterId);
+            return target ? `白框已存入预设，并应用给 ${target.name}` : '白框已保存到预设';
+        }
+
+        if (artifact.kind === 'journal-css') {
+            await updateTheme({ journalAppearance: { preset: 'original', customCss: String(artifact.payload.css || '') } });
+            return '交换日记美化已保存并启用';
+        }
+
+        if (artifact.kind === 'schedule-css') {
+            await updateTheme({
+                scheduleCardAppearance: {
+                    ...(osTheme.scheduleCardAppearance || {}),
+                    customCss: String(artifact.payload.css || ''),
+                },
+            });
+            return '日程卡美化已保存并启用';
+        }
+
+        if (artifact.kind === 'psyche-css') {
+            if (!targetCharacterId) throw new Error('请选择使用心象卡美化的角色');
+            await updateCharacter(targetCharacterId, { thinkingChainCustomCss: String(artifact.payload.css || '') });
+            const target = characters.find(item => item.id === targetCharacterId);
+            return `心象卡美化已应用给 ${target?.name || '所选角色'}`;
+        }
+
+        if (artifact.kind === 'appearance-preset') {
+            const patch = installableToThemePatch(artifact);
+            const presetTheme = { ...osTheme, ...patch };
+            await saveAppearancePreset(artifact.title.slice(0, 50), presetTheme);
+            await updateTheme(patch);
+            return '整套界面已存入外观预设并启用';
+        }
+
+        if (artifact.kind === 'character-card') {
+            const created = await addCharacter();
+            await updateCharacter(created.id, installableToCharacterPatch(artifact));
+            return `角色「${String(artifact.payload.name || artifact.title)}」已创建`;
+        }
+
+        const books = installableToWorldbooks(artifact);
+        for (const book of books) await addWorldbook(book);
+        if (targetCharacterId) {
+            await updateCharacter(targetCharacterId, current => ({
+                mountedWorldbooks: upsertMountedWorldbooks(current.mountedWorldbooks || [], books),
+            }));
+        }
+        const target = characters.find(item => item.id === targetCharacterId);
+        return target
+            ? `世界书「${String(artifact.payload.category || artifact.title)}」的 ${books.length} 条内容已保存并挂载给 ${target.name}`
+            : `世界书已保存到世界书库，共 ${books.length} 条`;
+    }, [addCharacter, addCustomTheme, addWorldbook, characters, osTheme, saveAppearancePreset, updateCharacter, updateTheme]);
+
     // hideBeforeMessageId 不在视觉层过滤：用户依旧能往上翻到旧消息，只是 LLM 拉不到。
     // 真正想从聊天记录里抹掉，应该走"删除"。
     // windowed 模式：定位到旧消息时只渲染目标周围 51 条，避免 DOM 卡爆。
@@ -3818,10 +3996,9 @@ const Chat: React.FC = () => {
 
     // 稳定的思维链配置对象：只在角色/样式变化时重建，避免每次渲染新建对象击穿 MessageItem.memo。
     const thinkingChainOptions = useMemo(() => ({
-        styleId: (char as any)?.thinkingChainStyle || 'echo',
-        customColors: (char as any)?.thinkingChainCustomColors,
+        ...resolvePsycheAppearance(osTheme, char),
         onOpenSettings: () => setShowThinkingChainModal(true),
-    }), [(char as any)?.thinkingChainStyle, (char as any)?.thinkingChainCustomColors]);
+    }), [char?.thinkingChainStyle, char?.thinkingChainCustomColors, osTheme.chatPsyche]);
 
     // 工具痕迹那行灰字要贴着气泡走，所以把气泡自带的组间距（MessageItem 里那组
     // mb-3 / mb-6 / mb-8）抵掉大半。组内的气泡本来就挨着，不用抵。
@@ -3866,7 +4043,6 @@ const Chat: React.FC = () => {
     if (!char) {
         return (
             <div className="flex flex-col items-center justify-center h-full bg-[#f1f5f9] text-center px-8 gap-3">
-                <ChatDecorationAnnouncement surface="chat"/>
                 <div className="text-4xl">💤</div>
                 <div className="text-slate-600 text-sm font-medium">暂时没有可用的角色</div>
                 <div className="text-slate-400 text-xs leading-relaxed">数据可能未加载完成。请退回桌面后重新进入；若仍为空，重启应用即可恢复。</div>
@@ -3952,19 +4128,27 @@ const Chat: React.FC = () => {
             className={`sully-chat-root ${finalRootClass}`}
             style={finalRootStyle}
         >
-             <ChatDecorationAnnouncement surface="chat"/>
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
              {chatFineTuneCss && <style>{chatFineTuneCss}</style>}
              {char.chatAppearance?.chatEmojiSize && char.chatFineTune?.enabled !== false && <style>{`.sully-chat-root { --sully-emoji-size: ${{small:96,medium:128,large:160}[osTheme.chatEmojiSize || 'small']}px; }`}</style>}
              {/* 白框自定义 CSS：全局默认在前、角色专属在后（后者叠加覆盖）。作用于 .sully-chat-* 各零件。
                  守护样式统一放在气泡主题 customCss 之后（见下），保证对所有用户 CSS 都能兜底。 */}
+             {/* 心象卡片自定义 CSS（per-character）：作用于 .sully-psyche-* 各零件，编辑入口在个性装扮 / 聊天装扮的心象分栏 */}
+             {resolvePsycheAppearance(osTheme, char).customCss && <style>{resolvePsycheAppearance(osTheme, char).customCss}</style>}
              {osTheme.chatChromeCustomCss && <style>{osTheme.chatChromeCustomCss}</style>}
              {char.chromeCustomCss && <style>{char.chromeCustomCss}</style>}
-             {/* 角色「登场」过场：切换/进入时以 ta 的头像氛围铺底登场，再推进穿过进入聊天。key 切换即重放。 */}
+{scheduleChangeNotice && (
+  <ScheduleChangeNotice
+    key={scheduleChangeNotice.eventId}
+    detail={scheduleChangeNotice}
+    onDone={dismissScheduleChangeNotice}
+  />
+)}
+{/* 角色「登场」过场：切换/进入时以 ta 的头像氛围铺底登场，再推进穿过进入聊天。key 切换即重放；同层弹窗必须使用不同前缀，避免残留过场遮罩。 */}
              {showEntry && char && (
                <CharacterEntryTransition
-                 key={activeCharacterId}
+                 key={`character-entry:${activeCharacterId}`}
                  name={char.name}
                  avatar={char.avatar}
                  onDone={() => setShowEntry(false)}
@@ -3973,8 +4157,6 @@ const Chat: React.FC = () => {
 
              {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
 
-             {/* 心象卡片自定义 CSS（per-character）：作用于 .sully-psyche-* 各零件，编辑入口在心象设置弹窗 */}
-             {(char as any).thinkingChainCustomCss && <style>{(char as any).thinkingChainCustomCss}</style>}
 
              {/* 守护样式（注在所有用户 CSS —— 白框全局/角色、气泡主题 customCss、心象卡片 CSS —— 之后）：
                  保证返回键和输入栏永远可见可点。坏 CSS（常随备份/分享导入）把它们隐藏/变透明/
@@ -4155,7 +4337,7 @@ const Chat: React.FC = () => {
                  </div>
              )}
 
-             {showHistoryCleanup && <ChatHistoryCleanupModal key={char.id} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
+             {showHistoryCleanup && <ChatHistoryCleanupModal key={`history-cleanup:${char.id}`} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
              {emojiExport && <EmojiExportDialog {...emojiExport} onClose={() => setEmojiExport(null)} />}
             <ChatModals
                 modalType={modalType} setModalType={setModalType}
@@ -5265,8 +5447,8 @@ const Chat: React.FC = () => {
                     </div>
                 );
             })()}
-            {char && modalType === 'chrome-css' && <ChatDecorationPanel
-                key={char.id}
+            {char && modalType === 'chrome-css' && <ChatAppearanceWardrobe
+                key={`appearance-wardrobe:${char.id}`}
                 character={char} theme={baseOsTheme} onSaveBubble={addCustomTheme} themes={[...Object.values(PRESET_THEMES), ...customThemes]}
                 initialTab={decorationTab} updateCharacter={patch=>updateCharacter(char.id,patch)}
                 updateTheme={updateTheme} onBgUpload={handleBgUpload} backgroundUrl={resolvedChatBackground}
@@ -5334,6 +5516,10 @@ const Chat: React.FC = () => {
 
 
             {/* Forward Modal */}
+            {char && <MemoryContextSelfCheck key={`memory-self-check:${char.id}`} character={char} active={activeApp === AppID.Chat && modalType === 'none'} onDisable={months => {
+                const closing = new Set(months);
+                updateCharacter(char.id, current => ({ activeMemoryMonths: (current.activeMemoryMonths || []).filter(month => !closing.has(month)) }));
+            }} />}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>
                 {(() => {
                     const forwardCandidates = characters.filter(c => c.id !== activeCharacterId);

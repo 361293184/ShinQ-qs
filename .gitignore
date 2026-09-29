@@ -87,3 +87,8 @@ xiaohongshu-skills/
 
 # Isolated build output used to syntax-check CSS during development.
 /dist-csscheck/
+# Local Worker checks and generated artwork previews.
+/worker/beauty-share/output/
+/art/acid-orbit/preview.bundle.js
+/art/acid-orbit/preview.bundle.css
+/public/instant-worker.bundle.js

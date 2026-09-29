@@ -24,6 +24,7 @@ import { fetchBlobForShare, shareOrDownloadBlob } from '../../utils/shareExport'
 import { getPaperTheme } from '../../utils/letter/paperThemes';
 import LetterEnvelope from '../letter/LetterEnvelope';
 import LetterReplyView from '../letter/LetterReplyView';
+import ChatImage from './ChatImage';
 import { SARSpeechSwitch } from '../sar/SARSpeechSwitch';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
@@ -33,7 +34,11 @@ import LocationMapThumb from './LocationMapThumb';
 import GameReplayCard from '../games/GameReplayCard';
 import QixiEventCardView from './QixiEventCard';
 import TokenImg from '../os/TokenImg';
-import { ThinkingChainStyleId, resolveThinkingChainStyle, PsycheDecor } from './thinkingChainStyle';
+
+import {SERIF, resolveThinkingChainStyle, type ThinkingChainStyleId, type ThinkingChainStyleSpec} from '../../utils/psycheAppearance';
+export {THINKING_CHAIN_PRESETS,resolveThinkingChainStyle} from '../../utils/psycheAppearance';
+export type {ThinkingChainStyleId,ThinkingChainStyleSpec} from '../../utils/psycheAppearance';
+import {ChatCardSurface} from './ChatCardSurface';
 
 // 渲染层剥离"发照片触发段"：角色文本里 `图片- 描述`/`图片：描述` 这类动作段只用于触发生图，
 // 不显示给用户（生图触发读的是消息原始 content，不受此处影响）。仅剥离发照片动作，不影响正常文字与 HTML 卡片。
@@ -49,14 +54,117 @@ function stripImageGenMarkers(text: string): string {
         // 清理剥离后残留的行尾波浪号
         .replace(/\s*[~～]+[ \t]*$/gm, '');
 }
+// 心象卡片的「破格」装饰：溢出卡片边框的风格化元素。
+// 必须渲染在卡片（overflow-hidden）的兄弟层、且父容器 relative + 不裁剪，才能真的探出边框。
+// 被 ThinkingChainBlock 与设置弹窗的 StylePreview 共用；compact 用于迷你预览缩小尺寸。
+export const PsycheDecor: React.FC<{ spec: ThinkingChainStyleSpec; compact?: boolean }> = ({ spec, compact }) => {
+    switch (spec.decoKind) {
+        case 'inkSeal': // 右下角压出边框的朱文印
+            return (
+                <span
+                    aria-hidden
+                    className="absolute z-10 pointer-events-none flex items-center justify-center font-bold"
+                    style={{
+                        bottom: compact ? -4 : -7,
+                        right: compact ? -2 : -4,
+                        width: compact ? 15 : 23,
+                        height: compact ? 15 : 23,
+                        background: '#b3382c',
+                        color: '#f7ede0',
+                        fontSize: compact ? 8 : 12,
+                        fontFamily: SERIF,
+                        borderRadius: 3,
+                        transform: 'rotate(9deg)',
+                        boxShadow: '0 1px 3px rgba(80, 20, 10, 0.4)',
+                        opacity: 0.92,
+                    }}
+                >心</span>
+            );
+        case 'neonGlitch': // 探出四角的霓虹括角（青 × 品红错位残影）
+            return (
+                <>
+                    <span aria-hidden className={`absolute z-10 pointer-events-none border-t-2 border-l-2 ${compact ? '-top-0.5 -left-0.5 w-2 h-2' : '-top-1 -left-1 w-3 h-3'}`} style={{ borderColor: spec.accent, filter: `drop-shadow(0 0 3px ${spec.accent})` }} />
+                    <span aria-hidden className={`absolute z-10 pointer-events-none border-b-2 border-r-2 ${compact ? '-bottom-0.5 -right-0.5 w-2 h-2' : '-bottom-1 -right-1 w-3 h-3'}`} style={{ borderColor: '#f0abfc', filter: 'drop-shadow(0 0 3px #f0abfc)' }} />
+                </>
+            );
+        case 'termHud': // 顶出上边框的窗口红绿灯
+            return (
+                <span aria-hidden className="absolute z-10 pointer-events-none flex gap-1" style={{ top: compact ? -2 : -3, right: compact ? 8 : 12 }}>
+                    {['#ff5f56', '#ffbd2e', '#27c93f'].map(c => (
+                        <span key={c} className="rounded-full" style={{ width: compact ? 4 : 6, height: compact ? 4 : 6, background: c, boxShadow: `0 0 4px ${c}88` }} />
+                    ))}
+                </span>
+            );
+        case 'starScatter': // 缀在边框内外的星子
+            return (
+                <>
+                    <span aria-hidden className="absolute z-10 pointer-events-none animate-pulse" style={{ top: compact ? -5 : -8, right: compact ? 10 : 16, color: spec.accent, fontSize: compact ? 8 : 12, textShadow: spec.glow ? `0 0 6px ${spec.glow}` : undefined }}>✦</span>
+                    <span aria-hidden className="absolute z-10 pointer-events-none" style={{ top: compact ? 6 : 10, right: compact ? -4 : -6, color: spec.accent, fontSize: compact ? 6 : 8, opacity: 0.75 }}>✧</span>
+                    <span aria-hidden className="absolute z-10 pointer-events-none animate-pulse" style={{ bottom: compact ? -3 : -5, left: compact ? 12 : 20, color: spec.accent, fontSize: compact ? 5 : 7, opacity: 0.6, animationDelay: '0.8s' }}>✦</span>
+                </>
+            );
+        case 'tamaShell': // 底边探出的机壳三按钮（电子宠物机的 A/B/C 键）
+            return (
+                <span aria-hidden className="absolute z-10 pointer-events-none flex" style={{ bottom: compact ? -5 : -8, left: '50%', transform: 'translateX(-50%)', gap: compact ? 5 : 8 }}>
+                    {[0, 1, 2].map(i => (
+                        <span
+                            key={i}
+                            className="rounded-full"
+                            style={{
+                                width: compact ? 5 : 8,
+                                height: compact ? 5 : 8,
+                                background: 'radial-gradient(circle at 35% 30%, #fbc9dd, #ee8fb6)',
+                                boxShadow: '0 1px 2px rgba(150, 80, 110, 0.45), inset 0 0.5px 1px rgba(255,255,255,0.7)',
+                            }}
+                        />
+                    ))}
+                </span>
+            );
+        case 'pixelArrow': // JRPG「还有下文」的闪烁小三角，压在右下边框上
+            return (
+                <span
+                    aria-hidden
+                    className="absolute z-10 pointer-events-none animate-pulse"
+                    style={{
+                        bottom: compact ? -4 : -7,
+                        right: compact ? 8 : 14,
+                        color: spec.accent,
+                        fontSize: compact ? 8 : 12,
+                        textShadow: '1px 1px 0 rgba(0,0,0,0.5)',
+                    }}
+                >▼</span>
+            );
+        case 'insHeart': // 右上角一颗小红心，feed 点赞感
+            return (
+                <span
+                    aria-hidden
+                    className="absolute z-10 pointer-events-none"
+                    style={{
+                        top: compact ? -5 : -7,
+                        right: compact ? 8 : 14,
+                        color: spec.accent,
+                        fontSize: compact ? 9 : 13,
+                        transform: 'rotate(10deg)',
+                        filter: 'drop-shadow(0 1px 2px rgba(225, 48, 108, 0.35))',
+                    }}
+                >♥</span>
+            );
+        default:
+            return null;
+    }
+};
 
+// 思考链卡片：可视化 metadata.thinkingChain。
+// 内容来源：useChatAI 抽取的 LLM reasoning_content + <think>/<thinking>/<thought>。
+// 多风格通过 resolveThinkingChainStyle() 统一渲染；齿轮触发 onOpenSettings 进入设置弹窗。
 export const ThinkingChainBlock: React.FC<{
     chain: string;
+    initiallyExpanded?: boolean;
     styleId?: ThinkingChainStyleId;
     customColors?: { bg?: string; accent?: string; text?: string };
     onOpenSettings?: () => void;
-}> = ({ chain, styleId, customColors, onOpenSettings }) => {
-    const [expanded, setExpanded] = useState(false);
+}> = ({ chain, styleId, customColors, onOpenSettings, initiallyExpanded=false }) => {
+    const [expanded, setExpanded] = useState(initiallyExpanded);
     const [copyState, setCopyState] = useState<'idle' | 'ready' | 'ok' | 'error'>('idle');
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -295,7 +403,7 @@ export const ThinkingChainBlock: React.FC<{
                         <span aria-hidden className="text-[7px] mx-0.5" style={{ color: spec.border }}>◆</span>
                     )}
                     <span
-                        className="ml-auto text-[10px] tracking-[0.18em] transition-opacity opacity-65 group-hover:opacity-100"
+                        className="sully-psyche-status ml-auto text-[10px] tracking-[0.18em] transition-opacity opacity-65 group-hover:opacity-100"
                         style={{ color: spec.subtext }}
                     >
                         {copyStatusLabel}
@@ -626,14 +734,15 @@ const LifeRecordCard: React.FC<{
 };
 
 const TransferCard: React.FC<{
+    initiallyOpen?: boolean;
     m: Message;
     isUser: boolean;
     charName: string;
     commonLayout: (content: React.ReactNode) => JSX.Element;
     selectionMode: boolean;
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
-}> = ({ m, isUser, charName, commonLayout, selectionMode, onResolveTransfer }) => {
-    const [open, setOpen] = useState(false);
+}> = ({ m, isUser, charName, commonLayout, selectionMode, onResolveTransfer, initiallyOpen=false }) => {
+    const [open, setOpen] = useState(initiallyOpen);
     const meta = m.metadata || {};
     const amount = meta.amount;
     const note: string | undefined = meta.note;
@@ -1097,6 +1206,9 @@ const LifeSimResetCardView: React.FC<{ card: any }> = ({ card }) => {
 };
 
 interface MessageItemProps {
+    /** Static decoration fixtures only; never enables playback or message actions. */
+    previewExpanded?: boolean;
+    previewTransferOpen?: boolean;
     msg: Message;
     isFirstInGroup: boolean;
     isLastInGroup: boolean;
@@ -1169,6 +1281,8 @@ interface MessageItemProps {
 
 const MessageItem = React.memo(({
     msg: m,
+    previewExpanded = false,
+    previewTransferOpen = false,
     isFirstInGroup,
     isLastInGroup,
     activeTheme,
@@ -1238,7 +1352,10 @@ const MessageItem = React.memo(({
     // 直接塞给 <img src> 会报 ERR_UNKNOWN_URL_SCHEME（与 Chat 顶栏 TokenImg 同一套解析）。
     const resolvedCharAvatar = useBlobRefUrl(charAvatar);
     const resolvedUserAvatar = useBlobRefUrl(userAvatar);
-    const [showVoiceText, setShowVoiceText] = useState(false);
+    // 气泡底纹画在 CSS background-image 上，拿不到 <img> 那层的自动解析，只能在顶层
+    // 无条件解析一次（hook 不能进条件分支）。挂件/头像挂件走 TokenImg，各自组件内解析。
+    const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
+    const [showVoiceText, setShowVoiceText] = useState(previewExpanded);
     // 点击聊天气泡里的图片 → 全屏浅色弹层放大查看；null 表示未打开
     const [previewSrc, setPreviewSrc] = useState<string | null>(null);
     const [previewDownloading, setPreviewDownloading] = useState(false);
@@ -1679,6 +1796,7 @@ const MessageItem = React.memo(({
             <div className={selectionMode ? 'pointer-events-none' : ''}>
                 <ThinkingChainBlock
                     chain={String(m.metadata!.thinkingChain)}
+                    initiallyExpanded={previewExpanded}
                     styleId={thinkingChainOptions?.styleId}
                     customColors={thinkingChainOptions?.customColors}
                     onOpenSettings={thinkingChainOptions?.onOpenSettings}
@@ -1775,7 +1893,7 @@ const MessageItem = React.memo(({
                     >
                     {!centerModules && thinkingChainNode}
                     <div className={selectionMode ? 'pointer-events-none' : ''}>
-                        {content}
+                        {<ChatCardSurface message={m}>{content}</ChatCardSurface>}
                     </div>
                     {isLastInGroup && showTimestamp !== 'never' && (
                         <div className={`absolute top-full ${isUser ? 'right-0' : 'left-0'} mt-0.5 px-1 text-[9px] text-slate-400/80 font-medium whitespace-nowrap pointer-events-none ${showTimestamp === 'hover' ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}`}>{formatTime(m.timestamp)}</div>
@@ -3423,7 +3541,7 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'transfer') {
-        return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
+        return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} initiallyOpen={previewTransferOpen} />;
     }
 
     if (m.type === 'life_card') {
@@ -3618,6 +3736,36 @@ const MessageItem = React.memo(({
                 </span>
                 <span className="block border-t border-slate-100 px-3.5 py-2 text-[9px] font-semibold tracking-[0.12em] text-slate-400">协同工作 · {isInstallable ? '可安装作品' : '原始文件'}</span>
             </button>
+        );
+    }
+
+    // 表情气泡默认尺寸 160→96（吸收社区美化的共识尺寸）。sully-emoji-msg 是给自定义 CSS 用的
+    // 稳定锚点——旧美化代码锚在 .max-w-\[160px\] 类名上，类名一变就失配（恰好无缝退休：
+    // 新默认就是它们想要的 96px）；以后想改尺寸请选择器写 .sully-emoji-msg，不再锚类名。
+    if (m.type === 'emoji') {
+        return commonLayout(
+            m.content ? (
+                <TokenImg value={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
+            ) : (
+                <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
+            )
+        );
+    }
+
+    if (m.type === 'image') {
+        return commonLayout(
+            <div className="relative group">
+                {m.content ? (
+                    <ChatImage
+                        value={m.content}
+                        selectionMode={selectionMode}
+                        eager={isLatestMessage}
+                        onLoad={() => onMediaLoad?.(m.id)}
+                    />
+                ) : (
+                    <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
+                )}
+            </div>
         );
     }
 
@@ -4271,6 +4419,8 @@ const MessageItem = React.memo(({
            prev.messageSpacing === next.messageSpacing &&
            prev.showTimestamp === next.showTimestamp &&
            prev.moduleAlign === next.moduleAlign &&
+           prev.previewExpanded === next.previewExpanded &&
+           prev.previewTransferOpen === next.previewTransferOpen &&
            prev.suppressEntranceAnimation === next.suppressEntranceAnimation &&
            prev.voiceData?.url === next.voiceData?.url &&
            prev.voiceLoading === next.voiceLoading &&
@@ -4279,4 +4429,10 @@ const MessageItem = React.memo(({
            prev.onOpenInnerVoice === next.onOpenInnerVoice;
 });
 
-export default MessageItem;
+// System-authored diary/settlement/call cards bypass the normal bubble layout.
+// They still participate in the same whitebox styling contract.
+export default function ChatMessage(props:MessageItemProps){
+ return props.msg.role==='system'
+  ? <ChatCardSurface message={props.msg}><div className="sully-chat-system"> <MessageItem {...props}/> </div></ChatCardSurface>
+  : props.msg.type==='interaction' ? <div className="sully-chat-interaction"><MessageItem {...props}/></div> : <MessageItem {...props}/>;
+}
