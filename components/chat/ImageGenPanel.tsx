@@ -4,16 +4,10 @@ import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
+// 内置预设仅保留「不使用预设」：动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版 已按需求移除，
+// 风格改由用户自定义（utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
 const STYLE_PRESETS = [
   { id: 'none', label: '不使用预设', prompt: '' },
-  { id: 'anime', label: '动漫', prompt: 'anime style, cel shading, vibrant colors' },
-  { id: 'realistic', label: '写实', prompt: 'photorealistic, hyperdetailed, 8k, cinematic lighting' },
-  { id: 'watercolor', label: '水彩', prompt: 'watercolor painting, soft edges, artistic' },
-  { id: 'oil_painting', label: '油画', prompt: 'oil painting style, thick brushstrokes, classical' },
-  { id: 'sketch', label: '素描', prompt: 'pencil sketch, monochrome, detailed linework' },
-  { id: 'cyberpunk', label: '赛博朋克', prompt: 'cyberpunk, neon lights, futuristic city' },
-  { id: 'fantasy', label: '奇幻', prompt: 'fantasy art, magical atmosphere, ethereal lighting' },
-  { id: 'chibi', label: 'Q版', prompt: 'chibi style, cute, super deformed, adorable' },
 ];
 
 type GenMode = 'char' | 'user' | 'joint';
@@ -176,6 +170,16 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
   // 合并内置 + 自定义风格，用于查找当前选中的 prompt
   const allStyles = useMemo(() => [...STYLE_PRESETS, ...customStyles], [customStyles]);
+
+  // 老用户 localStorage 里可能仍存着已移除的内置预设 id（如 'anime'）。若当前选中的 id
+  // 已不在可选列表里，回退到「不使用预设」，避免下拉显示"未选择"、prompt 预览不渲染，
+  // 且实际不加任何风格却毫无提示。
+  useEffect(() => {
+    if (!allStyles.some(s => s.id === stylePreset)) {
+      setStylePreset('none');
+      try { localStorage.setItem(STYLE_PRESET_KEY, 'none'); } catch {}
+    }
+  }, [allStyles, stylePreset]);
 
   // ---- 构造三种模式的 prompt（健壮版） ----
   const buildPrompt = (m: GenMode): { prompt: string; lockImages: (string | null)[]; caption: string } => {
@@ -593,7 +597,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
                     onClick={() => {
                       const next = customStyles.filter(s => s.id !== cur.id);
                       setCustomStyles(next); saveCustomStyles(next);
-                      if (stylePreset === cur.id) { setStylePreset('anime'); try { localStorage.setItem(STYLE_PRESET_KEY, 'anime'); } catch {} }
+                      if (stylePreset === cur.id) { setStylePreset('none'); try { localStorage.setItem(STYLE_PRESET_KEY, 'none'); } catch {} }
                     }}
                     className="text-[10px] text-slate-400 hover:text-rose-400 font-bold shrink-0"
                     title="删除这个自定义风格"
