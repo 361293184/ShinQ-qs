@@ -4,7 +4,7 @@ import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
-// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」+「浪漫插画」。
+// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」+「浪漫插画」+「清透韩系」。
 // 早期内置预设（动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版）已按需求移除，
 // 其余风格由用户自定义（utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
 const STYLE_PRESETS = [
@@ -28,6 +28,11 @@ const STYLE_PRESETS = [
     id: 'romance_illustration',
     label: '浪漫插画',
     prompt: 'Semi-realistic digital painting in the modern urban romance illustration style. Intentionally restrained warm-neutral palette — ivory, cream, charcoal black — with zero high-chroma accents. Warm diffused ambient light, softened by an atmospheric haze, giving skin a subtle luminous sheen rather than hard specular reflections. Soft edges throughout, no line art, smooth transitions. Shadows are deep but transparent — never muddy or flat. Hair and fabric retain gentle brushwork detail; satin surfaces suggested by thin streak highlights. A soft bloom layer over the entire image, subtle dark vignette. Avoid cel-shading, avoid oversaturated colors, avoid photorealistic skin pores.',
+  },
+  {
+    id: 'korean_idol_clean',
+    label: '清透韩系',
+    prompt: 'K-pop idol-style semi-realistic digital illustration. Ultra-clean finish with a polished, sterile purity. Palette locked strictly in cool grey-blue, silver grey, and cool taupe brown — no third hue enters the frame. High-key front diffused softbox lighting, zero hard shadows on the face. Skin is smooth porcelain with only broad bone-structure hints, no pores, no texture. Hair is the focal craft: each lock has its own light gradient, tips go translucent paper-white, fine gaps between hair clumps create an airy, strand-separated look. No grain, no noise, no filter artifacts. Slightly bumped contrast for a crisp finish. Avoid oversaturation, avoid impasto texture, avoid pore-level realism, avoid blocky shadows.',
   },
 ];
 
