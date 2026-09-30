@@ -173,9 +173,14 @@ export default function FanwaiGeneratePage({ char, userProfile, apiConfig, addTo
             // HTML 番外记录格式/模板类型；文字番外缺省 text（零迁移）
             ...(generatedFormat === 'html' ? { format: 'html' as const, htmlType: generatedHtmlType || 'custom' } : {}),
         };
-        await onCollect(story);
-        setCollected(true);
-        addToast('已收藏到拾光', 'success');
+        try {
+            await onCollect(story);
+            setCollected(true);
+            addToast('已收藏到拾光', 'success');
+        } catch (e) {
+            console.error('[Fanwai] 收藏到拾光失败：', e);
+            addToast('收藏失败，请重试', 'error');
+        }
     };
 
     // 续写：仅纯文字番外。AI 接续生成并追加进预览正文末尾，随收藏保存完整内容。

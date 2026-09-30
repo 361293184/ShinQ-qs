@@ -3575,14 +3575,24 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // 番外收藏（拾光 App）Methods
   const addFanwaiStory = async (story: FanwaiStory) => {
+      // 先更新内存：拾光立即能看到，属于乐观更新。落库失败只记日志、不向上抛，
+      // 否则会连累调用方的 UI 反馈（按钮态 / toast）一起被吞掉（见 FanwaiGeneratePage.handleCollect）。
       setFanwaiStories(prev => [story, ...prev]);
-      await DB.saveFanwaiStory(story);
+      try {
+          await DB.saveFanwaiStory(story);
+      } catch (e) {
+          console.error('[OS] saveFanwaiStory failed (in-memory copy retained):', e);
+      }
   };
 
   // 更新一篇番外（如续写后追加 content）。同步内存态 + 写回 DB。
   const updateFanwaiStory = async (id: string, story: FanwaiStory) => {
       setFanwaiStories(prev => prev.map(s => s.id === id ? story : s));
-      await DB.saveFanwaiStory(story);
+      try {
+          await DB.saveFanwaiStory(story);
+      } catch (e) {
+          console.error('[OS] saveFanwaiStory(update) failed (in-memory copy retained):', e);
+      }
   };
 
   const deleteFanwaiStory = async (id: string) => {

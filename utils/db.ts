@@ -2663,8 +2663,15 @@ export const DB = {
           // 必须等事务真正 commit（落盘）后才算完成。若在 oncomplete 前刷新页面，
           // 浏览器会回滚丢弃该写入，导致"收藏后刷新就消失"。
           transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error('abort'));
+          transaction.onerror = () => {
+              // 诊断用：transaction.error 在某些 abort 路径下可能为 null，原始值打出便于定位
+              console.error('[DB] saveFanwaiStory transaction error:', transaction.error);
+              reject(transaction.error);
+          };
+          transaction.onabort = () => {
+              console.error('[DB] saveFanwaiStory transaction aborted:', transaction.error);
+              reject(transaction.error || new Error('abort'));
+          };
       });
       // 落盘成功后同步镜像：先读镜像最新，去重后塞进新 story（放最前），写回
       const mirror = readFanwaiMirror();
