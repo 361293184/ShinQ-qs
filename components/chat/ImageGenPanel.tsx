@@ -4,8 +4,8 @@ import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
-// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」+「浪漫插画」+「清透韩系」。
-// 早期内置预设（动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版）已按需求移除，
+// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」+「浪漫插画」+「清透韩系」
+// +「高定杂志风」。早期内置预设（动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版）已按需求移除，
 // 其余风格由用户自定义（utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
 const STYLE_PRESETS = [
   { id: 'none', label: '不使用预设', prompt: '' },
@@ -33,6 +33,11 @@ const STYLE_PRESETS = [
     id: 'korean_idol_clean',
     label: '清透韩系',
     prompt: 'K-pop idol-style semi-realistic digital illustration. Ultra-clean finish with a polished, sterile purity. Palette locked strictly in cool grey-blue, silver grey, and cool taupe brown — no third hue enters the frame. High-key front diffused softbox lighting, zero hard shadows on the face. Skin is smooth porcelain with only broad bone-structure hints, no pores, no texture. Hair is the focal craft: each lock has its own light gradient, tips go translucent paper-white, fine gaps between hair clumps create an airy, strand-separated look. No grain, no noise, no filter artifacts. Slightly bumped contrast for a crisp finish. Avoid oversaturation, avoid impasto texture, avoid pore-level realism, avoid blocky shadows.',
+  },
+  {
+    id: 'high_fashion_editorial',
+    label: '高定杂志风',
+    prompt: 'Ultra-high-resolution fashion editorial portrait photography, studio-only environment. Color palette ruthlessly restricted to three tones: pure black, pure white, and authentic skin — no environmental tint, no accent color enters the frame. Neutral soft studio lighting from a large diffuser, no hard shadow lines, only gentle depth from the jaw-to-collar shadow. Skin retains every natural detail: pores, fine freckles, subtle skin tone variations on forehead and nose, natural blood vessels visible in eye whites, natural redness at lip corners and eye rims. Zero smoothing, zero blemish retouching — the imperfection is the source of high-end realism. Hair is rendered at extreme resolution: every strand independently visible, with natural flyaway baby hairs breaking the silhouette. Slight sharpening for clarity, neutral-cool color temperature, no filter, clean and transparent finish. Avoid skin smoothing, avoid retouched perfection, avoid any color tint, avoid oversharpening into plastic texture.',
   },
 ];
 
