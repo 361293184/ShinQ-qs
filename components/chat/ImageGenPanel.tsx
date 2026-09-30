@@ -4,10 +4,16 @@ import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
-// 内置预设仅保留「不使用预设」：动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版 已按需求移除，
-// 风格改由用户自定义（utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
+// 内置预设：「不使用预设」+「韩系厚涂」。早期内置预设（动漫/写实/水彩/油画/素描/
+// 赛博朋克/奇幻/Q版）已按需求移除，其余风格由用户自定义
+// （utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
 const STYLE_PRESETS = [
   { id: 'none', label: '不使用预设', prompt: '' },
+  {
+    id: 'korean_thick_paint',
+    label: '韩系厚涂',
+    prompt: 'Korean webtoon-inspired semi-realistic illustration. Clean line-art edges combined with soft shading. Skin is smooth but retains real bone structure and plane transitions. Highly disciplined color — a near-monochrome desaturated base with a single small saturated object as the focal accent. Strong directional light creates large blocks of deep shadow. Visible film grain overlay, reduced contrast, cinematic composition.',
+  },
 ];
 
 type GenMode = 'char' | 'user' | 'joint';
