@@ -4,9 +4,9 @@ import { processImage } from '../../utils/file';
 
 const CHAR_SETTINGS_PREFIX = 'os_imagegen_char_';
 const STYLE_PRESET_KEY = 'os_imagegen_style_preset';
-// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」。早期内置预设（动漫/
-// 写实/水彩/油画/素描/赛博朋克/奇幻/Q版）已按需求移除，其余风格由用户自定义
-// （utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
+// 内置预设：「不使用预设」+「韩系厚涂」+「写实摄影」+「幻想插画」+「浪漫插画」。
+// 早期内置预设（动漫/写实/水彩/油画/素描/赛博朋克/奇幻/Q版）已按需求移除，
+// 其余风格由用户自定义（utils/imageGen.ts 的 os_imagegen_custom_styles）提供。
 const STYLE_PRESETS = [
   { id: 'none', label: '不使用预设', prompt: '' },
   {
@@ -23,6 +23,11 @@ const STYLE_PRESETS = [
     id: 'fantasy_illustration',
     label: '幻想插画',
     prompt: 'Semi-realistic digital watercolor illustration in an Eastern ethnic/fantasy style. Cool, restrained palette — sage green, pale blue-gray, white, charcoal — with tiny high-chroma cinnabar/vermilion beads as the single color anchor. High-key, diffused daylight, bright ambient light reflected from snow and high-altitude terrain, giving the entire image an overexposed film look with soft contrast. Watercolor-like washes: light, translucent layering, soft bleeding edges, with natural "water stain" brush texture. Fur hat rendered with layered watercolor dabs for texture. Background mountains fade into atmospheric haze, snow peaks nearly blending into the sky. Hint of paper grain texture overlay. Avoid heavy impasto, avoid oversaturation, avoid hard edges, avoid dark/low-key lighting.',
+  },
+  {
+    id: 'romance_illustration',
+    label: '浪漫插画',
+    prompt: 'Semi-realistic digital painting in the modern urban romance illustration style. Intentionally restrained warm-neutral palette — ivory, cream, charcoal black — with zero high-chroma accents. Warm diffused ambient light, softened by an atmospheric haze, giving skin a subtle luminous sheen rather than hard specular reflections. Soft edges throughout, no line art, smooth transitions. Shadows are deep but transparent — never muddy or flat. Hair and fabric retain gentle brushwork detail; satin surfaces suggested by thin streak highlights. A soft bloom layer over the entire image, subtle dark vignette. Avoid cel-shading, avoid oversaturated colors, avoid photorealistic skin pores.',
   },
 ];
 
