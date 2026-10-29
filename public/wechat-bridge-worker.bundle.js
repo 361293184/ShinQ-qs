@@ -74,12 +74,12 @@ async function callLlm(creds, messages, options = {}) {
     const text = typeof message?.content === "string" ? message.content.trim() : "";
     if (!text) return { ok: false, error: "LLM \u8FD4\u56DE\u7A7A\u5185\u5BB9" };
     return { ok: true, text };
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "";
+  } catch (err3) {
+    const name = err3 instanceof Error ? err3.name : "";
     if (name === "TimeoutError" || name === "AbortError") {
       return { ok: false, error: `LLM \u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)}s\uFF09` };
     }
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: err3 instanceof Error ? err3.message : String(err3) };
   }
 }
 
@@ -350,10 +350,481 @@ async function sendText(baseUrl, botToken, toUserId, contextToken, text) {
       2e4
     );
     return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } catch (err3) {
+    return { ok: false, error: err3 instanceof Error ? err3.message : String(err3) };
   }
 }
+
+// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-EIM3PKFY.mjs
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var D1_MAX_ROW_BYTES = 2e6;
+var STORAGE_HEX_OVERHEAD_BYTES = 66;
+var TASK_ROW_OTHER_COLUMNS_BYTES = 4096;
+var TASK_LAST_ERROR_RESERVED_BYTES = 2048;
+var MAX_TASK_PAYLOAD_BYTES = Math.floor(
+  (D1_MAX_ROW_BYTES - TASK_ROW_OTHER_COLUMNS_BYTES - STORAGE_HEX_OVERHEAD_BYTES) / 2
+) - TASK_LAST_ERROR_RESERVED_BYTES;
+var taskPayloadEncoder = new TextEncoder();
+var DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+var WEB_PUSH_MAX_BODY_BYTES = 4096;
+var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
+var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
+var payloadEncoder = new TextEncoder();
+var ATTACHMENT_RETENTION_DAYS = 30;
+var MAX_ATTACHMENT_TTL_MS = ATTACHMENT_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
+var STATE_CHUNK_SLICE_BYTES = 200 * 1024;
+var DEFAULT_MAX_STATE_VALUE_BYTES = 5 * 1024 * 1024;
+var SEP = "";
+var CHUNK_NS_PREFIX = `${SEP}amsg-chunks${SEP}`;
+var ROOT_MARKER_PREFIX = `${SEP}amsg-chunked${SEP}v1${SEP}`;
+var utf82 = new TextEncoder();
+var COMMITTED_BATCH_LOOKBACK_MS = 60 * 60 * 1e3;
+var MAX_DEFER_AFTER_MS = 24 * 60 * 60 * 1e3;
+var DEFAULT_CLAIM_LEASE_MS = 10 * 60 * 1e3;
+var CLAIM_LEASE_MARGIN_MS = 2 * 60 * 1e3;
+var DEFAULT_LEASE_HEARTBEAT_MS = 30 * 1e3;
+var DEFAULT_HEARTBEAT_LEASE_TTL_MS = 90 * 1e3;
+var STALE_AFTER_MS = 60 * 60 * 1e3;
+function err(status, code, message, details) {
+  const error = details === void 0 ? { code, message } : { code, message, details };
+  return { status, body: { success: false, error } };
+}
+var UNSUPPORTED = err(
+  501,
+  "PUSH_SUBSCRIPTION_NOT_SUPPORTED",
+  "\u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u7528\u6237\u7EA7\u63A8\u9001\u8BA2\u9605\u5B58\u50A8"
+);
+function err2(status, code, message, details) {
+  const error = details === void 0 ? { code, message } : { code, message, details };
+  return { status, body: { success: false, error } };
+}
+var UNSUPPORTED2 = err2(
+  501,
+  "LLM_CREDENTIALS_NOT_SUPPORTED",
+  "\u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u7528\u6237\u7EA7 LLM \u51ED\u636E\u5B58\u50A8"
+);
+var SQLITE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS scheduled_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    uuid TEXT,
+    encrypted_payload TEXT NOT NULL,
+    message_type TEXT NOT NULL CHECK (message_type IN ('fixed', 'prompted', 'auto', 'instant')),
+    next_send_at TEXT NOT NULL,
+    lease_until TEXT,
+    retry_after TEXT,
+    serialize_group TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`;
+var SQLITE_INDEXES = [
+  {
+    name: "idx_pending_tasks_optimized",
+    sql: `CREATE INDEX IF NOT EXISTS idx_pending_tasks_optimized
+          ON scheduled_messages (status, next_send_at, id, retry_count)
+          WHERE status = 'pending'`,
+    description: "Main query index (Cron Job finds pending tasks)",
+    critical: false
+  },
+  {
+    name: "idx_cleanup_completed",
+    sql: `CREATE INDEX IF NOT EXISTS idx_cleanup_completed
+          ON scheduled_messages (status, updated_at)
+          WHERE status IN ('sent', 'failed')`,
+    description: "Cleanup query index",
+    critical: false
+  },
+  {
+    name: "idx_failed_retry",
+    sql: `CREATE INDEX IF NOT EXISTS idx_failed_retry
+          ON scheduled_messages (status, retry_count, next_send_at)
+          WHERE status = 'failed' AND retry_count < 3`,
+    description: "Failed retry index",
+    critical: false
+  },
+  {
+    name: "idx_user_id",
+    sql: `CREATE INDEX IF NOT EXISTS idx_user_id
+          ON scheduled_messages (user_id)`,
+    description: "User task query index",
+    critical: false
+  },
+  {
+    name: "uidx_uuid",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS uidx_uuid
+          ON scheduled_messages (uuid)
+          WHERE uuid IS NOT NULL`,
+    description: "UUID uniqueness guard",
+    critical: true
+  },
+  {
+    name: "idx_serialize_group_lease",
+    sql: `CREATE INDEX IF NOT EXISTS idx_serialize_group_lease
+          ON scheduled_messages (serialize_group, lease_until)
+          WHERE serialize_group IS NOT NULL AND status = 'pending'`,
+    description: "Serialization group busy-check index (claimTask)",
+    critical: false
+  }
+];
+var CLIENT_STATE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS client_state (
+    user_id TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, namespace, key)
+  )
+`;
+var CLIENT_STATE_INDEXES = [
+  {
+    name: "idx_client_state_cleanup",
+    // 服务 cleanupClientState 的
+    //   DELETE FROM client_state WHERE namespace = ? AND updated_at < ?
+    // 主键 (user_id, namespace, key) 最左列是 user_id，按 namespace 起头的条件
+    // 吃不到它。
+    sql: `CREATE INDEX IF NOT EXISTS idx_client_state_cleanup
+          ON client_state (namespace, updated_at)`,
+    description: "TTL cleanup index (cleanupClientState by namespace + updated_at)",
+    critical: false
+  }
+];
+var PUSH_SUBSCRIPTION_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    user_id TEXT PRIMARY KEY,
+    subscription TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )
+`;
+var LLM_CREDENTIALS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS llm_credentials (
+    user_id TEXT NOT NULL,
+    cred_id TEXT NOT NULL,
+    encrypted_value TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, cred_id)
+  )
+`;
+var MESSAGE_OUTBOX_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS message_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    task_uuid TEXT,
+    session_id TEXT,
+    message_index INTEGER,
+    total_messages INTEGER,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    delivered_at INTEGER,
+    acked_at INTEGER,
+    UNIQUE (user_id, message_id)
+  )
+`;
+var MESSAGE_OUTBOX_INDEXES = [
+  {
+    name: "idx_outbox_unacked",
+    // 服务 listUnackedOutbox 的
+    //   SELECT … WHERE user_id = ? AND acked_at IS NULL AND id > ? ORDER BY id
+    sql: `CREATE INDEX IF NOT EXISTS idx_outbox_unacked
+          ON message_outbox (user_id, id)
+          WHERE acked_at IS NULL`,
+    description: "Unacked outbox paging index (GET /outbox)",
+    critical: false
+  },
+  {
+    name: "idx_outbox_created",
+    // 服务 cleanupOutbox 的
+    //   DELETE FROM message_outbox WHERE created_at < ?
+    sql: `CREATE INDEX IF NOT EXISTS idx_outbox_created
+          ON message_outbox (created_at)`,
+    description: "Outbox retention cleanup index (cleanupOutbox by created_at)",
+    critical: false
+  },
+  {
+    name: "idx_outbox_acked",
+    // 服务 cleanupOutbox 的
+    //   DELETE FROM message_outbox WHERE acked_at IS NOT NULL AND acked_at < ?
+    // 部分索引只收已 ack 的行：未 ack 的那部分本来就不是这条语句的目标，
+    // idx_outbox_unacked 的 WHERE 条件与它正好互补。
+    sql: `CREATE INDEX IF NOT EXISTS idx_outbox_acked
+          ON message_outbox (acked_at)
+          WHERE acked_at IS NOT NULL`,
+    description: "Acked outbox cleanup index (cleanupOutbox by acked_at)",
+    critical: false
+  },
+  {
+    name: "idx_outbox_task_undelivered",
+    // 服务 discardUndeliveredOutboxForTask 的
+    //   DELETE FROM message_outbox
+    //   WHERE user_id = ? AND task_uuid = ? AND delivered_at IS NULL AND acked_at IS NULL
+    // 没有它这条只能靶着 user_id 走 (user_id, message_id) 或 idx_outbox_unacked，
+    // 单用户部署下 user_id 对每一行都成立，等于把整个未 ack 积压扫一遍。
+    sql: `CREATE INDEX IF NOT EXISTS idx_outbox_task_undelivered
+          ON message_outbox (user_id, task_uuid)
+          WHERE delivered_at IS NULL AND acked_at IS NULL`,
+    description: "Undelivered-by-task discard index (cancel / supersede)",
+    critical: false
+  }
+];
+var SQLITE_ALL_INDEXES = [
+  ...SQLITE_INDEXES,
+  ...CLIENT_STATE_INDEXES,
+  ...MESSAGE_OUTBOX_INDEXES
+];
+var CLOUD_DATA_TABLES_SQL = [
+  `CREATE TABLE IF NOT EXISTS cloud_data_records (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+    data TEXT NOT NULL, idempotency_key TEXT, updated_at INTEGER NOT NULL, write_token TEXT,
+    lease_until INTEGER, lease_token TEXT,
+    PRIMARY KEY (user_id, kind, id), UNIQUE (user_id, kind, idempotency_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_record_chunks (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
+    value TEXT NOT NULL, write_token TEXT NOT NULL,
+    PRIMARY KEY (user_id, kind, id, chunk_index)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_owners (
+    user_id TEXT NOT NULL, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL,
+    active INTEGER NOT NULL, generation INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, owner_type, owner_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_resource_metadata (
+    user_id TEXT NOT NULL, resource_key TEXT NOT NULL, encrypted_value TEXT NOT NULL,
+    PRIMARY KEY (user_id, resource_key)
+  )`,
+  // The empty table is a transactional assertion: inserting 0 aborts the batch.
+  `CREATE TABLE IF NOT EXISTS cloud_guard_assertions (
+    allowed INTEGER NOT NULL DEFAULT 1 CONSTRAINT cloud_owner_guard CHECK (allowed = 1),
+    metadata_allowed INTEGER CONSTRAINT cloud_metadata_guard CHECK (metadata_allowed = 1),
+    lease_allowed INTEGER CONSTRAINT cloud_lease_guard CHECK (lease_allowed = 1)
+  )`
+];
+var CLOUD_DATA_WORK_TABLES_SQL = [
+  `CREATE TABLE IF NOT EXISTS cloud_data_work (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+    next_run_at INTEGER, expires_at INTEGER,
+    PRIMARY KEY (user_id, kind, id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_maintenance (
+    name TEXT PRIMARY KEY, cursor INTEGER NOT NULL, upper_bound INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+  )`
+];
+CLOUD_DATA_TABLES_SQL.push(...CLOUD_DATA_WORK_TABLES_SQL);
+var CLOUD_DATA_WORK_INDEXES = [
+  {
+    name: "idx_cloud_work_due",
+    sql: `CREATE INDEX IF NOT EXISTS idx_cloud_work_due
+      ON cloud_data_work (kind, next_run_at) WHERE next_run_at IS NOT NULL`,
+    description: "Only due cleanup operations",
+    critical: true
+  },
+  {
+    name: "idx_cloud_work_expiry",
+    sql: `CREATE INDEX IF NOT EXISTS idx_cloud_work_expiry
+      ON cloud_data_work (expires_at) WHERE expires_at IS NOT NULL`,
+    description: "Only expired management records",
+    critical: true
+  }
+];
+SQLITE_ALL_INDEXES.push(...CLOUD_DATA_WORK_INDEXES);
+var chunkPrefixSql = "char(31)||'amsg-chunks'||char(31)";
+var logicalNamespaceSql = `CASE WHEN substr(OLD.namespace,1,13)=${chunkPrefixSql}
+  THEN substr(OLD.namespace,14) ELSE OLD.namespace END`;
+var logicalKeySql = `CASE WHEN substr(OLD.namespace,1,13)=${chunkPrefixSql} AND instr(OLD.key,char(31))>0
+  THEN substr(OLD.key,1,instr(OLD.key,char(31))-1) ELSE OLD.key END`;
+var CLOUD_DATA_DELETE_TRIGGERS = [
+  ...[
+    ["scheduled_messages", "task", "uuid"],
+    ["llm_credentials", "credential", "cred_id"],
+    ["message_outbox", "outbox", "message_id"],
+    ["push_subscriptions", "subscription", "user_id"]
+  ].map(([table, type, column]) => ({
+    name: `trg_cloud_metadata_${type}_delete`,
+    sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_metadata_${type}_delete AFTER DELETE ON ${table}
+        BEGIN DELETE FROM cloud_resource_metadata WHERE user_id=OLD.user_id
+          AND resource_key=json_array('${type}'${column ? ",OLD." + column : ""}); END`
+  })),
+  { name: "trg_cloud_metadata_state_delete", sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_metadata_state_delete
+      AFTER DELETE ON client_state BEGIN
+      DELETE FROM cloud_resource_metadata WHERE user_id=OLD.user_id
+        AND resource_key=json_array('state',${logicalNamespaceSql},${logicalKeySql})
+        AND NOT EXISTS (SELECT 1 FROM client_state r WHERE r.user_id=OLD.user_id
+          AND r.namespace=(${logicalNamespaceSql}) AND r.key=(${logicalKeySql}))
+        AND NOT EXISTS (SELECT 1 FROM client_state r WHERE r.user_id=OLD.user_id
+          AND r.namespace=${chunkPrefixSql}||(${logicalNamespaceSql})
+          AND r.key >= (${logicalKeySql})||char(31) AND r.key < (${logicalKeySql})||char(32)); END` },
+  { name: "trg_cloud_work_delete", sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_work_delete
+      AFTER DELETE ON cloud_data_records BEGIN
+      DELETE FROM cloud_data_work WHERE user_id=OLD.user_id AND kind=OLD.kind AND id=OLD.id;
+      DELETE FROM cloud_data_record_chunks WHERE user_id=OLD.user_id AND kind=OLD.kind AND id=OLD.id; END` }
+];
+function parseTableName(sql) {
+  const match = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/i.exec(sql);
+  return match ? match[1] : "";
+}
+function parseColumnNames(sql) {
+  const body = sql.slice(sql.indexOf("(") + 1, sql.lastIndexOf(")"));
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of body) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  const TABLE_CONSTRAINTS = /* @__PURE__ */ new Set(["primary", "unique", "foreign", "check", "constraint"]);
+  return parts.map((part) => part.trim()).filter(Boolean).map((part) => part.split(/\s+/)[0]).filter((name) => !TABLE_CONSTRAINTS.has(name.toLowerCase()));
+}
+function describeTable(sql) {
+  return [parseTableName(sql), parseColumnNames(sql)];
+}
+var SQLITE_REQUIRED_SCHEMA = Object.freeze({
+  tables: Object.freeze(Object.fromEntries([
+    describeTable(SQLITE_TABLE_SQL),
+    describeTable(CLIENT_STATE_TABLE_SQL),
+    describeTable(PUSH_SUBSCRIPTION_TABLE_SQL),
+    describeTable(LLM_CREDENTIALS_TABLE_SQL),
+    describeTable(MESSAGE_OUTBOX_TABLE_SQL),
+    ...CLOUD_DATA_TABLES_SQL.map(describeTable)
+  ])),
+  indexes: Object.freeze(SQLITE_ALL_INDEXES.filter((index) => index.critical).map((index) => index.name)),
+  triggers: Object.freeze(CLOUD_DATA_DELETE_TRIGGERS.map((trigger) => trigger.name))
+});
+var SERVER_FEATURES = Object.freeze([
+  "client-state",
+  "client-state-chunking",
+  "client-state-partial-failure",
+  "agentic-hooks",
+  "agentic-scratch",
+  "agentic-write-state",
+  "agentic-fire-tools",
+  "agentic-schedule-task",
+  "vapid-public-key",
+  "tick-stale-guard",
+  "recurring-skip-occurrence",
+  "occurrence-scoped-push-ids",
+  "after-send-hook",
+  "update-message-credentials",
+  // config 级 hook（onAfterSend / onStaleSkip）的载荷带 readState / writeState。
+  "hook-state-accessors",
+  // onAfterSend 的载荷带本次 fire 的 scratch（与 onBeforeFire / onLLMOutput 同一个引用）。
+  "after-send-scratch",
+  // onLLMOutput / executeToolCalls 的 ctx 带 taskId / taskUuid / occurrenceMs。
+  "fire-task-identity",
+  // 每条 push 顶层带 taskId / taskUuid / recurrenceType / occurrenceMs。
+  "push-task-identity",
+  // 导出 PUSH_ENVELOPE_RESERVED_BYTES：库补完信封字段之后的额度。
+  "push-envelope-reserved-bytes",
+  // scheduleTask 撞 uuid 时回已存在任务行的投影（{ created:false, …, task }）。
+  "schedule-task-duplicate-row",
+  // 循环任务过期快进也调 onStaleSkip、也写 lastError。
+  "recurring-stale-skip-hook",
+  // 任务行支持 tzId：daily / weekly 按该时区的墙钟推进。
+  "task-timezone",
+  // 推送订阅是用户级的一份（PUT/GET/DELETE /push-subscription），任务不携带。
+  "user-push-subscription",
+  // GET /message?id=<uuid>：单条任务，带完整 metadata（列表只给两个子字段）。
+  "get-message-detail",
+  // PUT /update-message 认 contactName（改了角色名之后旧任务的通知标题跟着改）。
+  "update-message-contact-name",
+  // runScheduledTick 认 serializeBy：同一分组的任务同时只跑一条，跨跳也算。
+  "tick-serialize-by",
+  // 一次 fire 无论什么结局都调 onFireSettled（发完 / 跳过 / 抛错）。
+  "fire-settled-hook",
+  // PUT /client-state 的 entry 认 version / builtAt 护栏（按内容新旧比较），
+  // 被拦下的 key 在 data.skippedEntries 逐条回报。
+  "client-state-version-guard",
+  // POST /schedule-message 认 immediate: true（不排未来，下一跳 cron 直接触发）。
+  "schedule-immediate",
+  // POST /schedule-message 认 supersedesUuid（建新任务的同一事务里取消旧的）。
+  "schedule-supersede",
+  // 投递期间租约按心跳滚动续租，isolate 死亡后任务 ~90s 内被下一跳接手。
+  "tick-lease-heartbeat",
+  // 导出 runTask(ctx, uuid)：单任务投递入口（CF Queue 消费者用）。
+  "run-task-entrypoint",
+  // 任务行有 last_error 列（脱敏失败摘要）；GET /message 对已失败的行也透出
+  // （409 的 error.details.lastError）。
+  "task-last-error",
+  // 导出 NonRetryableError：hook 抛它 → 直接终审处置，不进重试阶梯。
+  "non-retryable-error",
+  // fire ctx（fireCtx / sessionCtx）带 cancelTask / renewTask。
+  "agentic-cancel-renew-task",
+  // 服务端消息收件箱：push 发送前落 message_outbox，GET /outbox + POST
+  // /outbox/ack 取代「猜哪些没收到」的补收对账。
+  "message-outbox",
+  // onFireSettled 载荷带解密 metadata 与最后一轮 usage；sessionCtx 带 usage。
+  "fire-settled-metadata",
+  "hook-usage",
+  // schedule-message 认 llmExtraBody（原样展开进 LLM 请求体，核心字段优先）。
+  "llm-extra-body",
+  // 500 响应体的 error.cause 带真实原因（stage / name / message），调用方不用
+  // 再去日志里捞「到底哪儿坏了」。
+  "error-cause",
+  // 导出 getSchemaVersion / ensureSchema：表结构够不够用查得出来，也补得上。
+  "schema-self-check",
+  // 单用户 Worker 上有 runTask(uuid, env)：只跑指定那一条任务。
+  "worker-run-task",
+  // 用户级 LLM 凭据存储：PUT/GET/DELETE /llm-credentials，任务 payload 认
+  // credRefs（fire 时按引用现读、自排任务复制引用），hook ctx 带
+  // resolveLlmCredential。
+  "llm-credentials",
+  // 请求体带 Content-Encoding: gzip 时自动解压，所有带 body 的端点都认。
+  "gzip-request-body",
+  // client_state 按命名空间过期清理（config 的 clientStateTtl，cron 每跳顺手做）。
+  "client-state-ttl",
+  // hook ctx 带 emitResult(payload)：往客户端补一条自定义结果（落收件箱 + 推送）。
+  "emit-result",
+  // PUT /client-state 的 entry 认 value: null（删掉这个 key，连切片行一起；同一套
+  // last-write-wins，被拦下的进 skippedEntries；删掉的条数在 data.deleted）。
+  "client-state-delete",
+  // GET /client-state/namespaces：云端有哪些命名空间 + 每个几条 / 占多少字节 /
+  // 最后更新是什么时候（大值切片的保留命名空间折算进原命名空间，不单独列）。
+  "client-state-namespaces",
+  // DELETE /client-state?namespace=<ns>：只清这一个命名空间（连它的切片行一起）。
+  // 不带参数仍是整表全清。
+  "client-state-delete-namespace",
+  // DELETE /llm-credentials 认 credIdPrefix：按 cred_id 前缀删（`char:<charId>/`
+  // 一把清掉一个角色名下的几行）。
+  "llm-credentials-delete-prefix",
+  // DELETE /outbox：主动删收件箱的行（{ messageIds } 或 { all: true }），不再只能
+  // 等 cron 的 TTL 老化。
+  "outbox-delete",
+  // LLM 上游明确拒了请求（400 / 401 / 402 / 403 / 404 / 405 / 413 / 422）一跳终
+  // 审，不再重试；fire hook 拿到的 error 上带 permanent: true。
+  "llm-permanent-errors",
+  // 生成成功、整批落进收件箱之后推送才失败的，重试只补推送、不重新生成；
+  // onAfterSend / onFireSettled 的载荷带 outboxed。
+  "redeliver-committed-batch",
+  // onAfterSend / onFireSettled 的载荷带整次 fire 的 usageTotal 与 llmCalls。
+  "hook-usage-total",
+  // 工厂配置认 maxDeliveryRetries（投递失败的重试次数上限，默认 3）。
+  "max-delivery-retries",
+  // Per-task pre-commit retry limit and fire receipt retry decision.
+  "max-generation-retries",
+  // onBeforeFire 认 { defer: { afterMs } }：这次不生成，过一会儿再来问（不占重试
+  // 次数）；onFireSettled 的 status 多一种 'deferred'，带 retryAfter。
+  "before-fire-defer",
+  "task-input",
+  "client-state-key",
+  "agentic-list-tasks",
+  "agentic-tool-allowlist",
+  "attachments"
+]);
+var encoder = new TextEncoder();
+var UNREADABLE_RETRY_MS = 15 * 6e4;
 
 // utils/amsgLimits.ts
 var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
@@ -362,6 +833,19 @@ var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
 var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
 var amsgStateNamespace = (charId) => `${AMSG_STATE_NAMESPACE_PREFIX}${charId}`;
 var AMSG_FIRE_PACK_KEY = "fire_pack";
+var AMSG_SLOT_LIVE_CHAT = "{{AMSG_LIVE_CHAT}}";
+var AMSG_SILENT_MARK = "[[SILENT]]";
+var BEFORE_SPEAK_LINES = [
+  "\u3010\u5F00\u53E3\u4E4B\u524D\u3011",
+  `\u5148\u5BF9\u7167\u4E0A\u9762\u7684\u3010\u6700\u8FD1\u5BF9\u8BDD\u4E0A\u4E0B\u6587\u3011\uFF08\u8FDE\u540C\u540E\u9762\u4F60\u81EA\u5DF1\u53D1\u8FC7\u3001\u56DE\u8FC7\u7684\u90A3\u51E0\u53E5\uFF09\u3002${AMSG_SLOT_LIVE_CHAT}`,
+  "\u9ED8\u8BA4\u662F\u7167\u5E38\u8BF4\u4F60\u8981\u8BF4\u7684\u8BDD\u3002\u53EA\u6709\u4E24\u79CD\u60C5\u51B5\u8FD9\u6B21\u4E0D\u8BF4\uFF1A",
+  "1. \u8FD9\u6761\u4EFB\u52A1\u8981\u8BF4\u7684\u4E8B\uFF0C\u5DF2\u7ECF\u5728\u4F60\u4EEC\u7684\u5BF9\u8BDD\u91CC\u53D1\u751F\u8FC7\u3001\u6216\u8005\u5DF2\u7ECF\u804A\u5B8C\u4E86\u3002",
+  "2. \u4F60\u4EEC\u6B63\u804A\u7740\u522B\u7684\uFF0C\u8FD9\u6761\u63D2\u8FDB\u6765\u660E\u663E\u4F1A\u6253\u65AD\u6B63\u5728\u8BF4\u7684\u4E8B\uFF0C\u800C\u4E14\u665A\u70B9\u518D\u8BF4\u4E5F\u4E0D\u803D\u8BEF\u3002",
+  "\u6B63\u804A\u7740\u4E0D\u7B49\u4E8E\u4E0D\u8BF4\uFF1A\u5BF9\u65B9\u6B63\u7B49\u7740\u8FD9\u6761\u3001\u6216\u8005\u5B83\u8DDF\u773C\u4E0B\u804A\u7684\u63A5\u5F97\u4E0A\uFF0C\u5C31\u987A\u7740\u8BDD\u5934\u628A\u5B83\u8BF4\u51FA\u6765\uFF0C\u50CF\u804A\u5929\u91CC\u81EA\u7136\u63A5\u4E0A\u7684\u4E00\u53E5\uFF0C\u522B\u50CF\u53E6\u8D77\u4E00\u6BB5\u7684\u901A\u77E5\u3002",
+  "\u62FF\u4E0D\u51C6\u5C31\u8BF4\u3002\u300C\u6015\u6253\u6270\u300D\u300C\u65F6\u673A\u597D\u50CF\u4E0D\u592A\u5BF9\u300D\u8FD9\u79CD\u7B3C\u7EDF\u7684\u987E\u8651\u4E0D\u7B97\u7406\u7531\u3002",
+  `\u51B3\u5B9A\u4E0D\u8BF4 \u2192 \u6574\u6BB5\u8F93\u51FA\u53EA\u5199 ${AMSG_SILENT_MARK} \u8FD9\u4E00\u4E2A\u6807\u8BB0\uFF0C\u522B\u7684\u4E00\u4E2A\u5B57\u90FD\u4E0D\u8981\u5199\uFF0C\u4E5F\u4E0D\u8981\u89E3\u91CA\u3002`
+];
+var LIVE_CHAT_WINDOW_MS = 10 * 6e4;
 var wallClockPartsInZone = (nowMs, tz) => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz.tzId,
@@ -862,8 +1346,8 @@ async function pollBotOnce(env, owner, cfg, bot, pollTimeoutMs) {
       try {
         await processIncoming(env, owner, cfg, bot, msg);
         processed += 1;
-      } catch (err) {
-        logWarn("poll", `\u5355\u6761\u6D88\u606F\u5904\u7406\u5931\u8D25\uFF1A${err instanceof Error ? err.message : String(err)}`);
+      } catch (err3) {
+        logWarn("poll", `\u5355\u6761\u6D88\u606F\u5904\u7406\u5931\u8D25\uFF1A${err3 instanceof Error ? err3.message : String(err3)}`);
       }
     }
     bot.cursor = result.nextCursor;
@@ -875,8 +1359,8 @@ async function pollBotOnce(env, owner, cfg, bot, pollTimeoutMs) {
     }
     if (result.cursorReset) log("poll", `bot ${bot.botId} \u4E22\u6E38\u6807\u91CD\u8BD5\u6210\u529F\uFF0C\u4F1A\u8BDD\u5DF2\u7EED\u4E0A`);
     return { expired: false, processed, failed: false };
-  } catch (err) {
-    bot.lastError = err instanceof Error ? err.message : String(err);
+  } catch (err3) {
+    bot.lastError = err3 instanceof Error ? err3.message : String(err3);
     logWarn("poll", `bot ${bot.botId} \u8F6E\u8BE2\u5931\u8D25\uFF1A${bot.lastError}`);
     return { expired: false, processed: 0, failed: true };
   }
@@ -964,9 +1448,9 @@ async function handleBotQrStart(_req, env) {
   try {
     const qr = await startQrLogin();
     return json({ ok: true, qrcode: qr.qrcode, img: qr.qrcodeImg });
-  } catch (err) {
-    logWarn("bot", `\u62FF\u4E8C\u7EF4\u7801\u5931\u8D25\uFF1A${err instanceof Error ? err.message : String(err)}`);
-    return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
+  } catch (err3) {
+    logWarn("bot", `\u62FF\u4E8C\u7EF4\u7801\u5931\u8D25\uFF1A${err3 instanceof Error ? err3.message : String(err3)}`);
+    return json({ ok: false, error: err3 instanceof Error ? err3.message : String(err3) }, 502);
   }
 }
 function pruneSiblingBots(cfg, keep) {
@@ -1017,8 +1501,8 @@ async function handleBotQrStatus(req, env, owner) {
       log("bot", `\u5DF2\u6E05\u7406\u540C\u89D2\u8272\u7684\u65E7\u7ED1\u5B9A ${res.value.length} \u4E2A`, { botIds: res.value.map((b) => b.botId) });
     }
     return json({ ok: true, status: "confirmed", botId: newBotId, charId, removedOld: res.value.length });
-  } catch (err) {
-    return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
+  } catch (err3) {
+    return json({ ok: false, error: err3 instanceof Error ? err3.message : String(err3) }, 502);
   }
 }
 async function handleBotBind(req, env, owner) {
@@ -1352,9 +1836,9 @@ var src_default = {
       if (path === "/wx/bot/check" && request.method === "POST") return await handleBotCheck(request, env, owner);
       if (path === "/wx/bot/remove" && request.method === "POST") return await handleBotRemove(request, env, owner);
       return json({ ok: false, error: "not found", path }, 404);
-    } catch (err) {
-      logWarn("route", `${path} \u629B\u9519\uFF1A${err instanceof Error ? err.message : String(err)}`);
-      return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    } catch (err3) {
+      logWarn("route", `${path} \u629B\u9519\uFF1A${err3 instanceof Error ? err3.message : String(err3)}`);
+      return json({ ok: false, error: err3 instanceof Error ? err3.message : String(err3) }, 500);
     }
   },
   /** Cron 每分钟一次：逐空间、逐 bot 长轮询收消息并回复。这是微信桥的心跳。 */
@@ -1368,8 +1852,8 @@ var src_default = {
         Date.now(),
         `ok:${Date.now() - startedAt}ms spaces:${round.owners} bots:${round.bots}` + (round.skipped > 0 ? ` skipped:${round.skipped}` : "")
       );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    } catch (err3) {
+      const message = err3 instanceof Error ? err3.message : String(err3);
       logWarn("cron", `\u8F6E\u8BE2\u8F6E\u5931\u8D25\uFF1A${message}`);
       await writeHeartbeat(env, Date.now(), `err:${message}`).catch(() => {
       });

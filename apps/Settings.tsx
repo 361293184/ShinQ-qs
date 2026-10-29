@@ -1,3 +1,11 @@
+import NavigationBallSettings from '../components/settings/NavigationBallSettings';
+import { useSettingsFocus } from '../utils/settingsNavigation';
+import ApiPresetGroups from '../components/settings/ApiPresetGroups';
+import DialogueApiFields from '../components/settings/DialogueApiFields';
+import { llmApiType, normalizeLlmBaseUrl, type LlmApiType } from '../utils/llmEndpoint';
+import { fetchLlm } from '../utils/anthropicApi';
+import ModelPicker from '../components/settings/ModelPicker';
+import { buildModelPickerView } from '../utils/modelPickerView';
 
 import { useFirstUseGuideStep } from '../utils/firstUseGuide';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -11,6 +19,10 @@ import { EXPORT_CHUNK_SIZE, sliceRanges } from '../utils/backupExport';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
 import UserHolidaySettings from '../components/settings/UserHolidaySettings';
+import UserLocationSettings, { USER_LOCATION_PAGE_TITLES, getUserLocationParentPage, type UserLocationSettingsPage } from '../components/settings/UserLocationSettings';
+import { useLocalBackHandler } from '../hooks/useLocalBackHandler';
+import { loadUserLocationConfig, type UserLocationConfig } from '../utils/userLocationPrivacy';
+import { saveUserLocationConfig } from '../utils/userLocation';
 import { consumeHolidaySettings, hasHolidaySettingsRequest, type UserHolidayConfig } from '../utils/userHolidays';
 import { NotionManager, FeishuManager, RealtimeContextManager, fetchOwmWeather, fetchOpenMeteoWeather } from '../utils/realtimeContext';
 import { XhsMcpClient } from '../utils/xhsMcpClient';
@@ -21,7 +33,13 @@ import { getWereadConfig, saveWereadConfig, isPlausibleWereadCookie } from '../u
 import { verifyWereadCookie } from '../utils/weread/wereadApi';
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
-import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
+import {
+    DEFAULT_ELEVENLABS_MODEL,
+    ELEVENLABS_MODEL_OPTIONS,
+    getElevenLabsVoiceActingGuide,
+    isElevenLabsV4Model,
+} from '../utils/elevenLabsTts';
+import { getDateVoiceGuide } from '../utils/datePrompts';
 import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PlugsConnected } from '@phosphor-icons/react';
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
@@ -38,6 +56,7 @@ import VersionInfo from '../components/settings/VersionInfo';
 import { isPushVapidReady } from '../utils/pushVapid';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import StorageUsagePanel from '../components/settings/StorageUsagePanel';
+import WebCacheControl from '../components/settings/WebCacheControl';
 import McpConnectionConsole from '../components/settings/McpConnectionConsole';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
@@ -50,7 +69,13 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, presetDiffersFromConfig, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
-import type { APIConfig, TtsProvider } from '../types';
+import type { APIConfig, TtsProvider, SttProvider } from '../types';
+import {
+    STT_PROVIDER_OPTIONS,
+    isSttProviderConfigured,
+    resolveSttProvider,
+    getSttProviderLabel,
+} from '../utils/speechToText';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
@@ -94,27 +119,6 @@ const readStoredVisionModels = (): string[] => {
     }
 };
 
-const buildModelPickerView = (models: unknown[], filter: string) => {
-    const q = filter.trim().toLowerCase();
-    const safeModels = normalizeModelIds(models);
-    const filtered = q ? safeModels.filter(model => model.toLowerCase().includes(q)) : safeModels;
-    let commonPrefix = '';
-    if (filtered.length >= 2) {
-        let prefix = filtered[0];
-        for (let index = 1; index < filtered.length; index += 1) {
-            const candidate = filtered[index];
-            let cursor = 0;
-            while (cursor < prefix.length && cursor < candidate.length && prefix[cursor] === candidate[cursor]) cursor += 1;
-            prefix = prefix.slice(0, cursor);
-            if (!prefix) break;
-        }
-        const cut = Math.max(prefix.lastIndexOf('/'), prefix.lastIndexOf('-'));
-        if (cut > 3) prefix = prefix.slice(0, cut + 1);
-        if (prefix.length >= 4) commonPrefix = prefix;
-    }
-    return { filtered, commonPrefix };
-};
-
 const DiagRow: React.FC<{ label: string; value: string; bad?: boolean }> = ({ label, value, bad }) => (
     <div className="flex items-start justify-between gap-3">
         <span className="text-slate-500 shrink-0">{label}</span>
@@ -146,6 +150,14 @@ const SettingsSection: React.FC<{
 }> = ({ icon, title, badge, actions, sectionProps, children }) => {
     const guideStep = useFirstUseGuideStep();
     const [open, setOpen] = useState(() => title === 'API 配置' && guideStep === 0);
+    const sectionRef = useRef<HTMLElement>(null);
+    const [focusRequest, setFocusRequest] = useState(0);
+    useSettingsFocus(title === 'API 配置' ? 'api' : undefined, () => {
+        setOpen(true); setFocusRequest(value => value + 1);
+    });
+    useEffect(() => {
+        if (focusRequest) sectionRef.current?.scrollIntoView({ block: 'start' });
+    }, [focusRequest]);
     useEffect(() => {
         const reveal = () => { if (title === 'API 配置' && guideStep === 0) setOpen(true); };
         reveal();
@@ -153,7 +165,7 @@ const SettingsSection: React.FC<{
         return () => window.removeEventListener('sully:guide-navigate', reveal);
     }, [guideStep, title]);
     return (
-        <section {...sectionProps} className={`bg-[#fffefe] rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] border border-slate-200/80 transition-all ${open ? 'p-5' : 'px-4 py-3'}`}>
+        <section {...sectionProps} ref={sectionRef} className={`bg-[#fffefe] rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] border border-slate-200/80 transition-all ${open ? 'p-5' : 'px-4 py-3'}`}>
             <div className={`flex items-center justify-between gap-2 ${open ? 'mb-4' : ''}`}>
                 <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
                     {icon}
@@ -480,8 +492,10 @@ const Settings: React.FC = () => {
   
   const [localKey, setLocalKey] = useState(apiConfig.apiKey);
   const [localUrl, setLocalUrl] = useState(apiConfig.baseUrl);
+  const [localApiType, setLocalApiType] = useState<LlmApiType>(llmApiType(apiConfig));
   const [localModel, setLocalModel] = useState(String(apiConfig.model || ''));
   const [localStream, setLocalStream] = useState<boolean>(apiConfig.stream === true);
+  const [localMaxTokens, setLocalMaxTokens] = useState(apiConfig.maxTokens ?? 8000);
   const [localTemperature, setLocalTemperature] = useState<number>(
     typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85
   );
@@ -521,35 +535,50 @@ const Settings: React.FC = () => {
     apiConfig.minimaxRegion === 'overseas' ? 'overseas' : 'domestic'
   );
   const [localAceStepKey, setLocalAceStepKey] = useState(apiConfig.aceStepApiKey || '');
-  const [localTtsProvider, setLocalTtsProvider] = useState<'minimax' | 'fishaudio'>(
-    apiConfig.ttsProvider === 'fishaudio' ? 'fishaudio' : 'minimax'
+  const [localTtsProvider, setLocalTtsProvider] = useState<TtsProvider>(
+    apiConfig.ttsProvider === 'fishaudio' || apiConfig.ttsProvider === 'elevenlabs'
+      ? apiConfig.ttsProvider
+      : 'minimax'
   );
+  const [localSttProvider, setLocalSttProvider] = useState<SttProvider | undefined>(apiConfig.sttProvider);
   const [localFishKey, setLocalFishKey] = useState(apiConfig.fishAudioApiKey || '');
   const [localFishModel, setLocalFishModel] = useState(apiConfig.fishAudioModel || 's2.1-pro');
-  // 自定义语音表演指南（留空 → 用内置默认）。按服务商分两份。
+  const [localElevenLabsKey, setLocalElevenLabsKey] = useState(apiConfig.elevenLabsApiKey || '');
+  const [localElevenLabsModel, setLocalElevenLabsModel] = useState(apiConfig.elevenLabsModel || DEFAULT_ELEVENLABS_MODEL);
+  const [localElevenLabsStability, setLocalElevenLabsStability] = useState(apiConfig.elevenLabsStability ?? 0.5);
+  const [localElevenLabsSimilarityBoost, setLocalElevenLabsSimilarityBoost] = useState(apiConfig.elevenLabsSimilarityBoost ?? 0.8);
+  const [localElevenLabsStyle, setLocalElevenLabsStyle] = useState(apiConfig.elevenLabsStyle ?? 0);
+  const [localElevenLabsUseSpeakerBoost, setLocalElevenLabsUseSpeakerBoost] = useState(apiConfig.elevenLabsUseSpeakerBoost === true);
+  // 自定义语音表演指南（留空 → 用内置默认）。按服务商分别保存。
   const [localVoicePromptMinimax, setLocalVoicePromptMinimax] = useState(apiConfig.voicePrompts?.minimax || '');
   const [localVoicePromptFish, setLocalVoicePromptFish] = useState(apiConfig.voicePrompts?.fishaudio || '');
+  const [localVoicePromptElevenLabs, setLocalVoicePromptElevenLabs] = useState(apiConfig.voicePrompts?.elevenlabs || '');
   const [localVoicePromptDate, setLocalVoicePromptDate] = useState(apiConfig.voicePrompts?.dateVoice || '');
   const [showVoicePrompts, setShowVoicePrompts] = useState(false);
   const [showAceStepGuide, setShowAceStepGuide] = useState(false);
   const [otherStatusMsg, setOtherStatusMsg] = useState('');
   // 高级设置（流式/温度）默认折叠 — 大多数用户不需要碰
-  const [showApiAdvanced, setShowApiAdvanced] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [selectedPresetName, setSelectedPresetName] = useState('');
+  // 预设分组（上游新增）：新建/编辑预设时可写一个分组名，空串表示不分组
+  const [newPresetGroup, setNewPresetGroup] = useState('');
+  const [editPresetGroup, setEditPresetGroup] = useState('');
   // 就地编辑某条预设：只改预设本身；改的正好是当前生效那条时，生效配置一并跟着走
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [showApiAdvanced, setShowApiAdvanced] = useState(false);
   // 保存前在用某条预设、保存后跟它对不上了：记下是哪条和刚存的配置，弹窗问要不要存回去
   const [presetWriteback, setPresetWriteback] = useState<{ presetId: string; config: PresetSwitchPatch } | null>(null);
   const [editPresetName, setEditPresetName] = useState('');
   const [editPresetUrl, setEditPresetUrl] = useState('');
+  const [editPresetApiType, setEditPresetApiType] = useState<LlmApiType>('openai');
   const [editPresetKey, setEditPresetKey] = useState('');
   const [editPresetModel, setEditPresetModel] = useState('');
   const [editPresetStream, setEditPresetStream] = useState(false);
   const [editPresetTemperature, setEditPresetTemperature] = useState(0.85);
+  const [editPresetMaxTokens, setEditPresetMaxTokens] = useState(8000);
   const [holdingDeletePresetId, setHoldingDeletePresetId] = useState<string | null>(null);
   const presetDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -557,7 +586,6 @@ const Settings: React.FC = () => {
   const [showModelModal, setShowModelModal] = useState(false);
   // 打开模型弹窗那一刻的模型名：点 × 关掉时退回它，只有「确定」/点选列表才算数。
   const modelBeforePickerRef = useRef('');
-  const [modelFilter, setModelFilter] = useState('');
   const [showVisionModelModal, setShowVisionModelModal] = useState(false);
   const [visionModelFilter, setVisionModelFilter] = useState('');
   const [showExportModal, setShowExportModal] = useState(false); // Used for completion now
@@ -638,6 +666,19 @@ const Settings: React.FC = () => {
 
   // 实时感知配置的本地状态
   const [rtWeatherEnabled, setRtWeatherEnabled] = useState(realtimeConfig.weatherEnabled);
+  const [rtUserLocation, setRtUserLocation] = useState<UserLocationConfig>(() => { try { return loadUserLocationConfig(); } catch { return { enabled: false, regions: [] }; } });
+  const [rtUserLocationPage, setRtUserLocationPage] = useState<UserLocationSettingsPage>('main');
+  const [rtUserLocationBusy, setRtUserLocationBusy] = useState(false);
+  useSettingsFocus('location', () => {
+      setRtUserLocationPage('location');
+      setShowRealtimeModal(true);
+  });
+  const closeRealtimePage = () => {
+      if (rtUserLocationBusy) return;
+      if (rtUserLocationPage !== 'main') setRtUserLocationPage(getUserLocationParentPage(rtUserLocationPage));
+      else setShowRealtimeModal(false);
+  };
+  useLocalBackHandler(() => { closeRealtimePage(); return true; }, 30, showRealtimeModal);
   const [rtUserHolidays, setRtUserHolidays] = useState<UserHolidayConfig>(() => ({ ...(realtimeConfig.userHolidays || { enabled: false, countryCode: '' }), ...(holidaySettingsFocus ? { enabled: true } : {}) }));
   const [rtWeatherKey, setRtWeatherKey] = useState(realtimeConfig.weatherApiKey);
   const [rtWeatherCity, setRtWeatherCity] = useState(realtimeConfig.weatherCity);
@@ -765,10 +806,6 @@ const Settings: React.FC = () => {
   const [csyPreviewResult, setCsyPreviewResult] = useState<any>(null);
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
-  const modelPickerView = useMemo(
-      () => buildModelPickerView(availableModels, modelFilter),
-      [modelFilter, availableModels],
-  );
   const visionModelPickerView = useMemo(
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
@@ -955,10 +992,15 @@ const Settings: React.FC = () => {
   // Auto-save draft configs locally to prevent loss during typing
   useEffect(() => {
       setLocalUrl(apiConfig.baseUrl);
+      setLocalApiType(llmApiType(apiConfig));
       setLocalKey(apiConfig.apiKey);
       setLocalModel(String(apiConfig.model || ''));
       setLocalStream(apiConfig.stream === true);
+      setLocalMaxTokens(apiConfig.maxTokens ?? 8000);
       setLocalTemperature(typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85);
+  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.stream, apiConfig.temperature, apiConfig.maxTokens, apiConfig.apiType]);
+
+  useEffect(() => {
       setLocalVisionEnabled(apiConfig.visionApi?.enabled === true);
   }, [apiConfig.visionApi?.enabled]);
   useEffect(() => {
@@ -972,13 +1014,25 @@ const Settings: React.FC = () => {
       setLocalMiniMaxGroupId(apiConfig.minimaxGroupId || '');
       setLocalMiniMaxRegion(apiConfig.minimaxRegion === 'overseas' ? 'overseas' : 'domestic');
       setLocalAceStepKey(apiConfig.aceStepApiKey || '');
-      setLocalTtsProvider(apiConfig.ttsProvider === 'fishaudio' ? 'fishaudio' : 'minimax');
+      setLocalTtsProvider(
+          apiConfig.ttsProvider === 'fishaudio' || apiConfig.ttsProvider === 'elevenlabs'
+              ? apiConfig.ttsProvider
+              : 'minimax'
+      );
+      setLocalSttProvider(apiConfig.sttProvider);
       setLocalFishKey(apiConfig.fishAudioApiKey || '');
       setLocalFishModel(apiConfig.fishAudioModel || 's2.1-pro');
       setLocalVoicePromptMinimax(apiConfig.voicePrompts?.minimax || '');
       setLocalVoicePromptFish(apiConfig.voicePrompts?.fishaudio || '');
       setLocalVoicePromptDate(apiConfig.voicePrompts?.dateVoice || '');
-  }, [apiConfig]);
+  }, [
+      apiConfig.minimaxApiKey, apiConfig.minimaxGroupId, apiConfig.minimaxRegion, apiConfig.aceStepApiKey,
+      apiConfig.ttsProvider, apiConfig.sttProvider, apiConfig.fishAudioApiKey, apiConfig.fishAudioModel,
+      apiConfig.elevenLabsApiKey, apiConfig.elevenLabsModel, apiConfig.elevenLabsStability,
+      apiConfig.elevenLabsSimilarityBoost, apiConfig.elevenLabsStyle, apiConfig.elevenLabsUseSpeakerBoost,
+      apiConfig.voicePrompts?.minimax, apiConfig.voicePrompts?.fishaudio,
+      apiConfig.voicePrompts?.elevenlabs, apiConfig.voicePrompts?.dateVoice,
+  ]);
 
   const selectedApiPreset = useMemo(
       () => apiPresets.find(preset => preset.id === selectedPresetId) || null,
@@ -1012,6 +1066,7 @@ const Settings: React.FC = () => {
 
   const deleteApiPreset = (id: string, name: string) => {
       cancelPresetDeleteHold();
+      const wasActive = activePresetId === id;
       removeApiPreset(id);
       if (selectedPresetId === id) {
           setSelectedPresetId(null);
@@ -1026,6 +1081,7 @@ const Settings: React.FC = () => {
       presetDeleteTimerRef.current = setTimeout(() => {
           presetDeleteTimerRef.current = null;
           setHoldingDeletePresetId(null);
+          const wasActive = activePresetId === id;
           removeApiPreset(id);
           if (selectedPresetId === id) {
               setSelectedPresetId(null);
@@ -1041,15 +1097,46 @@ const Settings: React.FC = () => {
           return;
       }
       addApiPreset(newPresetName, {
-        baseUrl: normalizeApiBaseUrl(localUrl),
+        baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(localUrl), localApiType),
+        apiType: localApiType,
         apiKey: normalizeApiCredential(localKey),
         model: normalizeApiModel(localModel),
         stream: localStream,
         temperature: localTemperature,
-      });
+        maxTokens: localMaxTokens,
+      }, newPresetGroup);
       setNewPresetName('');
+      setNewPresetGroup('');
       setShowPresetModal(false);
       addToast('预设已保存', 'success');
+  };
+
+  // 就地编辑某条预设：只改这条预设本身；改的正好是当前生效那条时，生效配置一并跟着走
+  const handleUpdatePreset = () => {
+      const preset = apiPresets.find(item => item.id === editingPresetId);
+      if (!preset) return;
+      const name = editPresetName.trim();
+      if (!name) {
+          addToast('预设名称不能为空', 'error');
+          return;
+      }
+      const nextConfig = {
+          ...preset.config,
+          baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(editPresetUrl), editPresetApiType),
+          apiType: editPresetApiType,
+          apiKey: normalizeApiCredential(editPresetKey),
+          model: normalizeApiModel(editPresetModel),
+          stream: editPresetStream,
+          temperature: editPresetTemperature,
+          maxTokens: editPresetMaxTokens,
+      };
+      // 「正在用的就是这条」要在改之前问，改完值就对不上了
+      const wasActive = activePresetId === preset.id;
+      updateApiPreset(preset.id, name, nextConfig, editPresetGroup);
+      // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
+      if (wasActive) updateApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
+      setEditingPresetId(null);
+      addToast(wasActive ? `「${name}」已更新，当前配置同步生效` : `「${name}」已更新`, 'success');
   };
 
   const activePresetId = useMemo(
@@ -1071,10 +1158,12 @@ const Settings: React.FC = () => {
     }
     const nextConfig = {
       apiKey: normalizeApiCredential(localKey),
-      baseUrl: normalizeApiBaseUrl(localUrl),
+      baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(localUrl), localApiType),
+      apiType: localApiType,
       model: normalizeApiModel(modelOverride ?? localModel),
       stream: localStream,
       temperature: localTemperature,
+      maxTokens: localMaxTokens,
     };
     // 「是不是来自某条预设」要在保存之前问，存完值就对不上了
     const sourcePreset = apiPresets.find(preset => preset.id === activePresetId);
@@ -1394,23 +1483,45 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleSaveOtherApis = () => {
-    updateApiConfig({
+  const buildOtherApiConfig = (overrides: Partial<APIConfig> = {}): Partial<APIConfig> => ({
       minimaxApiKey: localMiniMaxKey,
       minimaxGroupId: localMiniMaxGroupId,
       minimaxRegion: localMiniMaxRegion,
       aceStepApiKey: localAceStepKey,
       ttsProvider: localTtsProvider,
+      sttProvider: localSttProvider,
       fishAudioApiKey: localFishKey,
       fishAudioModel: localFishModel,
+      elevenLabsApiKey: localElevenLabsKey,
+      elevenLabsModel: localElevenLabsModel,
+      elevenLabsStability: localElevenLabsStability,
+      elevenLabsSimilarityBoost: localElevenLabsSimilarityBoost,
+      elevenLabsStyle: localElevenLabsStyle,
+      elevenLabsUseSpeakerBoost: localElevenLabsUseSpeakerBoost,
       voicePrompts: {
         minimax: localVoicePromptMinimax.trim() ? localVoicePromptMinimax : undefined,
         fishaudio: localVoicePromptFish.trim() ? localVoicePromptFish : undefined,
+        elevenlabs: localVoicePromptElevenLabs.trim() ? localVoicePromptElevenLabs : undefined,
         dateVoice: localVoicePromptDate.trim() ? localVoicePromptDate : undefined,
       },
-    });
+      ...overrides,
+  });
+
+  const handleSaveOtherApis = () => {
+    updateApiConfig(buildOtherApiConfig());
     setOtherStatusMsg('已保存');
     setTimeout(() => setOtherStatusMsg(''), 2000);
+  };
+
+  const draftSttLookupConfig: Partial<APIConfig> = {
+      ...apiConfig,
+      baseUrl: localUrl,
+      apiKey: localKey,
+      minimaxApiKey: localMiniMaxKey,
+      fishAudioApiKey: localFishKey,
+      elevenLabsApiKey: localElevenLabsKey,
+      ttsProvider: localTtsProvider,
+      sttProvider: localSttProvider,
   };
 
   // 保存生图 API 设置
@@ -1624,6 +1735,23 @@ const Settings: React.FC = () => {
     addToast(provider === 'fishaudio' ? '语音生成已切到鱼声 Fish' : '语音生成已切到 MiniMax', 'success');
   };
 
+  const selectSttProvider = (provider: SttProvider) => {
+    if (!isSttProviderConfigured(provider, draftSttLookupConfig)) {
+      const opt = STT_PROVIDER_OPTIONS.find(o => o.id === provider);
+      addToast(opt?.keyHint || '请先在上方填写对应平台的 API Key', 'error');
+      return;
+    }
+    setLocalSttProvider(provider);
+    updateApiConfig(buildOtherApiConfig({ sttProvider: provider }));
+    addToast(`语音转文字已切到 ${getSttProviderLabel(provider)}`, 'success');
+  };
+
+  // ElevenLabs 模型会改变可用的语音标签，因此和鱼声模型一样立即落库。
+  const selectElevenLabsModel = (model: string) => {
+    setLocalElevenLabsModel(model);
+    updateApiConfig(buildOtherApiConfig({ elevenLabsModel: model }));
+  };
+
   // 选鱼声模型：立即落库（同上，连带草稿一起提交，避免被同步 effect 冲掉）。
   const selectFishModel = (model: string) => {
     setLocalFishModel(model);
@@ -1644,13 +1772,13 @@ const Settings: React.FC = () => {
   };
 
   const fetchModels = async () => {
-    const baseUrl = normalizeApiBaseUrl(localUrl);
+    const baseUrl = normalizeLlmBaseUrl(normalizeApiBaseUrl(localUrl), localApiType);
     const apiKey = normalizeApiCredential(localKey);
     if (!baseUrl) { setStatusMsg('请先填写 URL'); return; }
     setIsLoadingModels(true);
     setStatusMsg('正在连接...');
     try {
-        const response = await fetch(`${baseUrl}/models`, {
+        const response = await fetchLlm(`${baseUrl}/models`, {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
         });
@@ -2168,8 +2296,13 @@ const Settings: React.FC = () => {
   };
 
   // 保存实时感知配置
+  const handleSaveUserLocation = () => {
+      try { saveUserLocationConfig(rtUserLocation); return true; }
+      catch (error: any) { addToast(error?.message || '定位配置未保存', 'error'); return false; }
+  };
   const handleSaveRealtimeConfig = () => {
       if (rtUserHolidays.enabled && !rtUserHolidays.countryCode) { addToast('请选择生活所在的国家／地区，或关闭节假日感知', 'error'); return; }
+      if (!handleSaveUserLocation()) return;
       const updates = {
           weatherEnabled: rtWeatherEnabled,
           userHolidays: { ...rtUserHolidays, introChoice: rtUserHolidays.enabled ? 'configured' as const : 'declined' as const },
@@ -2434,6 +2567,7 @@ const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
 
+        <NavigationBallSettings characters={characters} loadWorlds={() => DB.getWorlds()} />
         {/* 外观救急入口统一放在设置顶部，无需进入已被错误 CSS 遮住的聊天或日记。 */}
         <SettingsSection
             title="外观急救"
@@ -2505,6 +2639,7 @@ const Settings: React.FC = () => {
             }
         >
             <StorageUsagePanel />
+            <WebCacheControl />
 
             <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 cursor-pointer">
                 <input
@@ -2642,7 +2777,7 @@ const Settings: React.FC = () => {
                 </p>
                 {avatarModelInventory && avatarModelInventory.missingCount > 0 && (
                     <p className="mt-2 text-[10px] leading-relaxed text-rose-500">
-                        有 {avatarModelInventory.missingCount} 个角色只剩模型索引，本地二进制已经丢失，无法导出。
+                        有 {avatarModelInventory.missingCount} 个角色的模型文件已丢失，需重新导入模型后才能导出。
                     </p>
                 )}
             </div>
@@ -2885,8 +3020,7 @@ const Settings: React.FC = () => {
             {apiPresets.length > 0 && (
                 <div className="mb-4">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block pl-1">我的预设 (Presets)</label>
-                    <div className="flex gap-2 flex-wrap">
-                        {apiPresets.map(preset => (
+                    <ApiPresetGroups presets={apiPresets}>{preset => (
                             <div key={preset.id} className={`flex items-center rounded-lg pl-3 pr-1 py-1 shadow-sm border transition-colors ${
                                 selectedPresetId === preset.id
                                     ? 'bg-primary/5 border-primary/30'
@@ -2916,8 +3050,7 @@ const Settings: React.FC = () => {
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
                                 </button>
                             </div>
-                        ))}
-                    </div>
+                        )}</ApiPresetGroups>
                     <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称加载并编辑；长按或双击 × 才会删除。</p>
                 </div>
             )}
@@ -3042,7 +3175,7 @@ const Settings: React.FC = () => {
                         setTestingApi(true);
                         setTestApiResult(null);
                         try {
-                            const res = await fetch(`${localUrl.trim().replace(/\/+$/, '')}/chat/completions`, {
+                            const res = await fetchLlm(`${normalizeLlmBaseUrl(localUrl, localApiType)}/chat/completions`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localKey.trim()}` },
                                 body: JSON.stringify({
@@ -3506,15 +3639,85 @@ const Settings: React.FC = () => {
                     </select>
                     <p className="text-[11px] text-slate-400 mt-1 pl-1">
                         {localFishModel === 's2.1-pro-free'
-                            ? '免费版：和 s2.1-pro 同一个模型、$0，但不保证 TTFA / DPA，适合自用测试。选了立即生效。'
+                            ? '免费版：和 s2.1-pro 同一个模型、$0，但首字延迟和并发稳定性不作保证，适合自用测试。选了立即生效。'
                             : '切换立即生效。角色也可在「角色 → 语音」单独覆盖模型（留空则用这里的全局默认）。'}
                     </p>
                 </div>
 
-                {/* 底部：当前语音引擎二选一 —— radio 样式（不是 tab 切换，配置都在上面，这里只挑用哪家） */}
+                {/* ElevenLabs —— Voice ID 在角色页配置，这里保存账号、全局模型和通用声音参数。 */}
+                <div className="group">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">ElevenLabs API Key</label>
+                    <input
+                        type="password"
+                        name="elevenlabs-api-key"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        value={localElevenLabsKey}
+                        onChange={(e) => setLocalElevenLabsKey(e.target.value)}
+                        placeholder="ElevenLabs API Key"
+                        className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1 pl-1">
+                        在 <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-semibold">ElevenLabs API Keys</a> 创建。角色音色在「角色 → 语音」填写 Voice ID；网页端合成会通过项目代理转发，不写入服务端存储。
+                    </p>
+
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3 mb-1.5 block pl-1">ElevenLabs 模型</label>
+                    <select
+                        value={localElevenLabsModel}
+                        onChange={(e) => selectElevenLabsModel(e.target.value)}
+                        className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-3 py-2.5 text-sm focus:bg-white transition-all"
+                    >
+                        {ELEVENLABS_MODEL_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1 pl-1">
+                        默认推荐 v4，音质与表现力优先；v4 Turbo 生成更快。两者都支持情绪、音效、节奏等 Audio Tags，内置语音指南随模型切换；已有自定义指南会保留。
+                    </p>
+                    {isElevenLabsV4Model(localElevenLabsModel) && (
+                        <p className="text-[11px] text-slate-500 mt-2 pl-1">
+                            v4 只支持稳定度与相似度；角色语速、风格强度、Speaker Boost 和 SSML 不生效，请用 Audio Tags 控制节奏与表演。当前播放需等待整段音频生成完成；跨语言时会采用目标语言的自然发音。
+                        </p>
+                    )}
+
+                    <details className="mt-3 rounded-xl border border-slate-200/60 bg-white/35 px-3 py-2">
+                        <summary className="cursor-pointer text-[11px] font-semibold text-slate-500 select-none">声音参数（高级）</summary>
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {([
+                                ['稳定度', localElevenLabsStability, setLocalElevenLabsStability],
+                                ['相似度', localElevenLabsSimilarityBoost, setLocalElevenLabsSimilarityBoost],
+                                ['风格强度', localElevenLabsStyle, setLocalElevenLabsStyle],
+                            ] as const).filter(([label]) => !isElevenLabsV4Model(localElevenLabsModel) || label !== '风格强度').map(([label, value, setter]) => (
+                                <label key={label} className="text-[11px] text-slate-500">
+                                    <span className="flex justify-between mb-1"><span>{label}</span><span className="font-mono">{value.toFixed(2)}</span></span>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.05"
+                                        value={value}
+                                        onChange={(e) => setter(Number(e.target.value))}
+                                        className="w-full accent-primary"
+                                    />
+                                </label>
+                            ))}
+                            {!isElevenLabsV4Model(localElevenLabsModel) && <label className="flex items-center justify-between gap-3 text-[11px] text-slate-500 sm:col-span-2">
+                                <span>Speaker Boost（更贴近原音色，可能增加少量延迟）</span>
+                                <input
+                                    type="checkbox"
+                                    checked={localElevenLabsUseSpeakerBoost}
+                                    onChange={(e) => setLocalElevenLabsUseSpeakerBoost(e.target.checked)}
+                                    className="w-4 h-4 accent-primary"
+                                />
+                            </label>}
+                        </div>
+                    </details>
+                </div>
+
+                {/* 底部：当前语音引擎三选一 —— radio 样式（配置都在上面，这里只挑用哪家） */}
                 <div className="group rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5 block">当前语音引擎（二选一）</label>
-                    <p className="text-[11px] text-slate-400 mb-2.5">聊天语音条 / 约会 / 电话用哪一家。上面两边的 Key 都会保留，这里只切换当前生效的。</p>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5 block">当前语音引擎（三选一）</label>
+                    <p className="text-[11px] text-slate-400 mb-2.5">聊天语音条 / 约会 / 电话里角色开口用哪一家。上面三家的配置都会保留，这里只切换当前生效的。</p>
                     <div className="space-y-2">
                         {([
                             ['minimax', 'MiniMax', '国内可直连，默认推荐'],
@@ -3542,7 +3745,53 @@ const Settings: React.FC = () => {
                     </div>
                 </div>
 
-                {/* 语音提示词（高级）—— 自定义注入角色 system prompt 的「语音表演指南」，按服务商分两份 */}
+                {/* 通话语音转文字（你开口说话 → 转文字）四选一 —— 可与角色发声平台自由搭配，填了 Key 才能选对应平台 */}
+                <div className="group rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5 block">语音转文字 · 通话麦克风（四选一）</label>
+                    <p className="text-[11px] text-slate-400 mb-2.5">
+                        电话里点麦克风说话走哪条路转成文字。可与上方角色发声平台分开搭配（比如语音用 MiniMax、识别用 ElevenLabs 或鱼声）；填好对应官方 Key 后即可切换。
+                    </p>
+                    <div className="space-y-2">
+                        {STT_PROVIDER_OPTIONS.map((opt) => {
+                            const configured = isSttProviderConfigured(opt.id, draftSttLookupConfig);
+                            const resolvedCurrent = resolveSttProvider(draftSttLookupConfig);
+                            const active = resolvedCurrent === opt.id;
+                            return (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => selectSttProvider(opt.id)}
+                                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                                        active
+                                            ? 'border-primary bg-primary/5 shadow-sm'
+                                            : configured
+                                                ? 'border-slate-200 bg-white/70 active:bg-white'
+                                                : 'border-slate-200/60 bg-slate-100/60 opacity-65'
+                                    }`}
+                                >
+                                    <span className={`shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center ${active ? 'border-primary' : 'border-slate-300'}`}>
+                                        {active && <span className="w-2 h-2 rounded-full bg-primary" />}
+                                    </span>
+                                    <span className="flex-1 min-w-0">
+                                        <span className={`text-sm font-semibold ${active ? 'text-primary' : configured ? 'text-slate-700' : 'text-slate-500'}`}>
+                                            {opt.label}
+                                        </span>
+                                        <span className="block text-[11px] text-slate-400 mt-0.5">
+                                            {configured ? opt.desc : `${opt.desc}（${opt.keyHint}）`}
+                                        </span>
+                                    </span>
+                                    {active ? (
+                                        <span className="text-[10px] font-bold text-primary shrink-0">使用中</span>
+                                    ) : !configured ? (
+                                        <span className="text-[10px] font-medium text-slate-400 shrink-0">未填 Key</span>
+                                    ) : null}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* 语音提示词（高级）—— 自定义注入角色 system prompt 的「语音表演指南」，按服务商分别保存 */}
                 <div className="group rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3">
                     <button
                         type="button"
@@ -3565,7 +3814,8 @@ const Settings: React.FC = () => {
                             {([
                                 ['minimax', 'MiniMax 语音指南', localVoicePromptMinimax, setLocalVoicePromptMinimax, VOICE_ACTING_GUIDE, '聊天 + 电话 · MiniMax 引擎时生效'] as const,
                                 ['fishaudio', '鱼声 Fish 语音指南', localVoicePromptFish, setLocalVoicePromptFish, FISH_VOICE_ACTING_GUIDE, '聊天 + 电话 · 鱼声引擎时生效'] as const,
-                                ['dateVoice', '见面（约会）语音情绪', localVoicePromptDate, setLocalVoicePromptDate, DATE_VOICE_GUIDE, '见面专用 [v:xxx] 规则 · 角色开了见面语音时生效，与引擎无关'] as const,
+                                ['elevenlabs', 'ElevenLabs 语音指南', localVoicePromptElevenLabs, setLocalVoicePromptElevenLabs, getElevenLabsVoiceActingGuide(localElevenLabsModel), '聊天 + 电话 · ElevenLabs 引擎时生效；默认模板随模型变化'] as const,
+                                ['dateVoice', '见面（约会）语音情绪', localVoicePromptDate, setLocalVoicePromptDate, getDateVoiceGuide(localTtsProvider, localElevenLabsModel), '见面专用 [v:xxx] 规则 · v4 默认支持台词内 Audio Tags'] as const,
                             ]).map(([key, title, value, setValue, def, hint]) => {
                                 const active = localTtsProvider === key;
                                 const usingDefault = !value.trim();
@@ -4236,6 +4486,10 @@ const Settings: React.FC = () => {
             <p className="text-xs text-slate-500 leading-relaxed">
                 角色到点自动给你发消息，App 关着也能收。需要你自己部署一个 Cloudflare Worker（自带 D1 数据库 + 定时触发），在配置里填地址即可。聊天上云（即时对话）与定时主动消息都由它承担。
             </p>
+            <button type="button" onClick={() => setShowAmsgCloudData(true)} className="mt-3 w-full rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-left text-xs text-violet-700">
+                <span className="block font-semibold">云端数据管理</span>
+                <span className="mt-1 block text-[11px] text-slate-500">查看 Worker 实际保存的数据，按项清理或彻底移除角色。</span>
+            </button>
         </section>
 
         {/* 自定义网络代理 — 刻意低调的高级入口。默认折叠，不主动指引基本发现不了。
@@ -4846,82 +5100,7 @@ const Settings: React.FC = () => {
 
       {/* 模型选择 Modal */}
       <Modal isOpen={showModelModal} title="选择模型" onClose={cancelModelPicker}>
-        {(() => {
-            const { filtered, commonPrefix } = modelPickerView;
-            return (
-                <div className="space-y-3 p-1">
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={localModel}
-                            onChange={(e) => setLocalModel(e.target.value)}
-                            placeholder="手动输入模型名称..."
-                            className="flex-1 bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-primary focus:bg-white transition-all"
-                        />
-                        <button
-                            onClick={() => confirmModelPicker(localModel)}
-                            className="px-4 py-2.5 bg-primary text-white text-sm font-bold rounded-xl active:scale-95 transition-all"
-                        >
-                            确定
-                        </button>
-                    </div>
-                    {availableModels.length > 0 && (
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={modelFilter}
-                                onChange={(e) => setModelFilter(e.target.value)}
-                                placeholder={`🔍 搜索 ${availableModels.length} 个模型...`}
-                                className="w-full bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2 text-xs focus:outline-primary focus:bg-white transition-all"
-                            />
-                            {modelFilter && (
-                                <button
-                                    onClick={() => setModelFilter('')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs px-2"
-                                >
-                                    ×
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    {commonPrefix && (
-                        <div className="text-[10px] text-slate-400 px-1 flex items-center gap-1 flex-wrap">
-                            <span>共同前缀:</span>
-                            <code className="font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded break-all">{commonPrefix}</code>
-                            <span className="text-slate-300">(下方已弱化显示)</span>
-                        </div>
-                    )}
-                    <div className="max-h-[40vh] overflow-y-auto no-scrollbar space-y-2">
-                        {filtered.length > 0 ? filtered.map(m => {
-                            const suffix = commonPrefix && m.startsWith(commonPrefix) ? m.slice(commonPrefix.length) : m;
-                            const selected = m === localModel;
-                            return (
-                                <button
-                                    key={m}
-                                    onClick={() => confirmModelPicker(m)}
-                                    title={m}
-                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm font-mono flex justify-between items-start gap-2 ${selected ? 'bg-primary/10 text-primary font-bold ring-1 ring-primary/20' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                >
-                                    <span className="break-all min-w-0 flex-1 leading-relaxed">
-                                        {commonPrefix && suffix !== m && (
-                                            <span className={selected ? 'text-primary/40 font-normal' : 'text-slate-400 font-normal'}>{commonPrefix}</span>
-                                        )}
-                                        <span>{suffix}</span>
-                                    </span>
-                                    {selected && <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0"></div>}
-                                </button>
-                            );
-                        }) : (
-                            <div className="text-center text-slate-400 py-8 text-xs">
-                                {availableModels.length === 0
-                                    ? '列表为空，可手动输入或点击"刷新模型列表"拉取'
-                                    : `没有匹配 "${modelFilter}" 的模型`}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        })()}
+        <ModelPicker availableModels={availableModels} localModel={localModel} setLocalModel={setLocalModel} confirmModelPicker={confirmModelPicker} />
       </Modal>
 
       {/* 识图 API 使用独立模型列表，避免覆盖主 API 的模型选择。 */}
@@ -5019,6 +5198,99 @@ const Settings: React.FC = () => {
           <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase">预设名称 (例如: DeepSeek)</label>
               <input value={newPresetName} onChange={e => setNewPresetName(e.target.value)} className="w-full bg-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-primary" autoFocus placeholder="Name..." />
+              <label className="text-[10px] font-bold text-slate-400 block">API 预设分组（选填）</label>
+              <input aria-label="API 预设分组" value={newPresetGroup} onChange={e => setNewPresetGroup(e.target.value)} list="newPresetGroup-options" placeholder="例如：日常聊天 / 写作" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+              <datalist id="newPresetGroup-options">{[...new Set(apiPresets.map(p => p.group).filter(Boolean))].map(group => <option key={group} value={group} />)}</datalist>
+              <p className="text-[10px] text-slate-400 leading-relaxed pt-1">会保存上面表单里的 URL / Key / Model，以及高级设置中的流式与温度。</p>
+          </div>
+      </Modal>
+      {/* 编辑预设：只改这条预设本身；正在用它的话，当前配置一并跟着走 */}
+      <Modal
+          isOpen={!!editingPresetId}
+          title="编辑预设"
+          onClose={() => setEditingPresetId(null)}
+          footer={<button onClick={handleUpdatePreset} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存</button>}
+      >
+          <div className="space-y-3">
+              <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">名称</label>
+                  <input value={editPresetName} onChange={e => setEditPresetName(e.target.value)} placeholder="预设名称" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+                  <label className="text-[10px] font-bold text-slate-400 block">API 预设分组（选填）</label>
+              <input aria-label="API 预设分组" value={editPresetGroup} onChange={e => setEditPresetGroup(e.target.value)} list="editPresetGroup-options" placeholder="例如：日常聊天 / 写作" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+              <datalist id="editPresetGroup-options">{[...new Set(apiPresets.map(p => p.group).filter(Boolean))].map(group => <option key={group} value={group} />)}</datalist>
+              </div>
+              <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL</label>
+                  <select aria-label="预设接口类型" value={editPresetApiType} onChange={e => setEditPresetApiType(e.target.value as LlmApiType)} className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic 原生 Messages</option></select>
+                  <input value={editPresetUrl} onChange={e => setEditPresetUrl(e.target.value)} placeholder="https://..." className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-primary" />
+              </div>
+              <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Key</label>
+                  <input type="password" value={editPresetKey} onChange={e => setEditPresetKey(e.target.value)} placeholder="sk-..." className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-primary" />
+              </div>
+              <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Model</label>
+                  <input value={editPresetModel} onChange={e => setEditPresetModel(e.target.value)} placeholder="模型名称" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-primary" />
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                      <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">流式输出 (Stream)</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5">随这条预设独立保存</p>
+                      </div>
+                      <button
+                          type="button"
+                          aria-label="预设流式输出"
+                          aria-pressed={editPresetStream}
+                          onClick={() => setEditPresetStream(value => !value)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${editPresetStream ? 'bg-primary' : 'bg-slate-200'}`}
+                      >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${editPresetStream ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                  </div>
+                  <div>
+                      <div className="flex items-center justify-between">
+                          <label htmlFor="edit-preset-temperature" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">温度 (Temperature)</label>
+                          <span className="text-[10px] font-mono text-slate-400">{editPresetTemperature.toFixed(2)}</span>
+                      </div>
+                      <input
+                          id="edit-preset-temperature"
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.05"
+                          value={editPresetTemperature}
+                          onChange={event => setEditPresetTemperature(parseFloat(event.target.value))}
+                          className="w-full accent-primary mt-1"
+                      />
+                  </div>
+                  <label className="block text-[10px] text-slate-400">私聊最大生成 Token
+                      <input type="number" min={1} step={1} value={editPresetMaxTokens} aria-label="预设最大生成 Token"
+                          onChange={event => { const n = Number(event.target.value); if (Number.isSafeInteger(n) && n > 0) setEditPresetMaxTokens(n); }}
+                          className="mt-1 w-full bg-white rounded-xl px-3 py-2 text-sm" />
+                  </label>
+              </div>
+              <button
+                  type="button"
+                  onClick={() => {
+                      setEditPresetUrl(localUrl);
+                      setEditPresetApiType(localApiType);
+                      setEditPresetKey(localKey);
+                      setEditPresetModel(localModel);
+                      setEditPresetStream(localStream);
+                      setEditPresetTemperature(localTemperature);
+                      setEditPresetMaxTokens(localMaxTokens);
+                      addToast('已填入当前配置', 'info');
+                  }}
+                  className="w-full py-2 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl active:scale-95 transition-transform"
+              >
+                  用当前完整配置填入
+              </button>
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                  {editingPresetId && activePresetId === editingPresetId
+                      ? '这条正在使用中，保存后当前配置会一起换成新的值。'
+                      : '只改这条预设，当前生效的配置不受影响。'}
+              </p>
           </div>
       </Modal>
 
@@ -5063,12 +5335,16 @@ const Settings: React.FC = () => {
       {/* 实时感知配置 Modal */}
       <Modal
           isOpen={showRealtimeModal}
-          title="实时感知配置"
-          onClose={() => setShowRealtimeModal(false)}
-          footer={<button onClick={handleSaveRealtimeConfig} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg">保存配置</button>}
+          title={USER_LOCATION_PAGE_TITLES[rtUserLocationPage]}
+          onClose={closeRealtimePage}
+          footer={rtUserLocationPage === 'main'
+              ? <button disabled={rtUserLocationBusy} onClick={handleSaveRealtimeConfig} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg disabled:opacity-40">保存配置</button>
+              : <button disabled={rtUserLocationBusy} onClick={() => { if (rtUserLocationPage === 'about' || handleSaveUserLocation()) setRtUserLocationPage(getUserLocationParentPage(rtUserLocationPage)); }} className="w-full py-3 bg-sky-700 text-white font-bold rounded-2xl disabled:opacity-40">{rtUserLocationPage === 'about' ? '返回真实定位' : '保存并返回'}</button>}
       >
           <div className="space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
-              <UserHolidaySettings value={rtUserHolidays} onChange={setRtUserHolidays} />
+              {rtUserLocationPage === 'main' && <UserHolidaySettings value={rtUserHolidays} onChange={setRtUserHolidays} />}
+              <UserLocationSettings value={rtUserLocation} onChange={setRtUserLocation} onSave={handleSaveUserLocation} page={rtUserLocationPage} onNavigate={setRtUserLocationPage} onBusyChange={setRtUserLocationBusy} userName={userProfile.name} />
+              {rtUserLocationPage === 'main' && <>
               {/* 天气配置 */}
               <div className="bg-emerald-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -5495,6 +5771,7 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
+              </>}
 
           </div>
       </Modal>

@@ -1,12 +1,13 @@
 import type {Message, MessageType} from '../types';
+import {BEAUTY_PREVIEW_AVATAR} from './beautyPreviewAssets';
 
 // Synthetic only: no DB reads, real identities, API calls, payments or app navigation.
 const base = {charId:'whitebox-preview',role:'assistant' as const,timestamp:1790386860000};
 const msg = (id:number,type:MessageType,content:string,metadata?:Record<string,unknown>,role:Message['role']='assistant'):Message => ({...base,id,type,content,metadata,role});
 export const CHAT_TYPE_SAMPLES = {
  text:msg(1,'text','欢迎回家。今天也有想和你分享的小事。'),
- image:msg(2,'image','/sully/head.png'),
- emoji:msg(3,'emoji','/sully/head.png'),
+ image:msg(2,'image',BEAUTY_PREVIEW_AVATAR),
+ emoji:msg(3,'emoji',BEAUTY_PREVIEW_AVATAR),
  voice:msg(4,'voice','晚安，明天见。',{duration:6}),
  collaboration_file:msg(5,'collaboration_file','一起整理的旅行手册.pdf',{fileName:'一起整理的旅行手册.pdf',mimeType:'application/pdf',fileSize:286720,format:'pdf'}),
  interaction:msg(6,'interaction','戳了戳'),
@@ -38,6 +39,8 @@ export const CHAT_TYPE_SAMPLES = {
  game_replay:msg(31,'game_replay','上一局谁赢了',{gameReplay:{gameTitle:'默契问答',result:'平局',rounds:6}}),
  letter_card:msg(32,'letter_card','一封来信',{letter:{title:'写给你的信',occasion:{name:'日常'},from:'示例角色',excerpt:'展信佳。这几天风很软。'}}),
  letter_reply_card:msg(33,'letter_reply_card','我的回信',{letterReply:{title:'写给你的回信',occasion:{name:'日常'},excerpt:'收到你的信了，我也有话想跟你说。'}}),
+ // 上游新增：悄悄话（secret_note）
+ secret_note:msg(34,'secret_note','（悄悄话）',{secretNote:{text:'其实我今天一直在想你。'},tone:'害羞'}),
 } satisfies Record<MessageType, Message>;
 
 export interface ChatPreviewScene {id:string;label:string;messages:Message[];expanded?:boolean;voiceLoading?:boolean;voicePlaying?:boolean}

@@ -386,6 +386,7 @@ export const createMcpSessionState = (): McpSessionState =>
 
 /** 一次请求的目标：最终 URL + 请求头构造。浏览器侧包代理，worker 侧直连。 */
 export interface McpTransportTarget {
+    signal?: AbortSignal;
     url: string;
     headers: (
         sessionId: string | null,
@@ -478,10 +479,13 @@ const postCore = async (
     timeoutMs: number,
     expectResponse = true,
 ): Promise<{ response: McpJsonRpcResponse | null }> => {
+    target.signal?.throwIfAborted();
     const headers = target.headers(session.sessionId, session.protocolVersion);
 
     let resp: Response;
     const controller = new AbortController();
+    const abort = () => controller.abort(target.signal?.reason);
+    target.signal?.addEventListener('abort', abort, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
         try {
@@ -489,6 +493,7 @@ const postCore = async (
                 method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal,
             });
         } catch (e: any) {
+            target.signal?.throwIfAborted();
             if (controller.signal.aborted) {
                 throw new Error(`MCP 请求超时（${Math.round(timeoutMs / 1000)} 秒）`);
             }
@@ -501,7 +506,8 @@ const postCore = async (
         const readText = async (): Promise<string> => {
             try { return await resp.text(); }
             catch (e) {
-                if (controller.signal.aborted) {
+            target.signal?.throwIfAborted();
+            if (controller.signal.aborted) {
                     throw new Error(`MCP 请求超时（${Math.round(timeoutMs / 1000)} 秒）`);
                 }
                 throw e;
@@ -530,6 +536,7 @@ const postCore = async (
             const text = await readText();
             return { response: parseResp(text, ct) };
         } catch (e) {
+            target.signal?.throwIfAborted();
             if (controller.signal.aborted) {
                 throw new Error(`MCP 请求超时（${Math.round(timeoutMs / 1000)} 秒）`);
             }
@@ -537,7 +544,23 @@ const postCore = async (
         }
     } finally {
         clearTimeout(timeoutId);
+        target.signal?.removeEventListener('abort', abort);
     }
+};
+
+const formatMcpRpcError = (err: { code?: number; message?: string; data?: any }): string => {
+    const code = err?.code !== undefined ? `[${err.code}]: ` : '';
+    const message = err?.message || '未知错误';
+    let dataText = '';
+    if (err?.data !== undefined && err?.data !== null && err?.data !== '') {
+        if (typeof err.data === 'string') {
+            dataText = err.data.trim();
+        } else {
+            try { dataText = JSON.stringify(err.data); } catch { dataText = String(err.data); }
+        }
+    }
+    const suffix = dataText && !message.includes(dataText) ? `（${dataText}）` : '';
+    return `${code}${message}${suffix}`;
 };
 
 const initializeCore = async (
@@ -551,7 +574,7 @@ const initializeCore = async (
         clientInfo: { name: 'sullyos', title: 'SullyOS', version: '1.0.0' },
     });
     const { response } = await postCore(target, session, initReq, timeoutMs);
-    if (response?.error) throw new Error(`Initialize 失败: ${response.error.message}`);
+    if (response?.error) throw new Error(`Initialize 失败 ${formatMcpRpcError(response.error)}`);
 
     const negotiated = String(
         response?.result?.protocolVersion || MCP_LATEST_HANDSHAKE_PROTOCOL_VERSION,
@@ -604,7 +627,7 @@ export const discoverMcpToolsCore = async (
     await ensureInitializedCore(target, session, timeoutMs);
     opts.onStage?.('tools');
     const { response } = await postCore(target, session, buildRpcRequest(session, 'tools/list'), timeoutMs);
-    if (response?.error) throw new Error(`tools/list 失败: ${response.error.message}`);
+    if (response?.error) throw new Error(`tools/list 失败 ${formatMcpRpcError(response.error)}`);
     const tools = response?.result?.tools;
     if (!Array.isArray(tools)) return [];
     return tools.map((t: any) => ({
@@ -714,12 +737,15 @@ export const callMcpToolCore = async (
     toolName: string,
     args: Record<string, any> = {},
     opts: {
+        signal?: AbortSignal;
         timeoutMs?: number;
         inputSchema?: any;
         /** 日志里显示的服务器名，缺省用目标 URL 的主机名 */
         serverLabel?: string;
     } = {},
 ): Promise<McpToolResult> => {
+    target = { ...target, signal: opts.signal ?? target.signal };
+    target.signal?.throwIfAborted();
     const timeoutMs = opts.timeoutMs ?? MCP_REQUEST_TIMEOUT_MS;
     const normalizedArgs = normalizeMcpToolArguments(args, opts.inputSchema);
     const finish = (result: McpToolResult): McpToolResult => {
@@ -759,7 +785,7 @@ export const callMcpToolCore = async (
             }
         }
         if (!response) return finish({ success: false, error: '空响应' });
-        if (response.error) return finish({ success: false, error: `MCP 错误 [${response.error.code}]: ${response.error.message}` });
+        if (response.error) return finish({ success: false, error: `MCP 错误 ${formatMcpRpcError(response.error)}` });
 
         const result = response.result;
         if (result?.resultType === 'input_required') {
@@ -781,6 +807,7 @@ export const callMcpToolCore = async (
         }
         return finish({ success: true, data: result });
     } catch (e: any) {
+        target.signal?.throwIfAborted();
         return finish({ success: false, error: e?.message || String(e) });
     }
 };

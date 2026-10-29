@@ -22,6 +22,7 @@ import {
     reconcileStoryAffinityScores,
     createBlankStoryPreset,
     createStoryTheaterDraft,
+    hasStoryTheaterParticipant,
     dedupeTheaterWorldbooks,
     describeEmptyStoryCompletion,
     describeStoryApiError,
@@ -30,7 +31,7 @@ import {
     getPendingStoryRetryInput,
     isProtectedStoryPrompt,
     isStoryUserLastCompatibilityError,
-    memoryTimestampForCharacter,
+    storyTimelineTimestampForCharacter,
     parseStoryDisplayBlocks,
     parseStoryMiniTheater,
     parseStoryTheaterPreset,
@@ -372,6 +373,15 @@ describe('剧情预设发送器', () => {
 });
 
 describe('剧情沙盒辅助逻辑', () => {
+    it('allows an existing character mask to start a solo fictional story, but rejects empty or missing participants', () => {
+        const entry = { ...createStoryTheaterDraft(), writesToCharacterMemory: false, characterIds: [], mask: { type: 'character' as const, id: 'solo' } };
+        const characters = [{ id: 'solo', name: '独白角色' }] as CharacterProfile[];
+        expect(hasStoryTheaterParticipant(entry, characters)).toBe(true);
+        expect(hasStoryTheaterParticipant(entry, [])).toBe(false);
+        expect(hasStoryTheaterParticipant({ ...entry, mask: { type: 'user' } }, characters)).toBe(false);
+        expect(hasStoryTheaterParticipant({ ...entry, writesToCharacterMemory: true }, characters)).toBe(false);
+        expect(hasStoryTheaterParticipant({ ...entry, mask: { type: 'user' }, characterIds: ['solo'] }, characters)).toBe(true);
+    });
     it('新虚构剧场默认不读取记忆，真实陪伴强制摘下面具', () => {
         expect(createStoryTheaterDraft(1)).toMatchObject({ openingMode: 'user', writesToCharacterMemory: false, carryCharacterMemory: false, forceUserLastMessage: false, omitSamplingParams: false });
         const normalized = normalizeStoryTheater({
@@ -432,7 +442,7 @@ describe('剧情沙盒辅助逻辑', () => {
 
     it('把同一正文映射到每位角色自己的时间锚点', () => {
         const createdAt = new Date('2026-08-01T10:00:00Z').getTime();
-        const output = memoryTimestampForCharacter({
+        const output = storyTimelineTimestampForCharacter({
             id: 's', title: 't', premise: '', characterIds: ['a'], writesToCharacterMemory: true,
             characterMemoryDates: { a: '2020-01-02T03:04' }, carryCharacterMemory: true,
             characterContextLimits: {}, archiveAfter: 40, archiveStrategy: 'summary', archives: [],

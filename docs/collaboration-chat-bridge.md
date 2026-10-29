@@ -2,6 +2,10 @@
 
 2026-09-13 修复。
 
+## 协同模型设置
+
+从会话打开设置时默认选中该会话的模式，避免在中度窗口误改沉浸式配置。两种模式仍独立保存，修改模型会转成协同专用配置，不受全局或预设后续改动覆盖。关联「当前 ChatApp」或已存预设的模式则随最新传入配置解析地址、Key、模型；协同侧栏关闭时仍挂载，不能只在首次加载时捕获旧配置。刷新关联来源不重置当前会话、消息或输入框。`utils/collaborationApiWindow.test.ts` 通过真实组件和请求发送边界验证模式选择、保存后的模型以及关联来源更新。
+
 ## 私聊输入
 
 `features/collaboration/chatBridge.ts` 在每次生成前从 DB 读取当前角色与最新上下文范围。不能使用 Chat 页面传入的 `recentChatMessages` 作为生成数据源：它只是 UI 当前分页，可能陈旧或缺少消息。
@@ -25,6 +29,8 @@
 `utils/collaborationMakerSelection.test.ts` 覆盖误触取消、手动清空、保留草稿、切换类型，以及取消后的实际模型消息。
 
 ## 回归验证
+
+协同 MCP 工具接入见 `docs/mcp-client.md` 的「协同工作」段：两种模式都使用当前角色的工具绑定，工具结果只供当前工作轮次继续生成，不扩大私聊读取范围、不自动转发到 ChatApp。`collaborationMcp.test.ts` 覆盖调用与停止链路。
 
 - `utils/collaborationChatBridge.test.ts`：每次读取最新 DB、固定条数、最新手动断点、空自适应范围、角色／群聊隔离与选择转发。
 - 既有 collaborationContext / collaborationWiring 回归。

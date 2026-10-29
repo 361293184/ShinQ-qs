@@ -187,7 +187,67 @@ const generateUuidV4 = () => {
   });
 };
 
+const ACTION_RESULT_APPLIED_PREFIX = 'action_result_applied:';
+/** 动作回执保留期（30 天，覆盖云端 outbox 的 28 天保留期）。 */
+const ACTION_RESULT_APPLIED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+const pruneStaleActionResultReceipts = async (purgeCharId?: string): Promise<void> => {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE_KV, 'readwrite');
+      const store = tx.objectStore(STORE_KV);
+      const cutoff = Date.now() - ACTION_RESULT_APPLIED_TTL_MS;
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        const rec = cursor.value as KvRecord<boolean | { savedAt?: number }> | undefined;
+        if (rec && typeof rec.id === 'string' && rec.id.startsWith(ACTION_RESULT_APPLIED_PREFIX)) {
+          let shouldDelete = false;
+          if (purgeCharId) {
+            try {
+              const parsed = JSON.parse(rec.id.slice(ACTION_RESULT_APPLIED_PREFIX.length));
+              if (Array.isArray(parsed) && parsed[0] === purgeCharId) shouldDelete = true;
+            } catch { /* ignore */ }
+          }
+          if (!shouldDelete && rec.value && typeof rec.value === 'object') {
+            const savedAt = Number(rec.value.savedAt ?? 0);
+            if (savedAt > 0 && savedAt < cutoff) shouldDelete = true;
+          }
+          if (shouldDelete) cursor.delete();
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+  } catch { /* prune 尽力而为, 失败不影响主流程 */ }
+};
+
 export const ActiveMsgStore = {
+  /** 纯动作可以没有聊天产物，需单独保留完成回执，防止补收/ACK 重试重放动作。 */
+  async hasAppliedActionResult(charId: string, messageId: string): Promise<boolean> {
+    const val = await getKv<boolean | { savedAt?: number }>(`${ACTION_RESULT_APPLIED_PREFIX}${JSON.stringify([charId, messageId])}`);
+    if (val === true) return true;
+    if (val && typeof val === 'object') {
+      const savedAt = Number(val.savedAt ?? 0);
+      return !(savedAt > 0 && savedAt < Date.now() - ACTION_RESULT_APPLIED_TTL_MS);
+    }
+    return false;
+  },
+
+  async markActionResultApplied(charId: string, messageId: string): Promise<void> {
+    await setKv(`${ACTION_RESULT_APPLIED_PREFIX}${JSON.stringify([charId, messageId])}`, { savedAt: Date.now() });
+    void pruneStaleActionResultReceipts();
+  },
+
+  async clearCharActionResults(charId: string): Promise<void> {
+    if (!charId) return;
+    await pruneStaleActionResultReceipts(charId);
+  },
+
   /**
    * 删掉整个 ActiveMsg 库。只给「重置全部数据」用。
    *
@@ -298,14 +358,15 @@ export const ActiveMsgStore = {
   // 是 serializable 的, 第二个 caller 会等第一个 commit 后才进入, 所以同一条
   // inbox 消息绝不可能被两个 caller 同时 claim。这是把 race 关在 IDB 层。
   //
-  // 已知取舍 (TODO): 这是"先 ack 后处理"语义 —— 调用方拿到 messages 后若
-  // saveMessage 抛错, 消息已经从 inbox 删了, 会丢。当前没修是因为:
-  //   1. DB.saveMessage 用 IDB add(), 失败极罕见 (quota / corruption)
-  //   2. 改成"先 save 后 ack" 会需要把 list 和 delete 拆开, 反而把这里的
-  //      原子性优势让出去, 重新打开并发读到同一项的窗口
-  // 真要补防丢, 加一层 dead-letter / try-catch 后 put 回 inbox, 而不是
-  // 拆开这个事务。
-  async consumeInboxMessages(): Promise<ActiveMsg2InboxMessage[]> {
+  // 认领后由 runtime 负责处理失败时压回重试；不要拆开事务重新引入重复消费。
+  // 指定角色时也在同一事务里筛选、删除，其余角色留在 inbox。
+  // 按角色也是整表读出再筛：inbox 没有 charId 索引，这个库的版本号和建表由页面与
+  // Service Worker 两边共同维护。调用方先 countInboxMessages，空表不会走到这里。
+  // leave 返回 true 的消息留在 inbox 不认领。
+  async consumeInboxMessages(
+    charId?: string,
+    leave?: (message: ActiveMsg2InboxMessage) => boolean,
+  ): Promise<ActiveMsg2InboxMessage[]> {
     const db = await openDB();
     return new Promise<ActiveMsg2InboxMessage[]>((resolve, reject) => {
       const tx = db.transaction(STORE_INBOX, 'readwrite');
@@ -313,7 +374,8 @@ export const ActiveMsgStore = {
       const request = store.getAll();
       let messages: ActiveMsg2InboxMessage[] = [];
       request.onsuccess = () => {
-        messages = (request.result || []) as ActiveMsg2InboxMessage[];
+        messages = ((request.result || []) as ActiveMsg2InboxMessage[])
+          .filter(message => (charId === undefined || message.charId === charId) && !leave?.(message));
         // 一个 user turn 可能产 N 条 push (multi-chunk pushPayloads). FCM 投递不严格
         // 保序, 必须按 (sessionId, messageIndex) 排序才能拿到正确气泡顺序. 没 sessionId
         // 的走 sentAt fallback.
@@ -374,7 +436,7 @@ export const ActiveMsgStore = {
     return getKv<XhsSessionNotes>(`${XHS_SESSION_NOTES_PREFIX}${sessionId}`);
   },
 
-  // ─── 防穿帮闸·作废回执台账 ───
+  // ─── 回执台账（到点没发 / 用户手动取消）───
 
   async getExpiredNotices(charId: string): Promise<Amsg2ExpiredNoticeRecord[]> {
     const list = await getKv<Amsg2ExpiredNoticeRecord[]>(`${EXPIRED_NOTICES_PREFIX}${charId}`);
@@ -399,7 +461,7 @@ export const ActiveMsgStore = {
       const notified = alive.filter((r) => r.notifiedAt);
       next = [...unnotified, ...notified].slice(0, EXPIRED_NOTICES_MAX);
       if (unnotified.length > EXPIRED_NOTICES_MAX) {
-        console.warn('[ActiveMsgStore] 未告知作废回执超上限，最旧的被截断', { charId, dropped: unnotified.length - EXPIRED_NOTICES_MAX });
+        console.warn('[ActiveMsgStore] 未告知回执超上限，最旧的被截断', { charId, dropped: unnotified.length - EXPIRED_NOTICES_MAX });
       }
     }
     await setKv(`${EXPIRED_NOTICES_PREFIX}${charId}`, next);
@@ -479,12 +541,14 @@ export async function importAmsg2GlobalConfig(
   options: { allowBackendConnection?: boolean } = {},
 ): Promise<void> {
   if (!config || typeof config !== 'object') return;
-  const { instantChatSupported: _dropped, workerBundleVersion: _droppedVersion, ...restorable } = config;
+  const { instantChatSupported: _dropped, workerBundleVersion: _droppedVersion,
+    anthropicMessagesSupported: _droppedAnthropic, anthropicMessagesWorkerUrl: _droppedAnthropicUrl, ...restorable } = config;
   if (!options.allowBackendConnection) {
     for (const key of BACKEND_CONNECTION_KEYS) delete restorable[key];
   }
   if (Object.keys(restorable).length === 0) return;
-  await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined, workerBundleVersion: undefined });
+  await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined, workerBundleVersion: undefined,
+    anthropicMessagesSupported: undefined, anthropicMessagesWorkerUrl: undefined });
 }
 
 export const maskActiveMsgUserId = (userId: string) => {

@@ -44,17 +44,39 @@
   面板上「今天 TA 已主动找你 N 次」读的就是这份。推送失败、但整批已经落进服务端收件箱的（收尾 hook 上 `outboxed` 为真），按「发出去了」记：上游重试时只补推原文，不会重新生成，而且补推那一跳不再调任何 hook。
 - **重复任务连续没回**：self_log 上的 `recurringSends`，按任务的 `clientTaskId` 各记各的，用户一开口就和连发计数一起清零。
 
+## 排程许可与任务清单
+
+`selfScheduleEnabled` 是执行许可：声明工具、识别文字兼容调用和真正执行 schedule/cancel/renew
+都要过这道检查。Markdown 代码块和行内代码里的调用示例不执行。客户端收下历史自排任务时，
+缺失配置默认仍为关闭，不能顺手替用户打开 2.0。
+
+任务名额和排程清单优先使用 `ctx.listTasks` 分页返回的服务端 pending 行，排除即时聊天和后台
+作业，并按 UUID 去重。已过期但服务端仍待处理的任务继续计数；快照里有而服务端已不存在的
+幽灵任务不占名额。旧 SDK 没有查询能力时，才合并 `pendingTasks` 与 `self_log.tasks`，过滤掉
+已经结束的一次性快照任务。`fire_pack.builtAt` 更新只表示模板变了，不能清空未认领的自排记录；
+同 UUID 真正出现在客户端 `pendingTasks` 中，才逐项移除备账。
+
+一次性任务改期与新建共用间隔检查，计算相邻时间时排除目标自己的旧时间。改期成功会立即更新
+同一轮的内存清单，下一次工具调用看到新时间。已经跳过并删除的一次性任务不能 renew；回执会
+引导角色用 `schedule_active_message` 新建一次联系。
+
 ## 到点闸的顺序（onBeforeFire）
 
-只列跟这份文档有关的几道，按出现的先后排。每道拦下都会写 `last_skip`，面板用 `describeLastSkip` 照实说明原因：
+只列跟这份文档有关的几道，按出现的先后排。
 
-1. 用户正在聊天（policy 为 expire 时才生效，没放开的角色 force 在这里已按 expire 算）→ `active-chat-presence`
-2. 排程之后对话已经往前走了 → `conversation-moved-on`
-3. 2.0 关了，或者角色自排了重复任务但用户没放开 → `schedule-off`
-4. 角色自排的，连发已到上限 → `unanswered-limit`
-5. 角色自排的，离上一条主动消息还没隔够。「上一条」按它开始生成的时刻算（日志条目的 `startedAt`），跟排程时比的是同一个时刻；另有 3 分钟宽限（`FIRE_GAP_TOLERANCE_MS`）兜住没有 `startedAt` 的老条目 → `min-gap`
-6. 重复任务连续没回够次数 → `recurring-unanswered`
-7. 今天已发满 → `daily-limit`
+最前面一道不是拦，是等：页面正在本地生成一轮回复（在场记录 `chat_presence` 还新鲜）时，这次触发推迟 45 秒、下一跳 cron 再来（`onBeforeFire` 返回 `{ defer }`），任务不消费、不留记录。policy 为 expire 时才生效，没放开的角色 force 在这里已按 expire 算。云端生成的即时回复不用这道门：它和定时任务排在同一个串行分组里，回复结束前定时任务认领不到。
+
+后面每道拦下都会写 `last_skip`，面板用 `describeLastSkip` 照实说明原因：
+
+1. 2.0 关了，或者角色自排了重复任务但用户没放开 → `schedule-off`
+2. 角色自排的，连发已到上限 → `unanswered-limit`
+3. 角色自排的，离上一条主动消息还没隔够。「上一条」按它开始生成的时刻算（日志条目的 `startedAt`），跟排程时比的是同一个时刻；另有 3 分钟宽限（`FIRE_GAP_TOLERANCE_MS`）兜住没有 `startedAt` 的老条目 → `min-gap`
+4. 重复任务连续没回够次数 → `recurring-unanswered`
+5. 今天已发满 → `daily-limit`
+
+过了这几道就生成。到点时用户在不在聊天不拦发送：角色看着最新的对话自己决定说不说（提示词里的【开口之前】），决定不说时输出 `AMSG_SILENT_MARK`，记成 `declined`。
+
+除了 `schedule-off`，每次没发还会用 `ctx.emitResult` 回一条 `fire-skipped` 结果（不弹通知）。客户端收到后记进回执台账，角色下一轮聊天时在排程现状块里看到这条没发和原因（`utils/amsgFireSkipResult.ts`、`utils/amsgFireSkipResultApply.ts`）。
 
 ## 告诉角色的那一段
 
@@ -64,6 +86,8 @@
 - 前台聊天时，放进排程现状块（`buildAmsg2TaskContextText`）。
 
 排程工具的签名也跟着设置走：没放开的能力，对应的参数（`recurrence` / `expire_policy`）直接不出现。
+
+平时聊天的自主联系说明由 `utils/amsgFireSchedule.ts` 的 `buildAmsg2ChatScheduleBrief` 统一提供：本地聊天放进排程现状块，即时对话由 Worker 放进时效块，即使没有待触发任务也要带上。两边都教角色因惦记、分享自己的生活、兑现承诺而排未来的联系，不只响应用户的明确要求。即时对话的排程工具也使用聊天语境；只有定时主动消息触发时才教「这条发完，再接着说」。角色关掉 2.0 或 Worker 不支持排程时，不注入这份能力说明。
 
 ## 改这块时要一起动的地方
 

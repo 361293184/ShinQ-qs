@@ -8,6 +8,7 @@ import ChatInputSettings from './ChatInputSettings';
 import ChatSettingsSection from './ChatSettingsSection';
 import TokenImg from '../os/TokenImg';
 import { CANTONESE_VOICE_SUPPORT_NOTE, VOICE_LANGUAGE_OPTIONS } from '../../utils/voiceLanguage';
+import SecretNote from './SecretNote';
 import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
@@ -15,6 +16,7 @@ import { trackEvent } from '../../utils/analytics';
 import { LETTER_TONES } from '../../utils/letter/tonePresets';
 
 interface ChatModalsProps {
+    compactHome?: boolean;
     modalType: string;
     setModalType: (v: any) => void;
     // Data Props
@@ -101,6 +103,8 @@ interface ChatModalsProps {
     // Translation
     translationEnabled?: boolean;
     onToggleTranslation?: () => void;
+    translationExpanded?: boolean;
+    onToggleTranslationExpanded?: () => void;
     translateSourceLang?: string;
     translateTargetLang?: string;
     onSetTranslateSourceLang?: (lang: string) => void;
@@ -259,7 +263,7 @@ const TranslationLanguagePicker: React.FC<TranslationLanguagePickerProps> = ({
 };
 
 const ChatModals: React.FC<ChatModalsProps> = ({
-    modalType, setModalType,
+    modalType, setModalType, compactHome=false,
     transferAmt, setTransferAmt,
     transferNote, setTransferNote,
     emojiImportText, setEmojiImportText,
@@ -282,7 +286,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
     onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onRecallMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory, onRenameCategory, onDownloadCategory,
     allCharacters = [], onSaveCategoryVisibility,
-    translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
+    translationEnabled, onToggleTranslation, translationExpanded, onToggleTranslationExpanded, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
     htmlModeEnabled, onToggleHtmlMode, htmlModeCustomPrompt, setHtmlModeCustomPrompt,
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
@@ -311,6 +315,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
         if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = window.setTimeout(() => {
             longPressTriggeredRef.current = true;
+            // Paper notes already show their original text here; never expose them in normal chat.
+            if (allHistoryMessages.some(m => m.id === msgId && m.type === 'secret_note')) return;
             if (onJumpToMessageInChat) {
                 setModalType('none');
                 setHistoryPage(0);
@@ -872,7 +878,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                         if (palaceOn && autoOn) {
                             return (
                                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-[11px] text-emerald-800 leading-relaxed">
-                                    ✅ <b>自动归档已开启</b>。palace 处理后系统会按日期自动把聊天归档到"本月日度总结"。<br/>
+                                    ✅ <b>自动归档已开启</b>。记忆宫殿整理后，系统会按日期自动把聊天归档到"本月日度总结"。<br/>
                                     自动归档走的是 <b>记忆宫殿内置风格</b>（保证向量检索质量稳定），
                                     下方模板<b>只对这里的"开始归档"按钮生效</b>——你在这换风格不会影响自动归档。
                                 </div>
@@ -949,7 +955,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 footer={<><button onClick={() => onSetHistoryStart(undefined)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">清除用户断点</button><button onClick={() => { setModalType('none'); setHistoryPage(0); setHistorySearch(''); }} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">完成</button></>}
             >
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar p-1">
-                    <p className="text-xs text-slate-400 text-center mb-2"><b>短按</b>消息 = 设置用户断点（只能缩小范围） · <b>长按</b>消息 = 跳转查看原文</p>
+                    <p className="text-xs text-slate-400 text-center mb-2"><b>短按</b>记录 = 设置用户断点（只能缩小范围） · <b>长按</b>普通消息 = 跳转查看原文。秘密小纸条在此查看，每张占一条上下文。</p>
                     <div className="grid gap-2 mb-2">
                         <div className="bg-violet-50 border border-violet-200 rounded-xl p-2.5 text-[11px] text-violet-800 leading-relaxed">
                             <b>紫色 · 记忆宫殿水位线</b>：此前消息已经处理，不会因调整上下文再次向量化。
@@ -1042,8 +1048,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                     >
                                         <span className="text-slate-400 font-mono whitespace-nowrap pt-0.5">[{new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}]</span>
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-bold text-slate-600 mb-0.5">{m.role === 'user' ? '我' : activeCharacter.name}</div>
-                                            <div className="truncate">{renderHighlighted(m.content || '', query, contentClass)}</div>
+                                            <div className="font-bold text-slate-600 mb-0.5">{m.type === 'secret_note' ? `${activeCharacter.name} · ${m.metadata?.source === 'home' ? '3D 小屋' : '聊天'}` : m.role === 'user' ? '我' : activeCharacter.name}</div>
+                                            {m.type === 'secret_note' ? <SecretNote text={m.content}/> : <div className="truncate">{renderHighlighted(m.content || '', query, contentClass)}</div>}
                                         </div>
                                         <div className="flex flex-wrap justify-end gap-1 max-w-[42%]">
                                             {isWatermark && <span className="text-violet-600 font-bold text-[9px] bg-white px-1.5 rounded-full border border-violet-200">水位线</span>}
@@ -1066,7 +1072,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
             </Modal>
 
             <Modal isOpen={modalType === 'message-options'} title="消息操作" onClose={() => setModalType('none')}>
-                <div className="space-y-3">
+                <div className="space-y-3">{compactHome?<button className="w-full py-3 rounded-2xl bg-amber-50 text-amber-800" onClick={()=>{onToggleMessageFavorite?.();setModalType('none');}}>{messageFavorited?'取消收藏':'收藏这条消息'}</button>:<>
                     <button onClick={onEnterSelectionMode} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
                         多选 / 批量删除
                     </button>
@@ -1121,7 +1127,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     <button onClick={onDeleteMessage} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl active:bg-red-100 transition-colors flex items-center justify-center gap-2">
                         删除消息
                     </button>
-                </div>
+                </>}</div>
             </Modal>
             
              <Modal

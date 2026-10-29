@@ -17,6 +17,7 @@
 
 import { PLATE_CONSOLIDATE_RESULT_KIND } from './amsgPlateJob';
 import { SCHEDULE_CHANGE_RESULT_KIND } from './amsgScheduleResult';
+import { FIRE_SKIP_RESULT_KIND } from './amsgFireSkipResult';
 
 const HEADER = '[amsg2:result]';
 
@@ -106,6 +107,10 @@ const dispatchOne = async (payload: unknown, context?: AmsgResultContext): Promi
 
   try {
     switch (resultKind) {
+      case 'assistant-actions': {
+        const { applyAmsgActionResult } = await import('./amsgActionResult');
+        return await applyAmsgActionResult(payload);
+      }
       case PLATE_CONSOLIDATE_RESULT_KIND: {
         const { applyPlateConsolidateResult } = await import('./memoryPalace/roomPlateCloud');
         return await applyPlateConsolidateResult(payload, context);
@@ -113,6 +118,10 @@ const dispatchOne = async (payload: unknown, context?: AmsgResultContext): Promi
       case SCHEDULE_CHANGE_RESULT_KIND: {
         const { applyScheduleChangeResult } = await import('./amsgScheduleResultApply');
         return await applyScheduleChangeResult(payload, context);
+      }
+      case FIRE_SKIP_RESULT_KIND: {
+        const { applyFireSkipResult } = await import('./amsgFireSkipResultApply');
+        return await applyFireSkipResult(payload, context);
       }
       default:
         // 认不出来的多半是**前端比 worker 旧**：worker 可以脱开前端单独更新（fork 的
