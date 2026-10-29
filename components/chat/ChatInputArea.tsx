@@ -1,7 +1,7 @@
 import EmojiExportDialog from './EmojiExportDialog';
 import ChatCamera from './ChatCamera';
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Feather, MapPin, FilmScript, Star, Briefcase } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, LinkSimple, Feather, MapPin, FilmScript, Star, Briefcase } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
@@ -1192,29 +1192,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">{showThinkingChain ? '思考已开' : '展示思考'}</span>
                             </button>
 
-                            {/* 聊天装扮 */}
-                            <button
-                              onClick={() => onPanelAction('fine-tune')}
-                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
-                            >
-                              {acnh ? <AcnhActionTile kind="fine-tune" /> : (
-                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
-                                  <FadersHorizontal className="w-6 h-6" weight="bold" />
-                              </div>)}
-                              <span className="text-xs font-bold">聊天装扮</span>
-                            </button>
-
-                            {/* 白框 */}
-                            <button
-                              onClick={() => onPanelAction('chrome-css')}
-                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
-                            >
-                              {acnh ? <AcnhActionTile kind="chrome-css" /> : (
-                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
-                                  <PencilSimple className="w-6 h-6" weight="bold" />
-                              </div>)}
-                              <span className="text-xs font-bold">白框</span>
-                            </button>
 
                             {/* 提示音 */}
                             <button
