@@ -18,7 +18,6 @@ import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, Dail
 import { processImage, processImageToBlob } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
-import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
 import ChatList from '../components/chat/ChatList';
 import { FadersHorizontal } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
@@ -299,11 +298,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'archive-legacy-warning' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
     // 「聊天装扮」悬浮态：不走全屏 modal——圆气泡挂在聊天上，点开小面板边看真聊天边调。
     const [decorationTab, setDecorationTab] = useState<DecorationTab>('layout');
-    // 自研：聊天装扮悬浮气泡（与上游 decorationTab 面板并存，各自独立）
-    const [fineTuneOpen, setFineTuneOpen] = useState(false);          // 圆气泡在场
-    const [fineTunePanelOpen, setFineTunePanelOpen] = useState(false); // 小面板展开/收起
-    useEffect(() => { setFineTuneOpen(false); setFineTunePanelOpen(false); }, [activeCharacterId]);
-    // 切换角色时收掉装扮气泡：定制是 per-character 的，避免误改到下一个角色
+    // 自研悬浮微调面板已废弃：上游 ChatAppearanceWardrobe 的「布局 → 细节微调」已完整承载
+    // （同一个 ChatFineTunePanel、同一份 char.chatFineTune，per-character 覆盖逻辑不变）
     const [scheduleData, setScheduleData] = useState<DailySchedule | null>(null);
   const [scheduleChangeNotice, setScheduleChangeNotice] = useState<ScheduleChangeEventDetail | null>(null);
   const dismissScheduleChangeNotice = useCallback(() => setScheduleChangeNotice(null), []);
@@ -1866,7 +1862,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'settings': setModalType('chat-settings'); break;
             case 'chrome-css': setShowPanel('none'); setDecorationTab('library'); setModalType('chrome-css'); break;
             case 'chrome-sound': setShowPanel('none'); setDecorationTab('sound'); setModalType('chrome-css'); break;
-            case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
+            case 'fine-tune': setShowPanel('none'); setDecorationTab('layout'); setModalType('chrome-css'); break;
             case 'location': setShowPanel('none'); setShowLocationPicker(true); break;
             case 'emoji-import': setModalType('emoji-import'); break;
             case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji'); break;
@@ -5542,80 +5538,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             )}
 
             {/* 角色专属「聊天装扮」悬浮气泡 + 小面板 —— 从加号面板「聊天装扮」进入。
-                不是全屏 modal：没有遮罩，聊天内容一直可见、就是实时预览。点圆气泡收起/展开面板
-               （收起后能看清整个聊天再继续调），点「完成」气泡消失、调试结束。
-                全局打底，开了「为 TA 单独定制」后已改动的字段逐个覆盖全局（写到 char.chatFineTune）。 */}
-            {char && fineTuneOpen && (() => {
-                const override = char.chatFineTune;
-                const customized = override?.enabled === true;
-                // 控件展示合并后的生效值：未覆盖的字段显示全局当前值，改哪个才覆盖哪个
-                const effective = mergeChatFineTune(osTheme, override);
-                return (
-                    <>
-                        {/* 悬浮圆气泡：挂在右侧中部，点击 = 收起/展开小面板 */}
-                        <button
-                            onClick={() => setFineTunePanelOpen(v => !v)}
-                            className={`fixed right-3 z-[106] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all active:scale-90 ${fineTunePanelOpen ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-white/95 text-primary ring-1 ring-primary/30 backdrop-blur'}`}
-                            style={{ top: 'calc(var(--safe-top) + 35vh)' }}
-                            aria-label={fineTunePanelOpen ? '收起聊天装扮面板' : '展开聊天装扮面板'}
-                        >
-                            <FadersHorizontal className="h-6 w-6" weight="bold" />
-                        </button>
-                        {/* 小面板：贴在下方但不遮全屏，上半屏聊天照常可见可滚动 */}
-                        {fineTunePanelOpen && (
-                            <div
-                                className="fixed left-1/2 z-[105] w-[94%] max-w-md -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/60 bg-white/95 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.22)] backdrop-blur-xl [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                                style={{ bottom: 'calc(84px + var(--safe-bottom))', maxHeight: '46vh' }}
-                            >
-                                <div className="mb-3 flex items-start justify-between gap-2">
-                                    <div>
-                                        <div className="text-[13px] font-bold text-slate-800">聊天装扮 · {char.name}</div>
-                                        <div className="mt-0.5 text-[10px] text-slate-400">改动立刻生效在上方聊天里；点右侧圆气泡可收起面板看效果。</div>
-                                    </div>
-                                    <button
-                                        onClick={() => { setFineTuneOpen(false); setFineTunePanelOpen(false); }}
-                                        className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-[11px] font-bold text-white shadow-sm transition-all active:scale-95">
-                                        完成
-                                    </button>
-                                </div>
-                                <div className="mb-3 flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2.5">
-                                    <div className="min-w-0 pr-3">
-                                        <div className="text-[11px] font-bold text-slate-700">{customized ? '为 TA 单独定制中' : '跟随全局设置（默认）'}</div>
-                                        <div className="mt-0.5 text-[10px] text-slate-400">
-                                            {customized
-                                                ? '只有你改过的项目覆盖全局，其余仍跟随「外观 → 聊天界面」。关掉开关回到跟随全局，定制内容保留。'
-                                                : '当前用的是「外观 → 聊天界面」的全局设置。打开开关即可为这个角色单独定制。'}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => updateCharacter(char.id, { chatFineTune: { ...override, enabled: !customized } } as any)}
-                                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${customized ? 'bg-primary' : 'bg-slate-300'}`}
-                                        aria-pressed={customized}
-                                    >
-                                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${customized ? 'left-[22px]' : 'left-0.5'}`} />
-                                    </button>
-                                </div>
-                                {customized && (
-                                    <>
-                                        <ChatFineTunePanel
-                                            value={effective}
-                                            onChange={(patch) => updateCharacter(char.id, { chatFineTune: { ...override, enabled: true, ...patch } } as any)}
-                                        />
-                                        <button
-                                            onClick={() => { updateCharacter(char.id, { chatFineTune: undefined } as any); addToast('已清除该角色的聊天装扮，回到跟随全局', 'success'); }}
-                                            className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-bold text-slate-500 transition-all hover:bg-slate-100 active:scale-[0.99]">
-                                            清除定制，回到跟随全局
-                                        </button>
-                                    </>
-                                )}
-                                <p className="mt-3 text-[10px] leading-relaxed text-slate-400">
-                                    只影响私聊界面，群聊不受影响。手写过「白框」自定义 CSS 的话不用担心：<b>自定义 CSS 优先级更高</b>，永远盖得过这里的设置。
-                                </p>
-                            </div>
-                        )}
-                    </>
-                );
-            })()}
 
             {/* 白框编辑已并入「聊天装扮」(ChatAppearanceWardrobe) 的 CSS 分栏 —— 上游把白框、气泡、布局、提示音
                 整合进同一个面板，这里不再单独弹旧的白框编辑器，只保留那个脱离 CSS 控制的救援键。 */}
