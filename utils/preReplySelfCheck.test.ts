@@ -30,8 +30,8 @@ const BANNED_LITERALS = [
 ];
 
 describe('回复前自检 (Pre-Reply Self-Check)', () => {
-    it('私聊核心上下文里注入了这一节，且名字占位符换成了真名', () => {
-        const core = ContextBuilder.buildCoreContext(makeChar('阿澈'), makeUser('小夏'), true);
+    it('私聊核心上下文里注入了这一节，且名字占位符换成了真名', async () => {
+        const core = await ContextBuilder.buildCoreContext(makeChar('阿澈'), makeUser('小夏'), true);
         expect(core).toContain('### 回复前自检 (Pre-Reply Self-Check)');
         expect(core).toContain('阿澈，每次开口前先扫一遍');
         expect(core).toContain('小夏');
@@ -59,10 +59,10 @@ describe('回复前自检 (Pre-Reply Self-Check)', () => {
         expect(text).toContain('易碎品');
     });
 
-    it('deferVolatile 下仍在 stable 侧，且不进 volatile 段', () => {
+    it('deferVolatile 下仍在 stable 侧，且不进 volatile 段', async () => {
         const char = makeChar();
         const user = makeUser();
-        const stable = ContextBuilder.buildCoreContext(
+        const stable = await ContextBuilder.buildCoreContext(
             char, user, true, undefined, undefined, undefined, { deferVolatile: true },
         );
         expect(stable).toContain('### 回复前自检 (Pre-Reply Self-Check)');
@@ -71,15 +71,15 @@ describe('回复前自检 (Pre-Reply Self-Check)', () => {
         expect(volatile).not.toContain('回复前自检');
     });
 
-    it('多角色场景（群聊/游戏房）不注入，避免同一份规则重复 N 份', () => {
-        const core = ContextBuilder.buildCoreContext(
+    it('多角色场景（群聊/游戏房）不注入，避免同一份规则重复 N 份', async () => {
+        const core = await ContextBuilder.buildCoreContext(
             makeChar(), makeUser(), true, undefined, { skipUserProfile: true },
         );
         expect(core).not.toContain('### 回复前自检 (Pre-Reply Self-Check)');
     });
 
-    it('只注入一次（防止将来在别处重复拼接，把权重抬高）', () => {
-        const core = ContextBuilder.buildCoreContext(makeChar(), makeUser(), true);
+    it('只注入一次（防止将来在别处重复拼接，把权重抬高）', async () => {
+        const core = await ContextBuilder.buildCoreContext(makeChar(), makeUser(), true);
         const hits = core.split('### 回复前自检 (Pre-Reply Self-Check)').length - 1;
         expect(hits).toBe(1);
     });

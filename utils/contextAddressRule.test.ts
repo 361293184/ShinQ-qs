@@ -21,8 +21,8 @@ const makeChar = (name = '测试角色') => ({
 const makeUser = (name = '测试用户') => ({ name, bio: '' } as any);
 
 describe('对话中的称呼规范 (Forms of Address)', () => {
-    it('私聊核心上下文里注入了这一节，且两处名字都换成了真名', () => {
-        const core = ContextBuilder.buildCoreContext(makeChar('阿澈'), makeUser('小夏'), true);
+    it('私聊核心上下文里注入了这一节，且两处名字都换成了真名', async () => {
+        const core = await ContextBuilder.buildCoreContext(makeChar('阿澈'), makeUser('小夏'), true);
         expect(core).toContain('### 对话中的称呼规范 (Forms of Address)');
         expect(core).toContain('阿澈，你对小夏的称呼应自然、克制');
         expect(core).toContain('拿不准该如何称呼小夏时');
@@ -31,7 +31,7 @@ describe('对话中的称呼规范 (Forms of Address)', () => {
         expect(core).not.toContain('${userName}');
     });
 
-    it('刻意不列举任何具体头衔或外号示例（避免反向激活那些词）', () => {
+    it('刻意不列举任何具体头衔或外号示例（避免反向激活那些词）', async () => {
         const text = FORMS_OF_ADDRESS('角色', '用户');
         for (const banned of [
             '老师', '小姐', '先生', '女士', '老板', '师傅',
@@ -45,10 +45,10 @@ describe('对话中的称呼规范 (Forms of Address)', () => {
         expect(text).toContain('外号');
     });
 
-    it('deferVolatile 下仍在 stable 侧，且不进 volatile 段', () => {
+    it('deferVolatile 下仍在 stable 侧，且不进 volatile 段', async () => {
         const char = makeChar();
         const user = makeUser();
-        const stable = ContextBuilder.buildCoreContext(
+        const stable = await ContextBuilder.buildCoreContext(
             char, user, true, undefined, undefined, undefined, { deferVolatile: true },
         );
         expect(stable).toContain('### 对话中的称呼规范 (Forms of Address)');
@@ -57,15 +57,15 @@ describe('对话中的称呼规范 (Forms of Address)', () => {
         expect(volatile).not.toContain('对话中的称呼规范');
     });
 
-    it('多角色场景（群聊/游戏房）不注入，避免同一份规则重复 N 份', () => {
-        const core = ContextBuilder.buildCoreContext(
+    it('多角色场景（群聊/游戏房）不注入，避免同一份规则重复 N 份', async () => {
+        const core = await ContextBuilder.buildCoreContext(
             makeChar(), makeUser(), true, undefined, { skipUserProfile: true },
         );
         expect(core).not.toContain('### 对话中的称呼规范 (Forms of Address)');
     });
 
-    it('只注入一次（防止将来在别处重复拼接，把权重抬高）', () => {
-        const core = ContextBuilder.buildCoreContext(makeChar(), makeUser(), true);
+    it('只注入一次（防止将来在别处重复拼接，把权重抬高）', async () => {
+        const core = await ContextBuilder.buildCoreContext(makeChar(), makeUser(), true);
         const hits = core.split('### 对话中的称呼规范 (Forms of Address)').length - 1;
         expect(hits).toBe(1);
     });

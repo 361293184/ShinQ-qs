@@ -48,7 +48,9 @@ describe('CallApp runtime references', () => {
     const preferenceSource = readFileSync(path.resolve(__dirname, './callPreferences.ts'), 'utf8');
     const preferenceSheetSource = readFileSync(path.resolve(__dirname, '../components/call/CallPreferencesSheet.tsx'), 'utf8');
 
-    expect(source).toContain("onFinal: (t) => setDraftInput(t)");
+    // 上游改为按 STT 供应商区分：浏览器直出直接替换，云端识别结果追加到已有草稿
+    expect(source).toContain('onFinal: (t) => {');
+    expect(source).toContain("setDraftInput(prev => (prev.trim() ? `${prev.trim()} ${t}` : t))");
     expect(source).toContain("await requestAssistantReply(input, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn)");
     expect(source).toContain("{sendingBusy ? '…' : '发送'}");
     expect(source).toMatch(/const beginSelectedCall[\s\S]*?setViewMode\('in-call'\);\s+setCallStartedAt\(Date\.now\(\)\);\s+setCallState\('listening'\);/);
@@ -213,7 +215,7 @@ describe('CallApp runtime references', () => {
     expect(exportSource).toContain('collectBlobRefs(s, referencedBlobTokens)');
     expect(exportSource).toContain('await writeBlobsToZip(');
     expect(exportSource).toContain("metadata.cameraSnapshotExpired = true");
-    expect(exportSource).toContain("|| !!m.metadata?.cameraSnapshotRef");
+    expect(exportSource).toContain('|| item.metadata?.cameraSnapshotRef');
     expect(exportSource).toContain("companionAvatar: c.companionAvatar");
   });
 

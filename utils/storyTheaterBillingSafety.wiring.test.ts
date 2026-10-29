@@ -19,7 +19,8 @@ const sliceBetween = (source: string, startAnchor: string, endAnchor: string): s
 describe('story theater billing safety wiring', () => {
     it('uses a synchronous mutex instead of React state as the send guard', () => {
         const sendSource = sliceBetween(storySource, 'const send = useCallback', 'const archivedCount =');
-        const guard = sendSource.indexOf('if (sendLock.current || actors.length === 0) return;');
+        // 上游把「演员为空」的初判收拢成 canStart（含角色/场景校验），守卫语义不变
+        const guard = sendSource.indexOf('if (sendLock.current || !canStart) return;');
         const acquire = sendSource.indexOf('sendLock.current = true;');
         const release = sendSource.indexOf('sendLock.current = false;');
 
@@ -33,8 +34,9 @@ describe('story theater billing safety wiring', () => {
     it('does not silently issue a second physical chat completion request', () => {
         const interceptorSource = sliceBetween(osContextSource, 'const patchedFetch = async', 'window.fetch = patchedFetch;');
 
-        expect(interceptorSource.match(/await originalFetch\(/g) || []).toHaveLength(1);
-        expect(interceptorSource).toContain('await originalFetch(...sendArgs)');
+        // 上游把物理请求收拢到 fetchLlm（内部只调一次 originalFetch，失败不重发）
+        expect(interceptorSource.match(/await fetchLlm\(/g) || []).toHaveLength(1);
+        expect(interceptorSource).toContain('await fetchLlm(sendArgs[0], sendArgs[1], originalFetch, true)');
         expect(interceptorSource).not.toContain('回退原请求重发');
     });
 
