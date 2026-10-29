@@ -126,7 +126,6 @@ import { resolveTtsProvider } from '../utils/ttsProvider';
 118-125
 import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteboxSound, upsertWhiteboxSound, stripWhiteboxSoundDirective, WhiteboxSound } from '../utils/whiteboxSound';
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
-import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import { normalizeTranslationLangLabel, isTranslationLangPreset } from '../utils/translationLang';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trackEvent, noteMessageSent, presetOrCustom } from '../utils/analytics';
@@ -5618,24 +5617,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 );
             })()}
 
-            {/* 角色专属「白框自定义」Modal —— 从加号面板「白框」进入；写到 char.chromeCustomCss，叠加在全局之上 */}
+            {/* 白框编辑已并入「聊天装扮」(ChatAppearanceWardrobe) 的 CSS 分栏 —— 上游把白框、气泡、布局、提示音
+                整合进同一个面板，这里不再单独弹旧的白框编辑器，只保留那个脱离 CSS 控制的救援键。 */}
             {char && modalType === 'chrome-css' && (
-                <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/5" onClick={() => setModalType('none')}>
-                    <div
-                        className="w-full max-h-[68vh] overflow-y-auto rounded-t-3xl border-t border-white/60 bg-white/95 p-5 shadow-[0_-12px_40px_rgba(15,23,42,0.18)] backdrop-blur-xl [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                        style={{ paddingBottom: 'calc(1.25rem + var(--safe-bottom))' }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="mb-2 flex items-start justify-between">
-                            <div>
-                                <div className="text-sm font-bold text-slate-800">白框自定义 · {char.name}</div>
-                                <div className="mt-0.5 text-[10px] text-slate-400">↑ 上方聊天界面即实时预览；仅对该角色生效，叠加在全局设置之上。</div>
-                            </div>
-                            <button onClick={() => setModalType('none')} className="px-2 text-xl leading-none text-slate-400 hover:text-slate-600">{'×'}</button>
-                        </div>
-                        <ChromeCssEditor value={char.chromeCustomCss || ''} onChange={(css) => updateCharacter(char.id, { chromeCustomCss: css } as any)} />
-                    </div>
-                    {/* 脱离 CSS 控制的救援键：只在「白框」自定义弹窗开着时出现（平时不显示，不丑）。portal 到 body
+                <div className="contents">
+                    {/* 脱离 CSS 控制的救援键：只在「白框」相关弹窗开着时出现（平时不显示，不丑）。portal 到 body
                         在聊天 DOM 之外 + id 守护(#sully-safe-reset 特异性高于 *)，连 *{display:none!important} 也盖不掉，
                         保证你刚粘进坏 CSS 当场崩掉时，这个还原键一定点得到。 */}
                     {createPortal(
