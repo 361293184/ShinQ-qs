@@ -192,7 +192,8 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   const buildPrompt = (m: GenMode): { prompt: string; lockImages: (string | null)[]; caption: string } => {
     const style = allStyles.find(s => s.id === stylePreset);
     const styleText = style ? style.prompt : '';
-    const scene = sceneDesc.trim();
+    // 场景描述支持多行：拼进 prompt 前把换行/连续空白压成单空格，避免模型把断行当成分段指令。
+    const scene = sceneDesc.replace(/\s+/g, ' ').trim();
 
     // 角色侧描述 fallback
     const charPart = charDesc.trim()
@@ -474,10 +475,11 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
         {/* ---- 场景描述（全部模式） ---- */}
         <div>
           <label className="text-[13px] font-bold text-slate-700 mb-1.5 block">场景描述</label>
-          <input
+          <textarea
             value={sceneDesc}
+            rows={4}
             onChange={(e) => {
-              const v = (e.target as HTMLInputElement).value;
+              const v = (e.target as HTMLTextAreaElement).value;
               setSceneDesc(v);
               // 输入即按当前 mode 持久化，避免切 tab / 关面板丢失
               if (mode === 'char') saveCharSettings(undefined, undefined, v);
@@ -485,14 +487,14 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
               else { saveCharSettings(undefined, undefined, v); saveUserSettings(undefined, undefined, v); }
             }}
             onBlur={(e) => {
-              const v = (e.target as HTMLInputElement).value;
+              const v = (e.target as HTMLTextAreaElement).value;
               // 失焦时也兜底存一次
               if (mode === 'char') saveCharSettings(undefined, undefined, v);
               else if (mode === 'user') saveUserSettings(undefined, undefined, v);
               else { saveCharSettings(undefined, undefined, v); saveUserSettings(undefined, undefined, v); }
             }}
-            placeholder="例如：在咖啡馆喝咖啡，阳光洒在脸上"
-            className="w-full rounded-xl p-3 text-sm bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-colors"
+            placeholder="例如：在咖啡馆喝咖啡，阳光洒在脸上（可写多行，越具体越好）"
+            className="w-full min-h-[96px] rounded-xl p-3 text-sm leading-relaxed bg-white border border-slate-200 resize-y focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-colors"
           />
           {/* 快捷场景 */}
           <div className="flex flex-wrap gap-1.5 mt-1.5">
