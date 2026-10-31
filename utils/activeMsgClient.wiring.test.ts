@@ -34,7 +34,7 @@ describe('③ 凭据变更重传接线', () => {
     // 两个入口递进去的都是现组的配置对象，不是旧的 localXxx 草稿
     expect(sliceBetween(src, 'const handleSaveApi', 'const handleSaveVisionApi'))
       .toMatch(/const nextConfig = \{[\s\S]*commitApiConfig\(nextConfig\)/);
-    expect(sliceBetween(src, 'const applyPreset', 'const openEditPreset'))
+    expect(sliceBetween(src, 'const applyPreset', 'const cancelPresetDeleteHold'))
       .toContain('commitApiConfig(configFromPreset(preset))');
   });
 

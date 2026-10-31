@@ -1042,17 +1042,41 @@ const Settings: React.FC = () => {
       [apiPresets, selectedPresetId],
   );
 
-  const loadPreset = (preset: typeof apiPresets[0]) => {
+  /**
+   * 把一份配置真正切过去。保存按钮和点预设走的是同一条路——除了写进全局配置，
+   * 还要把已排程的主动消息凭据一起换掉，否则聊天换了、后台任务还拿旧 Key 打请求。
+   */
+  const commitApiConfig = (patch: PresetSwitchPatch | Partial<APIConfig>) => {
+    updateApiConfig(patch);
+    // 支持凭据表的 Worker 上，任务只带引用，换 Key 只要覆盖云端那几行——不用逐条改任务。
+    // 老 Worker 上这句是 no-op，凭据靠下面那条逐条补刷的老路续命。
+    syncAmsgLlmCredentials({ ...apiConfig, ...patch });
+    // 已排程的主动消息 2.0 AI 任务里冻结的是排程那一刻的凭据——换 Key / 换模型后
+    // 不重传的话，到点全拿旧凭据打请求（旧 Key 一吊销就是连环 401）。best-effort：
+    // 切换本身不等它，失败只提示；没配 2.0 / 没有 pending AI 任务时它是 no-op。
+    void ActiveMsgClient.refreshApiCredentialsForPendingTasks({ ...apiConfig, ...patch })
+      .then((result) => {
+        if (result.status === 'partial') {
+          addToast(`API 已保存，但有 ${result.failed} 条已排程的主动消息没换上新凭据，稍后再保存一次可重试。`, 'error');
+        }
+      })
+      .catch((error) => {
+        console.warn('[Settings] 刷新已排程任务的 API 凭据失败', error);
+        addToast('API 已保存，但已排程的主动消息凭据刷新失败，稍后再保存一次可重试。', 'error');
+      });
+  };
+
+  /**
+   * 点预设 = 直接切过去并生效，没有「载入了但还没保存」的中间状态。
+   * 上面的输入框由 apiConfig 同步 effect 自己跟上，不在这里手动塞。
+   * MiniMax / AceStep 那些不归预设管：一个人通常只有一个语音账号，换 LLM 不该动它。
+   * 顺带把编辑器切到这条预设，后面想微调再点「保存配置」就是写回同一条。
+   */
+  const applyPreset = (preset: typeof apiPresets[0]) => {
       setSelectedPresetId(preset.id);
       setSelectedPresetName(preset.name);
-      setLocalUrl(normalizeApiBaseUrl(preset.config.baseUrl));
-      setLocalKey(normalizeApiCredential(preset.config.apiKey));
-      setLocalModel(normalizeApiModel(preset.config.model));
-      setLocalStream(preset.config.stream === true);
-      setLocalTemperature(typeof preset.config.temperature === 'number' ? preset.config.temperature : 0.85);
-      // MiniMax / AceStep settings are NOT overwritten by presets — typically one user
-      // has only one MiniMax / Replicate account regardless of which LLM preset they use.
-      addToast(`已载入预设：${preset.name}；点「保存配置」后才会切换生效`, 'info');
+      commitApiConfig(configFromPreset(preset));
+      addToast(`已切换到「${preset.name}」，立即生效`, 'success');
   };
 
   const cancelPresetDeleteHold = useCallback(() => {
@@ -1137,7 +1161,7 @@ const Settings: React.FC = () => {
       const wasActive = activePresetId === preset.id;
       updateApiPreset(preset.id, name, nextConfig, editPresetGroup);
       // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
-      if (wasActive) updateApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
+      if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
       setEditingPresetId(null);
       addToast(wasActive ? `「${name}」已更新，当前配置同步生效` : `「${name}」已更新`, 'success');
   };
@@ -1173,7 +1197,8 @@ const Settings: React.FC = () => {
     setLocalKey(nextConfig.apiKey);
     setLocalUrl(nextConfig.baseUrl);
     setLocalModel(nextConfig.model);
-    updateApiConfig(nextConfig);
+    // 写全局配置 + 换掉已排程任务的凭据，走点预设时同一条路
+    commitApiConfig(nextConfig);
     if (selectedApiPreset) {
       updateApiPreset(selectedApiPreset.id, presetName, {
         ...selectedApiPreset.config,
@@ -1182,24 +1207,6 @@ const Settings: React.FC = () => {
     }
     setStatusMsg(selectedApiPreset ? '配置和预设已保存' : '配置已保存');
     setTimeout(() => setStatusMsg(''), 2000);
-    // 支持凭据表的 Worker 上，任务只带引用，换 Key 只要覆盖云端那几行——不用逐条改任务。
-    // 老 Worker 上这句是 no-op，凭据靠下面那条逐条补刷的老路续命。
-    syncAmsgLlmCredentials({ ...apiConfig, ...nextConfig });
-    // 已排程的主动消息 2.0 AI 任务里冻结的是排程那一刻的凭据——换 Key / 换模型后
-    // 不重传的话，到点全拿旧凭据打请求（旧 Key 一吊销就是连环 401）。best-effort：
-    // 保存本身不等它，失败只提示；没配 2.0 / 没有 pending AI 任务时它是 no-op。
-    // 存量的内联任务还靠它，所以走引用那条路的用户这里照跑（带 credRefs 的任务
-    // 到点只认引用，这一份补刷落在它们身上是无害的空转）。
-    void ActiveMsgClient.refreshApiCredentialsForPendingTasks({ ...apiConfig, ...nextConfig })
-      .then((result) => {
-        if (result.status === 'partial') {
-          addToast(`API 已保存，但有 ${result.failed} 条已排程的主动消息没换上新凭据，稍后再保存一次可重试。`, 'error');
-        }
-      })
-      .catch((error) => {
-        console.warn('[Settings] 刷新已排程任务的 API 凭据失败', error);
-        addToast('API 已保存，但已排程的主动消息凭据刷新失败，稍后再保存一次可重试。', 'error');
-      });
     if (sourcePreset && presetDiffersFromConfig(sourcePreset, nextConfig)) {
       setPresetWriteback({ presetId: sourcePreset.id, config: nextConfig });
     }
@@ -3031,7 +3038,7 @@ const Settings: React.FC = () => {
                                     ? 'bg-primary/5 border-primary/30'
                                     : 'bg-white border-slate-200'
                             }`}>
-                                <button type="button" onClick={() => loadPreset(preset)}
+                                <button type="button" onClick={() => applyPreset(preset)}
                                     className={`text-xs font-medium cursor-pointer mr-2 transition-colors ${
                                         selectedPresetId === preset.id ? 'text-primary' : 'text-slate-600 hover:text-primary'
                                     }`}>
@@ -3056,7 +3063,7 @@ const Settings: React.FC = () => {
                                 </button>
                             </div>
                         )}</ApiPresetGroups>
-                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称加载并编辑；长按或双击 × 才会删除。</p>
+                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称立即切换生效，并可继续微调后保存回这条；长按或双击 × 才会删除。</p>
                 </div>
             )}
             
