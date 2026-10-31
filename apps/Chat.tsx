@@ -171,6 +171,7 @@ import {
     validateInstallableArtifact,
 } from '../features/collaboration/makers';
 import { upsertMountedWorldbooks } from '../utils/worldbook';
+import { buildImageChatContext } from '../utils/imageGenContext';
 
 const HISTORY_WINDOW_RADIUS = 25;
 const HISTORY_WINDOW_BATCH_SIZE = 30;
@@ -5313,7 +5314,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             charName={char.name || ''}
                             charAvatar={char.avatar || ''}
                             charPersona={(char as any).persona || (char as any).description || ''}
-                            chatContext={messages.slice(-6).map(m => `${m.role === 'user' ? '用户' : char?.name}: ${(m.content || '').slice(0, 100)}`).join('\n')}
+                            chatContext={buildImageChatContext(messages, char.name || '角色')}
                             onGenerate={(url, caption) => {
                                 handleSendCharImage(url, caption);
                                 setShowImageGenPanel(false);

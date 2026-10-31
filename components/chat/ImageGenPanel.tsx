@@ -189,11 +189,15 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
   }, [allStyles, stylePreset]);
 
   // ---- 构造三种模式的 prompt（健壮版） ----
-  const buildPrompt = (m: GenMode): { prompt: string; lockImages: (string | null)[]; caption: string } => {
+  /**
+   * @param sceneOverride 仅供合照的「结合聊天上下文优化」使用：副 API 产出的画面描述
+   *   只替换「场景」这一段，身份映射 / 锁脸强化 / 风格词 / 画质词仍由本函数统一拼接。
+   */
+  const buildPrompt = (m: GenMode, sceneOverride?: string): { prompt: string; lockImages: (string | null)[]; caption: string } => {
     const style = allStyles.find(s => s.id === stylePreset);
     const styleText = style ? style.prompt : '';
     // 场景描述支持多行：拼进 prompt 前把换行/连续空白压成单空格，避免模型把断行当成分段指令。
-    const scene = sceneDesc.replace(/\s+/g, ' ').trim();
+    const scene = (sceneOverride ?? sceneDesc).replace(/\s+/g, ' ').trim();
 
     // 角色侧描述 fallback
     const charPart = charDesc.trim()
@@ -277,18 +281,44 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
 
     try {
       // sub API 优化 prompt（可选）
-      // 手动生图：char/user 一律不调副 API；仅合照(joint)由「结合聊天上下文」开关控制（默认关=不读上下文、不调副 API）
+      // 手动生图：char/user 一律不调副 API；仅合照(joint)由「结合聊天上下文」开关控制（默认关=不读上下文、不调副 API）。
+      // 副 API 只负责产出「此刻画面里正在发生什么」这一段；身份映射（参考图[0]=角色、[1]=用户）、
+      // 锁脸强化、风格词、画质词仍交给 buildPrompt 拼。旧实现是 finalPrompt = r.trim() 整段替换，
+      // 会把身份映射与锁脸指令一起丢掉 —— 模型于是自由发挥成"随便两个人"，看起来就跟当前剧情对不上。
       let finalPrompt = basePrompt;
       if (mode === 'joint' && useContextForJoint && subBaseUrl && subApiKey && subModel && chatContext) {
         try {
           const subBody = {
             model: subModel,
             messages: [
-              { role: 'system', content: 'You are a prompt engineer. Generate a single detailed English image generation prompt based on the input. Describe scene, appearance, lighting, mood, composition. Output ONLY the prompt, nothing else.' },
-              { role: 'user', content: `Mode: ${mode}\nCharacter: ${charName}\nCharDesc: ${charDesc}\nUserDesc: ${userDesc}\nScene: ${sceneDesc || 'portrait'}\nStyle: ${allStyles.find(s => s.id === stylePreset)?.prompt || ''}\nRecent chat context:\n${chatContext}` },
+              {
+                role: 'system',
+                content: [
+                  'You are a photography prompt engineer for an image generation model.',
+                  'Read the recent chat log and describe the single moment happening right now: who is doing what, where, their pose and distance, the emotion, time of day and lighting, and the shot (framing, angle, depth of field).',
+                  'Rules:',
+                  '- The chat log is the source of truth for the plot. Follow the newest events, not an older or earlier scene.',
+                  '- If a "Scene" is provided by the user, it wins: keep its content and only enrich the surrounding atmosphere and details.',
+                  '- Output ONE vivid English paragraph of 60-120 words, concrete and visual.',
+                  '- Describe appearance only lightly; the two people are fixed by reference images.',
+                  '- Do NOT mention reference images, identity mapping, quality tags (masterpiece, best quality) or style presets — those are appended separately.',
+                  '- English only, no Chinese, no explanation, no quotes.',
+                ].join('\n'),
+              },
+              {
+                role: 'user',
+                content: [
+                  `Character: ${charName}`,
+                  `Character appearance: ${charDesc || '(not specified)'}`,
+                  `User appearance: ${userDesc || '(not specified)'}`,
+                  `Scene (user provided, highest priority): ${sceneDesc ? sceneDesc.replace(/\s+/g, ' ').trim() : '(none, infer it from the chat log below)'}`,
+                  'Recent chat log (newest at the bottom):',
+                  chatContext,
+                ].join('\n'),
+              },
             ],
-            max_tokens: 300,
-            temperature: 0.7,
+            max_tokens: 600,
+            temperature: 0.6,
           };
           const res = await fetch(`${subBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
@@ -297,8 +327,12 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
           });
           if (res.ok) {
             const data = await res.json();
-            const r = data?.choices?.[0]?.message?.content;
-            if (r) finalPrompt = r.trim();
+            const raw = data?.choices?.[0]?.message?.content;
+            const narrative = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+            // 只接受英文画面描述：模型偶尔吐中文或整段复述输入，坏结果一律回退到原始 prompt。
+            if (narrative.length >= 8 && !/[\u4e00-\u9fa5]/.test(narrative)) {
+              finalPrompt = buildPrompt('joint', narrative.slice(0, 1200)).prompt;
+            }
           }
         } catch {}
       }
@@ -690,7 +724,7 @@ const ImageGenPanel: React.FC<ImageGenPanelProps> = ({
               <div className="flex-1 pr-3">
                 <div className="text-xs font-bold text-slate-600">结合聊天上下文优化</div>
                 <div className="text-[10px] text-slate-400 leading-snug mt-0.5">
-                  开启后由副 API 参考最近聊天与场景描述精修生图描述；关闭则仅按上方填写内容直接生图
+                  开启后副 API 只按最近剧情精修「画面描述」，锁脸身份与风格照旧；关闭则仅按上方填写内容直接生图
                 </div>
               </div>
               <button
