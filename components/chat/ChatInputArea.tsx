@@ -1192,6 +1192,18 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">{showThinkingChain ? '思考已开' : '展示思考'}</span>
                             </button>
 
+                            {/* 聊天装扮：上游整合面板（布局 / 气泡 / 背景 / 提示音 / CSS / 预设 / 心象 / 素材库）。
+                                白框、提示音都在这个面板的分栏里，不再单独占位。 */}
+                            <button
+                              onClick={() => onPanelAction('chrome-css')}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              {acnh ? <AcnhActionTile kind="chrome-css" /> : (
+                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
+                                  <PencilSimple className="w-6 h-6" weight="bold" />
+                              </div>)}
+                              <span className="text-xs font-bold">聊天装扮</span>
+                            </button>
 
                             {/* 记忆链接 */}
                             <button
