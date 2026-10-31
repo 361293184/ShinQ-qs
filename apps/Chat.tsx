@@ -2298,7 +2298,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         }
 
         if (!sceneDesc) return;
-        sceneDesc = sceneDesc.slice(0, 500); // 防超长
+        // 曾经这里有一道 sceneDesc.slice(0, 500) 的防超长截断，会把角色写长了的画面描述砍掉半截；
+        // 按需求取消字数限制，描述原样传给生图链路。
 
         // 主模型在写"图片- 描述"时已决定要不要发、画面是谁（我/你和我/纯景）——
         // 前端不再做主体档位预判，直接带着描述去触发，由 buildExecution 读取描述出镜者。
