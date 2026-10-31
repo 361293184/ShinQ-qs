@@ -457,19 +457,11 @@ export const ChatPrompts = {
             }
         })();
 
-        // 1b. 微信读书「角色感知」（App『我』页开关开 + cookie 有效时才拉，最近在读+划线）。
-        //     fire_pack / timelyByWorker 一律不注入：worker 不该读 localStorage/cookie，
-        //     也没有"主动发消息"需求；动态 import 保证 worker 打包路径不会触发浏览器模块副作用。
-        //     注：日程 schedulePromise 已由上游提到上方统一定义，这里不再重复声明。
-        const wereadPromise: Promise<string> = (async () => {
-            if (forFirePack || timelyByWorker) return '';
-            try {
-                const { buildWereadPerceptionContext } = await import('./weread/wereadPerception');
-                return await buildWereadPerceptionContext();
-            } catch {
-                return '';
-            }
-        })();
+        // 1b. 微信读书「角色感知」已关闭（微信读书入口已从桌面隐藏，2026-10-31）。
+        //     这里固定返回空串：不再读 cookie、不再拉书架/划线，角色也就不会提起你最近在读什么。
+        //     要恢复：把这段换回原来的 IIFE（动态 import buildWereadPerceptionContext 并在
+        //     forFirePack / timelyByWorker 时返回空串）即可，其余调用方无需改动。
+        const wereadPromise: Promise<string> = Promise.resolve('');
 
         // 3. 群聊上下文：并发拉取所有成员群的消息
         // 关键：每个群单独取最后 N 条，避免某个活跃群把其他群完全挤掉
@@ -596,7 +588,7 @@ ${groupLogStr}\n`;
 
         // ── 拼接：易变的进 volatileState，稳定的进 baseSystemPrompt ──
         volatileState += realtimeText;
-        volatileState += wereadText; // 微信读书角色感知（开关开且已登录才有内容）
+        volatileState += wereadText; // 微信读书角色感知已关闭，此处恒为空串（保留位便于以后恢复）
         // Local weather rendering already embeds it beside weather. Instant chat's
         // weather arrives from the worker, so keep this per-turn text in Live Context.
         if (timelyByWorker || (!config.weatherEnabled && !config.newsEnabled) || !realtimeText) volatileState += userLocationText;
