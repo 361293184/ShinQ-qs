@@ -59,7 +59,9 @@ describe('用户反馈回归保护', () => {
         const osContext = read('../context/OSContext.tsx');
 
         expect(osContext).toContain('clampClaudeTemperature(parsed)');
-        expect(osContext.indexOf('clampClaudeTemperature(parsed)')).toBeLessThan(osContext.indexOf('await originalFetch(...sendArgs)'));
+        // 真正的发送口现在是带重试的 fetchLlm(...)，不再直接调 originalFetch
+        expect(osContext.indexOf('clampClaudeTemperature(parsed)'))
+            .toBeLessThan(osContext.indexOf('await fetchLlm(sendArgs[0], sendArgs[1], originalFetch, true)'));
     });
 
     it('静态 PNG 触摸反馈不再按情绪 key 重挂载图片或重播闪白动画', () => {

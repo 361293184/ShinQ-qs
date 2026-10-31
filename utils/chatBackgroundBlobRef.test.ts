@@ -27,7 +27,10 @@ describe('聊天背景的 blobref 读写路径', () => {
 
   it('解析 hook 在「角色为空」的早退之前调用（hook 顺序不能随空态变化）', () => {
     const hookAt = chatSource.indexOf('useBlobRefUrl(homePhone?undefined:char?.chatBackground ?? osTheme.chatBackground)');
-    const guardAt = chatSource.indexOf('if (!char) {');
+    // 只认组件级空态早退（if (!char) { return ( ... ) }）：文件里还有 effect 内部的同名判断，
+    // 直接 indexOf('if (!char) {') 会被上面那些无关的调用点抢到，锚点就飘了。
+    const guardMatch = /if \(!char\) \{\s*return \(/.exec(chatSource);
+    const guardAt = guardMatch ? guardMatch.index : -1;
     expect(hookAt).toBeGreaterThan(-1);
     expect(guardAt).toBeGreaterThan(-1);
     expect(hookAt).toBeLessThan(guardAt);

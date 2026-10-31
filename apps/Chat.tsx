@@ -1511,7 +1511,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (replyTarget) {
             msgPayload.replyTo = {
                 id: replyTarget.id,
-                content: replyTarget.content,
+                // 图片/表情存的是 blobref 令牌，原样抄进快照会印出一串令牌，
+                // 还会让孤儿清理的引用面看起来被截断过（整库豁免，一个 Blob 都不删）。
+                content: buildReplySnapshotContent(replyTarget),
                 name: replyTarget.role === 'user' ? '我' : char.name
             };
             setReplyTarget(null);

@@ -563,8 +563,6 @@ const Settings: React.FC = () => {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [selectedPresetName, setSelectedPresetName] = useState('');
   // 预设分组（上游新增）：新建/编辑预设时可写一个分组名，空串表示不分组
   const [newPresetGroup, setNewPresetGroup] = useState('');
   const [editPresetGroup, setEditPresetGroup] = useState('');
@@ -1037,11 +1035,6 @@ const Settings: React.FC = () => {
       apiConfig.voicePrompts?.elevenlabs, apiConfig.voicePrompts?.dateVoice,
   ]);
 
-  const selectedApiPreset = useMemo(
-      () => apiPresets.find(preset => preset.id === selectedPresetId) || null,
-      [apiPresets, selectedPresetId],
-  );
-
   /**
    * 把一份配置真正切过去。保存按钮和点预设走的是同一条路——除了写进全局配置，
    * 还要把已排程的主动消息凭据一起换掉，否则聊天换了、后台任务还拿旧 Key 打请求。
@@ -1070,13 +1063,33 @@ const Settings: React.FC = () => {
    * 点预设 = 直接切过去并生效，没有「载入了但还没保存」的中间状态。
    * 上面的输入框由 apiConfig 同步 effect 自己跟上，不在这里手动塞。
    * MiniMax / AceStep 那些不归预设管：一个人通常只有一个语音账号，换 LLM 不该动它。
-   * 顺带把编辑器切到这条预设，后面想微调再点「保存配置」就是写回同一条。
    */
   const applyPreset = (preset: typeof apiPresets[0]) => {
-      setSelectedPresetId(preset.id);
-      setSelectedPresetName(preset.name);
+      // 已经在用这条也照切：「使用中」只看 URL/Key/Model 三件套，温度、流式可能被手调过，
+      // 再点一下的语义就是「整套回到这条预设存的样子」。
       commitApiConfig(configFromPreset(preset));
       addToast(`已切换到「${preset.name}」，立即生效`, 'success');
+  };
+
+  /**
+   * 铅笔：改这条预设本身。改预设不碰当前生效的配置，除非改的正好就是正在用的那条。
+   * 正在用的那条优先拿主表单的流式/温度：用户刚在上面调完高级设置，点铅笔保存就该写回去。
+   */
+  const openEditPreset = (preset: typeof apiPresets[0]) => {
+      cancelPresetDeleteHold();
+      const isActive = activePresetId === preset.id;
+      setEditingPresetId(preset.id);
+      setEditPresetName(preset.name);
+      setEditPresetUrl(preset.config.baseUrl || '');
+      setEditPresetKey(preset.config.apiKey || '');
+      setEditPresetModel(preset.config.model || '');
+      setEditPresetGroup(preset.group || '');
+      setEditPresetStream(isActive ? localStream : typeof preset.config.stream === 'boolean' ? preset.config.stream : true);
+      setEditPresetTemperature(
+          isActive
+              ? localTemperature
+              : typeof preset.config.temperature === 'number' ? preset.config.temperature : 0.85,
+      );
   };
 
   const cancelPresetDeleteHold = useCallback(() => {
@@ -1093,12 +1106,8 @@ const Settings: React.FC = () => {
 
   const deleteApiPreset = (id: string, name: string) => {
       cancelPresetDeleteHold();
-      const wasActive = activePresetId === id;
+      setEditingPresetId(current => (current === id ? null : current));
       removeApiPreset(id);
-      if (selectedPresetId === id) {
-          setSelectedPresetId(null);
-          setSelectedPresetName('');
-      }
       addToast(`已删除预设: ${name}`, 'success');
   };
 
@@ -1108,12 +1117,8 @@ const Settings: React.FC = () => {
       presetDeleteTimerRef.current = setTimeout(() => {
           presetDeleteTimerRef.current = null;
           setHoldingDeletePresetId(null);
-          const wasActive = activePresetId === id;
           removeApiPreset(id);
-          if (selectedPresetId === id) {
-              setSelectedPresetId(null);
-              setSelectedPresetName('');
-          }
+          setEditingPresetId(current => (current === id ? null : current));
           addToast(`已删除预设: ${name}`, 'success');
       }, 700);
   };
@@ -1178,11 +1183,6 @@ const Settings: React.FC = () => {
    * 选完立刻保存时得把它直接递进来，不然存进去的还是选之前那个。
    */
   const handleSaveApi = (modelOverride?: string) => {
-    const presetName = selectedPresetName.trim();
-    if (selectedApiPreset && !presetName) {
-      addToast('预设名称不能为空', 'error');
-      return;
-    }
     const nextConfig = {
       apiKey: normalizeApiCredential(localKey),
       baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(localUrl), localApiType),
@@ -1199,13 +1199,9 @@ const Settings: React.FC = () => {
     setLocalModel(nextConfig.model);
     // 写全局配置 + 换掉已排程任务的凭据，走点预设时同一条路
     commitApiConfig(nextConfig);
-    if (selectedApiPreset) {
-      updateApiPreset(selectedApiPreset.id, presetName, {
-        ...selectedApiPreset.config,
-        ...nextConfig,
-      });
-    }
-    setStatusMsg(selectedApiPreset ? '配置和预设已保存' : '配置已保存');
+    // 保存只改当前配置，不反写任何预设：上一步把草稿冲回旧值时，
+    // 顺手覆盖预设会让那条预设永久坏掉，只能删了重建。
+    setStatusMsg('配置已保存');
     setTimeout(() => setStatusMsg(''), 2000);
     if (sourcePreset && presetDiffersFromConfig(sourcePreset, nextConfig)) {
       setPresetWriteback({ presetId: sourcePreset.id, config: nextConfig });
@@ -3034,15 +3030,25 @@ const Settings: React.FC = () => {
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block pl-1">我的预设 (Presets)</label>
                     <ApiPresetGroups presets={apiPresets}>{preset => (
                             <div key={preset.id} className={`flex items-center rounded-lg pl-3 pr-1 py-1 shadow-sm border transition-colors ${
-                                selectedPresetId === preset.id
+                                activePresetId === preset.id
                                     ? 'bg-primary/5 border-primary/30'
                                     : 'bg-white border-slate-200'
                             }`}>
                                 <button type="button" onClick={() => applyPreset(preset)}
+                                    title={`切换到 ${preset.name}`}
                                     className={`text-xs font-medium cursor-pointer mr-2 transition-colors ${
-                                        selectedPresetId === preset.id ? 'text-primary' : 'text-slate-600 hover:text-primary'
+                                        activePresetId === preset.id ? 'text-primary' : 'text-slate-600 hover:text-primary'
                                     }`}>
                                     {preset.name}
+                                    {activePresetId === preset.id && <span className="ml-1 text-[9px] font-bold">· 使用中</span>}
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-label={`编辑预设 ${preset.name}`}
+                                    title="编辑这条预设"
+                                    onClick={(event) => { event.stopPropagation(); openEditPreset(preset); }}
+                                    className="p-1 rounded-full text-slate-300 hover:bg-primary/10 hover:text-primary transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M13.586 3.586a2 2 0 1 1 2.828 2.828l-.793.793-2.828-2.828.793-.793ZM11.379 5.793 3 14.172V17h2.828l8.38-8.379-2.83-2.828Z" /></svg>
                                 </button>
                                 <button
                                     type="button"
@@ -3063,34 +3069,11 @@ const Settings: React.FC = () => {
                                 </button>
                             </div>
                         )}</ApiPresetGroups>
-                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称立即切换生效，并可继续微调后保存回这条；长按或双击 × 才会删除。</p>
+                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称直接切换并生效；铅笔改这条预设的内容；长按或双击 × 才会删除。</p>
                 </div>
             )}
-            
-            <div className="space-y-4">
-                {selectedApiPreset && (
-                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="text-[10px] font-bold text-primary uppercase tracking-widest">正在编辑预设</label>
-                            <button
-                                type="button"
-                                onClick={() => { setSelectedPresetId(null); setSelectedPresetName(''); }}
-                                className="text-[9px] text-slate-400 hover:text-slate-600 transition-colors"
-                            >
-                                仅作为当前配置
-                            </button>
-                        </div>
-                        <input
-                            type="text"
-                            value={selectedPresetName}
-                            onChange={(event) => setSelectedPresetName(event.target.value)}
-                            placeholder="预设名称"
-                            className="w-full bg-white/80 border border-primary/15 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 focus:bg-white transition-all"
-                        />
-                        <p className="text-[9px] text-slate-400 mt-1.5 leading-relaxed">可直接修改名称及下方 URL、Key、Model；保存配置时会覆盖这个预设，不会新建。</p>
-                    </div>
-                )}
 
+            <div className="space-y-4">
                 <div className="group">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
                     <input type="text" value={localUrl} onChange={(e) => setLocalUrl(e.target.value)} placeholder="https://..." className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
