@@ -1726,6 +1726,12 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         triggerAI(messages);
     };
 
+    // 开场旁白不能和「写入 offlineConfig」挤在同一个事件循环里：updateCharacter 内部是异步
+    // setState，同一 tick 触发生成时读到的还是「还没开启」的旧闭包 —— prompt 不注入线下格式块、
+    // assistant 消息也不打 offline 标记，那一次开场旁白就渲染成了普通气泡（只有切换后的第一次）。
+    // 改为置一个 charId 标志，等配置真的生效（下一轮渲染）再由下面的 effect 触发。
+    const [pendingOfflineOpening, setPendingOfflineOpening] = useState<string | null>(null);
+
     // 触发角色开场旁白：进入线下且「开场旁白」开关开着时，由角色自己写一段场景旁白。
     // 不往用户侧发可见消息——存一条 hidden + proactiveHint 的 user 消息当 AI 上下文
     // （displayMessages 过滤 proactiveHint，不会显示成用户气泡），再 triggerAI 触发；
@@ -1761,7 +1767,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             });
             await reloadMessages(visibleCountRef.current);
             if (normalizeOfflineConfig(char.offlineConfig).openingNarration) {
-                void fireOfflineOpeningNarration();
+                // 不在这里直接生成：此刻 char 上的 offlineConfig 还没生效，直接生成会退回普通气泡。
+                setPendingOfflineOpening(char.id);
             }
         } else {
             setOfflineInputMode('dialogue');
@@ -1775,6 +1782,26 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             await reloadMessages(visibleCountRef.current);
         }
     }, [char, reloadMessages, fireOfflineOpeningNarration]);
+
+    // 等「线下已开启」这件事在 char 上真的生效，再触发开场旁白。
+    // 用语义等待（配置确实为 true），不用 setTimeout(0) 去赌 React 何时 flush。
+    useEffect(() => {
+        if (!pendingOfflineOpening) return;
+        // 切了角色 / 标志已不属于当前角色：丢弃，避免跨角色误触发
+        if (!char || char.id !== pendingOfflineOpening) {
+            setPendingOfflineOpening(null);
+            return;
+        }
+        // 配置还没生效：等下一轮 char 更新再看
+        if (!isOfflineEnabled(char.offlineConfig)) return;
+        // 等待期间用户又把「开场旁白」关掉了：不再触发
+        if (!normalizeOfflineConfig(char.offlineConfig).openingNarration) {
+            setPendingOfflineOpening(null);
+            return;
+        }
+        setPendingOfflineOpening(null);
+        void fireOfflineOpeningNarration();
+    }, [pendingOfflineOpening, char, fireOfflineOpeningNarration]);
 
     const handleReroll = async () => {
         if (isTyping || messages.length === 0) return;
@@ -2222,7 +2249,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         } else {
             autoGenerateImage(msgId, sceneDesc);
         }
-    }, [char, apiConfig, messages]);
+    }, [char, apiConfig, messages, userProfile]);
 
     // 自动生图：只在 AI 打字刚结束（isTyping 从 true→false）的瞬间检查最新 AI 消息
     // 这么设计是为了：
@@ -4219,8 +4246,10 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         return e.categoryId === activeCategory;
     }), [aiVisibleEmojis, activeCategory]);
 
-    // Memoize ChatInputArea callbacks
-    const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, inputPreferences]);
+    // 发送回调刻意不做 useCallback：它缓存的是一整份 handleSendText 闭包，依赖一漏
+    // （offlineInputMode / windowedFocusMsgId / userProfile / realtimeConfig）就会读到旧值，
+    // 典型症状是「打完字再切对话/旁白，发送仍用旧模式」。内联箭头每次渲染新建、永远是最新闭包；
+    // 而 ChatInputArea 的其它 props 本就每次渲染新建，memo 早已失效，去掉没有性能损失。
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
     const autoReply = useChatAutoReply({
         enabled: inputPreferences.autoReply,
@@ -5141,7 +5170,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     input={input} setInput={handleInputChange}
                     isTyping={isTyping || instantChatPending} selectionMode={selectionMode}
                     showPanel={showPanel} setShowPanel={setShowPanel}
-                    onSend={handleSendCallback}
+                    onSend={() => handleSendText()}
                     onGenerate={handleManualTrigger}
                     sendButtonGenerates={inputPreferences.sendButtonGenerates}
                     enterToSend={inputPreferences.enterToSend}

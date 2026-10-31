@@ -4077,7 +4077,7 @@ const MessageItem = React.memo(({
                                 // 台词：带头像气泡，头像在首条台词前
                                 <div
                                     key={i}
-                                    className={`relative flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 mt-1 ${i === 0 ? 'mt-2' : 'mt-1.5'}`}
+                                    className={`relative flex w-full ${isUser ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 mt-1 ${i === 0 ? 'mt-2' : 'mt-1.5'}`}
                                 >
                                     {renderAvatar(isUser ? resolvedUserAvatar : resolvedCharAvatar, { visible: true, className: isUser ? 'sully-offline-avatar-user' : 'sully-offline-avatar-ai' })}
                                     <div
