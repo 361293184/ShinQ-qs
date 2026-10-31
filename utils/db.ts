@@ -10,6 +10,7 @@ import {exportBeautyAuthorBackup,importBeautyAuthorBackup} from './beautyAuthorB
 import { toMountedWorldbook } from './worldbook';
 import { persistCharacterWithHomeMessages } from './homeMessageBridge';
 import {deleteSecretNotesForIds, announceSecretNotesChanged} from './secretNote';
+import { sanitizeMirrorList } from './mirrorSanitize';
 import { ensureStoryTimelineRepair, invalidateStoryTimelineRepair } from './storyTheaterTimeline';
 
 import { orderWorldEpisodes } from './worldHome/episodeOrder';
@@ -151,18 +152,25 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 // —— 番外收藏 localStorage 镜像（模块级函数，避免依赖 DB 对象上的 this）——
 const FANWAI_MIRROR_KEY = 'os_fanwai_stories_v1';
+
+/**
+ * 镜像里的脏数据（null / 非对象 / 缺 id）在读写前统一由 sanitizeMirrorList 丢弃：
+ * 镜像的增删都是 `mirror.filter(s => s.id !== ...)`，碰到 null 会抛
+ * "null is not an object (evaluating 's.id')"，镜像就再也写不回去。
+ */
 function readFanwaiMirror(): FanwaiStory[] {
     try {
         const raw = localStorage.getItem(FANWAI_MIRROR_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        return Array.isArray(arr) ? arr : [];
+        if (!raw) return [];
+        return sanitizeMirrorList<FanwaiStory>(JSON.parse(raw));
     } catch {
         return [];
     }
 }
 function writeFanwaiMirror(stories: FanwaiStory[]): void {
     try {
-        localStorage.setItem(FANWAI_MIRROR_KEY, JSON.stringify(stories));
+        // 写入前同样过一遍，顺手把历史脏数据洗掉（下一次保存即可自动修复镜像）
+        localStorage.setItem(FANWAI_MIRROR_KEY, JSON.stringify(sanitizeMirrorList<FanwaiStory>(stories)));
     } catch {
         /* 隐私模式/配额满等场景静默忽略，IndexedDB 仍是主存储 */
     }
@@ -173,15 +181,15 @@ const LETTER_MIRROR_KEY = 'os_collected_letters_v1';
 function readLetterMirror(): LetterRecord[] {
     try {
         const raw = localStorage.getItem(LETTER_MIRROR_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        return Array.isArray(arr) ? arr : [];
+        if (!raw) return [];
+        return sanitizeMirrorList<LetterRecord>(JSON.parse(raw));
     } catch {
         return [];
     }
 }
 function writeLetterMirror(letters: LetterRecord[]): void {
     try {
-        localStorage.setItem(LETTER_MIRROR_KEY, JSON.stringify(letters));
+        localStorage.setItem(LETTER_MIRROR_KEY, JSON.stringify(sanitizeMirrorList<LetterRecord>(letters)));
     } catch {
         /* 隐私模式/配额满等场景静默忽略，IndexedDB 仍是主存储 */
     }
