@@ -31,7 +31,8 @@ export interface CharShelfSummary {
 /**
  * 把番外 + 来信合并后按角色分组。
  * - 只返回**有内容**的角色（一个角色既没番外也没信 → 不出现在拾光里）；
- * - 角色被删后用 charName 快照兜底显示；
+ * - **只认现有角色**：角色在神经链接里被删掉后，ta 名下的番外/来信不再出现在拾光里
+ *   （charId 为空的历史脏数据放行，避免因缺字段被误伤）；
  * - 返回按「该角色最近一条收藏」倒序。
  */
 export function buildShelfSummaries(
@@ -40,6 +41,8 @@ export function buildShelfSummaries(
     collectedLetters: LetterRecord[],
 ): CharShelfSummary[] {
     const map = new Map<string, CharShelfSummary>();
+    const aliveIds = new Set(characters.map(c => c.id));
+    const alive = (charId: string) => !charId || aliveIds.has(charId);
 
     const ensure = (charId: string, charName: string): CharShelfSummary => {
         let entry = map.get(charId);
@@ -59,12 +62,14 @@ export function buildShelfSummaries(
     };
 
     for (const story of fanwaiStories) {
+        if (!alive(story.charId)) continue;
         const entry = ensure(story.charId, story.charName);
         entry.stories.push(story);
         entry.latestAt = Math.max(entry.latestAt, story.continuedAt || story.createdAt || 0);
     }
 
     for (const letter of collectedLetters) {
+        if (!alive(letter.charId)) continue;
         const entry = ensure(letter.charId, letter.charName);
         entry.letters.push(letter);
         entry.latestAt = Math.max(entry.latestAt, letter.createdAt || 0);

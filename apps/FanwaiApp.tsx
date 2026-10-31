@@ -12,7 +12,7 @@
  * AppID 保持 Fanwai 不变（改名要同步注册点/消息判定/localStorage key，风险远大于收益）。
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { AppID, CharacterProfile, FanwaiStory, LetterRecord } from '../types';
 import { DB } from '../utils/db';
@@ -51,6 +51,28 @@ const FanwaiApp: React.FC = () => {
         () => summaries.find(s => s.charId === charId) || null,
         [summaries, charId],
     );
+
+    /**
+     * 清理历史孤儿：删角色时级联清拾光是后来才加的，之前删掉的角色会留下番外/来信。
+     * 列表侧 buildShelfSummaries 已经不再显示它们，这里再把库里的也删掉。
+     * 守卫 characters.length > 0：角色还没加载完时无法判断谁被删了，宁可这次不清也不能误删。
+     * purgedRef 保证一次启动只扫一遍。
+     */
+    const purgedRef = useRef(false);
+    useEffect(() => {
+        if (purgedRef.current || characters.length === 0) return;
+        purgedRef.current = true;
+        const aliveIds = new Set(characters.map(c => c.id));
+        const orphanStories = fanwaiStories.filter(s => !!s.charId && !aliveIds.has(s.charId));
+        const orphanLetters = collectedLetters.filter(l => !!l.charId && !aliveIds.has(l.charId));
+        if (orphanStories.length === 0 && orphanLetters.length === 0) return;
+        for (const s of orphanStories) DB.deleteFanwaiStory(s.id).catch(() => {});
+        for (const l of orphanLetters) DB.deleteCollectedLetter(l.id).catch(() => {});
+        const parts: string[] = [];
+        if (orphanStories.length > 0) parts.push(`${orphanStories.length} 篇番外`);
+        if (orphanLetters.length > 0) parts.push(`${orphanLetters.length} 封信`);
+        addToast(`已清理已删角色留下的${parts.join(' · ')}`, 'info');
+    }, [characters, fanwaiStories, collectedLetters, addToast]);
 
     /** 番外 → 转发给角色：写长期记忆 + 注入私聊卡片 + 跳回私聊。 */
     const handleForward = async (story: FanwaiStory, role: CharacterProfile) => {

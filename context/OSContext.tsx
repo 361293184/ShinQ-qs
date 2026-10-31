@@ -3582,6 +3582,33 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     VRScheduler.stop?.(id);
     setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; });
     await DB.deleteCharacter(id);
+    // 拾光级联：番外 / 来信都挂在角色名下，角色删了就不该继续躺在收藏馆里。
+    // 这里直接删库 + 清内存，不走 deleteFanwaiStory / deleteCollectedLetter 的 5 秒撤销窗口
+    // （角色都没了，撤销回来只会变成没有归属的幽灵数据）。
+    const doomedStoryIds = fanwaiStories.filter(s => s.charId === id).map(s => s.id);
+    const doomedLetterIds = collectedLetters.filter(l => l.charId === id).map(l => l.id);
+    if (doomedStoryIds.length > 0) {
+        for (const sid of doomedStoryIds) {
+            const timer = pendingFanwaiDeleteRef.current[sid];
+            if (timer) { window.clearTimeout(timer); delete pendingFanwaiDeleteRef.current[sid]; }
+        }
+        setFanwaiStories(prev => prev.filter(s => s.charId !== id));
+        for (const sid of doomedStoryIds) DB.deleteFanwaiStory(sid).catch(() => {});
+    }
+    if (doomedLetterIds.length > 0) {
+        for (const lid of doomedLetterIds) {
+            const timer = pendingLetterDeleteRef.current[lid];
+            if (timer) { window.clearTimeout(timer); delete pendingLetterDeleteRef.current[lid]; }
+        }
+        setCollectedLetters(prev => prev.filter(l => l.charId !== id));
+        for (const lid of doomedLetterIds) DB.deleteCollectedLetter(lid).catch(() => {});
+    }
+    if (doomedStoryIds.length > 0 || doomedLetterIds.length > 0) {
+        const parts: string[] = [];
+        if (doomedStoryIds.length > 0) parts.push(`${doomedStoryIds.length} 篇番外`);
+        if (doomedLetterIds.length > 0) parts.push(`${doomedLetterIds.length} 封信`);
+        addToast(`已一并清理 ta 在拾光里的${parts.join(' · ')}`, 'info');
+    }
     // 表情分类不随角色级联删除会留下「幽灵专属包」：单聊面板被可见性过滤掉（删不掉），
     // 群聊面板/提示词却还能看到。删完角色顺手按剩余角色清一次残留（详见 DB.cleanupEmojiResidue）。
     try {
