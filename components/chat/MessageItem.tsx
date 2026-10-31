@@ -39,6 +39,8 @@ import {SERIF, resolveThinkingChainStyle, type ThinkingChainStyleId, type Thinki
 export {THINKING_CHAIN_PRESETS,resolveThinkingChainStyle} from '../../utils/psycheAppearance';
 export type {ThinkingChainStyleId,ThinkingChainStyleSpec} from '../../utils/psycheAppearance';
 import {ChatCardSurface} from './ChatCardSurface';
+import {FriendFeedNote} from './FriendFeedNote';
+import FriendFeedShareCard from './FriendFeedShareCard';
 
 // 渲染层剥离"发照片触发段"：角色文本里 `图片- 描述`/`图片：描述` 这类动作段只用于触发生图，
 // 不显示给用户（生图触发读的是消息原始 content，不受此处影响）。仅剥离发照片动作，不影响正常文字与 HTML 卡片。
@@ -1531,6 +1533,15 @@ const MessageItem = React.memo(({
 
     // Secrets are revealed on entering the home, or inspected in history management.
     if (m.type === 'secret_note') return null;
+    if (m.type === 'friend_feed_card' && m.metadata?.friendFeedComment) {
+        return <div className={`w-full relative ${selectionMode ? 'pl-8' : ''}`} {...interactionProps}>
+            {selectionMode && <button type="button" aria-label="选择好友圈记录" aria-pressed={isSelected}
+                className="absolute left-1 top-2 text-xs" onClick={event => {event.stopPropagation(); onToggleSelect(m.id);}}>
+                {isSelected ? '☑' : '□'}
+            </button>}
+            <FriendFeedNote note={m.metadata.friendFeedComment}/>
+        </div>;
+    }
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
@@ -3301,6 +3312,9 @@ const MessageItem = React.memo(({
         return commonLayout(<HtmlCard html={html} />);
     }
 
+    if (m.type === 'friend_feed_share_card' && m.metadata?.friendFeedShare) {
+        return commonLayout(<FriendFeedShareCard share={m.metadata.friendFeedShare}/>);
+    }
     if (m.type === 'social_card' && m.metadata?.post) {
         const post = m.metadata.post;
         // If the saved image is a raw twemoji codepoint (eg "2728"), convert it to the actual emoji character;

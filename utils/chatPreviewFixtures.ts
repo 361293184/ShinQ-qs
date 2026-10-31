@@ -5,6 +5,7 @@ import {BEAUTY_PREVIEW_AVATAR} from './beautyPreviewAssets';
 const base = {charId:'whitebox-preview',role:'assistant' as const,timestamp:1790386860000};
 const msg = (id:number,type:MessageType,content:string,metadata?:Record<string,unknown>,role:Message['role']='assistant'):Message => ({...base,id,type,content,metadata,role});
 export const CHAT_TYPE_SAMPLES = {
+ friend_feed_share_card:msg(30,'friend_feed_share_card','[分享好友圈帖子]',{friendFeedShare:{version:1,postId:'sample-share',authorId:'user',authorName:'小雨',text:'在小巷里找到一家很小的咖啡店。\n窗边的位置刚好留给两个人。',sharedAt:1790386860000,comments:[{id:'reply',authorId:'whitebox-preview',authorName:'小白',text:'靠窗的那个位置，先替我占着。',createdAt:1790386860000}],originalComments:[],imagesEnabled:false,imageRefs:[],imageCount:0}},'user'),
  text:msg(1,'text','欢迎回家。今天也有想和你分享的小事。'),
  image:msg(2,'image',BEAUTY_PREVIEW_AVATAR),
  emoji:msg(3,'emoji',BEAUTY_PREVIEW_AVATAR),
@@ -33,14 +34,14 @@ export const CHAT_TYPE_SAMPLES = {
  room_card:msg(26,'room_card','给窗台的植物浇了水。',{emoji:'🌱'}),
  life_card:msg(27,'life_card','今天走了很远',{module:'exercise',summary:'散步 30 分钟',dateStr:'2026-09-26',reviewStatus:'active'}),
  group_topic_card:msg(28,'group_topic_card','群聊回忆',{groupTopicBox:{title:'周末野餐',summary:'大家约好了带上各自拿手的食物。',groupName:'朋友们',messageCount:12}}),
- // 以下 5 类为本地自研卡片的预览样例（与上游样例保持同一份 Record 契约）
- fanwai_card:msg(29,'fanwai_card','《海边的旧信》',{fanwai:{title:'海边的旧信',styleName:'日常甜宠',excerpt:'潮水退下去的时候，她终于把那封信读完了。'}}),
- location_card:msg(30,'location_card','我们在这里',{location:{name:'河畔花市',address:'示例市示例区河畔路 1 号',lat:31.2304,lng:121.4737}}),
- game_replay:msg(31,'game_replay','上一局谁赢了',{gameReplay:{gameTitle:'默契问答',result:'平局',rounds:6}}),
- letter_card:msg(32,'letter_card','一封来信',{letter:{title:'写给你的信',occasion:{name:'日常'},from:'示例角色',excerpt:'展信佳。这几天风很软。'}}),
- letter_reply_card:msg(33,'letter_reply_card','我的回信',{letterReply:{title:'写给你的回信',occasion:{name:'日常'},excerpt:'收到你的信了，我也有话想跟你说。'}}),
- // 上游新增：悄悄话（secret_note）
- secret_note:msg(34,'secret_note','（悄悄话）',{secretNote:{text:'其实我今天一直在想你。'},tone:'害羞'}),
+ // 以下 6 类为本地自研卡片的预览样例（与上游样例保持同一份 Record 契约）
+ fanwai_card:msg(35,'fanwai_card','《海边的旧信》',{fanwai:{title:'海边的旧信',styleName:'日常甜宠',excerpt:'潮水退下去的时候，她终于把那封信读完了。'}}),
+ location_card:msg(36,'location_card','我们在这里',{location:{name:'河畔花市',address:'示例市示例区河畔路 1 号',lat:31.2304,lng:121.4737}}),
+ game_replay:msg(37,'game_replay','上一局谁赢了',{gameReplay:{gameTitle:'默契问答',result:'平局',rounds:6}}),
+ letter_card:msg(38,'letter_card','一封来信',{letter:{title:'写给你的信',occasion:{name:'日常'},from:'示例角色',excerpt:'展信佳。这几天风很软。'}}),
+ letter_reply_card:msg(39,'letter_reply_card','我的回信',{letterReply:{title:'写给你的回信',occasion:{name:'日常'},excerpt:'收到你的信了，我也有话想跟你说。'}}),
+ secret_note:msg(40,'secret_note','（悄悄话）',{secretNote:{text:'其实我今天一直在想你。'},tone:'害羞'}),
+ friend_feed_card:msg(29,'friend_feed_card','[好友圈记录] 你评论：那我带杯子过来。',{source:'friend_feed',friendFeedComment:{postId:'preview-coffee',commentId:'preview-comment',postAuthor:'小雨',postExcerpt:'今天终于把咖啡机研究明白了。先声明：上次的焦味不算。',comment:'那我带杯子过来。焦味的那杯先留给你。'}},'system'),
 } satisfies Record<MessageType, Message>;
 
 export interface ChatPreviewScene {id:string;label:string;messages:Message[];expanded?:boolean;voiceLoading?:boolean;voicePlaying?:boolean}
@@ -61,7 +62,7 @@ export const CHAT_PREVIEW_SCENES:ChatPreviewScene[] = [
  scene('voice-loading','语音 · 加载',[msg(131,'text','<语音>晚安。</语音>')],{voiceLoading:true}),
  scene('voice-playing','语音 · 播放与字幕',[msg(132,'text','<语音>晚安，明天见。</语音>')],{voicePlaying:true,expanded:true}),
  scene('reply','引用与双语',[{...msg(140,'text','%%BILINGUAL%%\n[LANG_A]明天一起看海。[/LANG_A]\n[LANG_B]Let’s see the sea tomorrow.[/LANG_B]'),replyTo:{id:0,name:'我',content:'周末有什么安排？'}}]),
- ...Object.entries(CHAT_TYPE_SAMPLES).filter(([type])=>!['text','transfer','voice'].includes(type)).map(([type,message])=>scene(type,({image:'图片',emoji:'表情',collaboration_file:'协同文件',interaction:'互动',system:'系统提示',social_card:'动态分享',chat_forward:'聊天转发',xhs_card:'小红书',score_card:'写歌',music_card:'音乐',mcd_card:'麦当劳',luckin_card:'瑞幸',html_card:'HTML 卡片',news_card:'资讯',vr_card:'彼方',trpg_card:'跑团',novel_card:'笔友会',world_card:'世界',sim_card:'人生体验',phone_card:'查手机',webpage_card:'网页',theater_card:'剧场',room_card:'小屋',life_card:'生活记录',group_topic_card:'群聊话题'} as Record<string,string>)[type], [message])),
+ ...Object.entries(CHAT_TYPE_SAMPLES).filter(([type])=>!['text','transfer','voice'].includes(type)).map(([type,message])=>scene(type,({friend_feed_share_card:'好友圈分享',friend_feed_card:'好友圈评论',image:'图片',emoji:'表情',collaboration_file:'协同文件',interaction:'互动',system:'系统提示',social_card:'动态分享',chat_forward:'聊天转发',xhs_card:'小红书',score_card:'写歌',music_card:'音乐',mcd_card:'麦当劳',luckin_card:'瑞幸',html_card:'HTML 卡片',news_card:'资讯',vr_card:'彼方',trpg_card:'跑团',novel_card:'笔友会',world_card:'世界',sim_card:'人生体验',phone_card:'查手机',webpage_card:'网页',theater_card:'剧场',room_card:'小屋',life_card:'生活记录',group_topic_card:'群聊话题'} as Record<string,string>)[type], [message])),
  scene('quiz','答题报告',[score(150,'quiz_card',{score:9,total:10,scorePercent:90,courseTitle:'文学小测',chapterTitle:'第一章'})]),
  scene('guidebook','攻略本',[score(151,'guidebook_card',{title:'心动练习',charName:'示例角色',initialAffinity:20,finalAffinity:35,charVerdict:'今天更了解你了。',charNewInsight:'你会记住每一件小事。',rounds:5})]),
  scene('whiteday','白色情人节',[score(152,'whiteday_card',{charName:'示例角色',score:8,total:10,passed:true,finalDialogue:'这份巧克力送给你。'})]),

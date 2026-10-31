@@ -16,6 +16,7 @@ export enum AppID {
   Schedule = 'schedule',
   Room = 'room',
   CheckPhone = 'check_phone',
+  FriendFeed = 'friend_feed',
   Social = 'social',
   Study = 'study',
   FAQ = 'faq',
@@ -588,7 +589,8 @@ export interface RealtimeConfig {
   // 天气配置
   weatherEnabled: boolean;
   weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
-  weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
+  weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
+    weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
 
   // 新闻配置
   newsEnabled: boolean;
@@ -4139,7 +4141,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay' | 'letter_card' | 'letter_reply_card' | 'secret_note';
+export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay' | 'letter_card' | 'letter_reply_card';
 
 /** 角色心声 —— 台词没说出口的内心，随台词同一次输出、入库前剥离，仅存于 metadata 不渲染不入上下文。 */
 export interface InnerVoiceLayer {
@@ -4190,6 +4192,12 @@ export interface Emoji {
 }
 
 export interface FullBackupData {
+    /** 好友圈正文；文字备份单列，完整备份随 assets 保存。 */
+    friendFeed?: import('./utils/friendFeed').FriendFeedState;
+    /** Media-only patches never replace feed text or settings. */
+    friendFeedMedia?: import('./utils/activityBackup').FriendFeedMediaBackup;
+    /** Text records stored in assets; restore only this allowlisted subset. */
+    activityTextAssets?: import('./utils/activityBackup').ActivityTextAsset[];
     /** 纯文字备份单独携带收藏索引，不覆盖整个资源库。 */
     contentFavoritesIndex?: unknown;
     timestamp: number;

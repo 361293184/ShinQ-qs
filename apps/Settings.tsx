@@ -1,3 +1,5 @@
+import {CharacterWeatherCities} from '../components/settings/CharacterAwarenessSettings';
+import {cleanCharacterWeatherCities} from '../utils/characterWeather';
 import NavigationBallSettings from '../components/settings/NavigationBallSettings';
 import { useSettingsFocus } from '../utils/settingsNavigation';
 import ApiPresetGroups from '../components/settings/ApiPresetGroups';
@@ -681,6 +683,7 @@ const Settings: React.FC = () => {
   useLocalBackHandler(() => { closeRealtimePage(); return true; }, 30, showRealtimeModal);
   const [rtUserHolidays, setRtUserHolidays] = useState<UserHolidayConfig>(() => ({ ...(realtimeConfig.userHolidays || { enabled: false, countryCode: '' }), ...(holidaySettingsFocus ? { enabled: true } : {}) }));
   const [rtWeatherKey, setRtWeatherKey] = useState(realtimeConfig.weatherApiKey);
+  const [rtWeatherCities, setRtWeatherCities] = useState(()=>cleanCharacterWeatherCities(realtimeConfig.weatherCities));
   const [rtWeatherCity, setRtWeatherCity] = useState(realtimeConfig.weatherCity);
   const [rtNewsEnabled, setRtNewsEnabled] = useState(realtimeConfig.newsEnabled);
   const [rtNewsApiKey, setRtNewsApiKey] = useState(realtimeConfig.newsApiKey || '');
@@ -2307,7 +2310,8 @@ const Settings: React.FC = () => {
           weatherEnabled: rtWeatherEnabled,
           userHolidays: { ...rtUserHolidays, introChoice: rtUserHolidays.enabled ? 'configured' as const : 'declined' as const },
           weatherApiKey: rtWeatherKey,
-          weatherCity: rtWeatherCity,
+          weatherCity: rtWeatherCity.trim(),
+          weatherCities: cleanCharacterWeatherCities(rtWeatherCities),
           newsEnabled: rtNewsEnabled,
           newsApiKey: rtNewsApiKey,
           newsPlatforms: rtNewsPlatforms,
@@ -2691,6 +2695,7 @@ const Settings: React.FC = () => {
                 • <b>整合导出</b>: 一次性导出文字与图片媒体；VRM / Live2D 模型请使用下方独立备份。<br/>
                 • <b>纯文字备份</b>: 包含所有聊天记录、角色设定、剧情数据。所有图片会被移除（减小体积）。<br/>
                 • <b>媒体与美化素材</b>: 导出相册、表情包、聊天图片、头像、主题气泡、壁纸、图标等图片资源和外观配置。<br/>
+                • <b>活动与哔哔</b>: 万圣节收集、装扮选择、恐龙箱庭、哔哔正文与设置、家园串门和秘密记录随纯文字/整合备份保存；哔哔上传配图随媒体/整合备份保存，补导媒体不覆盖正文或活动进度。<br/>
                 • <b>装扮与搭配</b>: 整合/媒体备份包含桌面主题、聊天装扮、搭配收藏、旧气泡及实际素材，并保留来源权限、角色搭配和投稿更新绑定。纯文字备份不能完整恢复美化。<br/>
                 • <b>作者搬家</b>: 整合备份还包含 Repo 状态、美化偏好和引导记录；已在作者页开启“记住作者身份”时，也携带作者码与密码。导入后恢复这些数据，不会自动登录或投稿。<br/>
                 • <b>语音范围</b>: 整合/媒体备份仅包含已收藏语音，以及 Live2D 开机、触摸预设实际引用的语音；未收藏的聊天、通话等临时语音不会导出。<br/>
@@ -5343,7 +5348,7 @@ const Settings: React.FC = () => {
       >
           <div className="space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
               {rtUserLocationPage === 'main' && <UserHolidaySettings value={rtUserHolidays} onChange={setRtUserHolidays} />}
-              <UserLocationSettings value={rtUserLocation} onChange={setRtUserLocation} onSave={handleSaveUserLocation} page={rtUserLocationPage} onNavigate={setRtUserLocationPage} onBusyChange={setRtUserLocationBusy} userName={userProfile.name} />
+              <UserLocationSettings characters={characters} value={rtUserLocation} onChange={setRtUserLocation} onSave={handleSaveUserLocation} page={rtUserLocationPage} onNavigate={setRtUserLocationPage} onBusyChange={setRtUserLocationBusy} userName={userProfile.name} />
               {rtUserLocationPage === 'main' && <>
               {/* 天气配置 */}
               <div className="bg-emerald-50/50 p-4 rounded-2xl space-y-3">
@@ -5364,11 +5369,12 @@ const Settings: React.FC = () => {
                               <input type="password" value={rtWeatherKey} onChange={e => setRtWeatherKey(e.target.value)} className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="留空则用免费的 Open-Meteo，无需注册" />
                           </div>
                           <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">城市</label>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">默认天气城市</label>
                               <input type="text" value={rtWeatherCity} onChange={e => setRtWeatherCity(e.target.value)} className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm" placeholder="北京 / Beijing / Shanghai" />
                           </div>
 <button onClick={testWeatherApi} className="w-full py-2 bg-emerald-100 text-emerald-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试天气API</button>
                           {renderRtTestStatus('weather')}
+                          <CharacterWeatherCities characters={characters} value={rtWeatherCities} defaultCity={rtWeatherCity} onChange={setRtWeatherCities}/>
                       </div>
                   )}
               </div>

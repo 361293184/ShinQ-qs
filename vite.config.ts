@@ -5,8 +5,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
 import { staticCachePlugin } from './scripts/static-cache-build';
+import { homeResourcePacksPlugin } from './scripts/home-resource-packs.mjs';
 import { startupRecoveryPlugin } from './scripts/startup-recovery-plugin';
 import { APP_VERSION_TAG } from './utils/appVersion';
+import { tikhubMiddleware } from './server/tikhub-middleware';
 
 // MiniMax 国服 / 海外是两套域名，前端每个请求都带 X-MiniMax-Region 头说明走哪边。
 // Vite 的开发代理底层是 http-proxy，不认 router 选项，所以在 configure 里包一层 proxy.web，
@@ -106,6 +108,7 @@ export default defineConfig({
     ],
   },
   plugins: [
+    homeResourcePacksPlugin(),
     startupRecoveryPlugin(appBuildId),
     react(),
     emitVersionJson(gitInfo, buildTime),
@@ -114,6 +117,7 @@ export default defineConfig({
       name: 'bake-voice-middleware',
       configureServer(server) {
         server.middlewares.use('/api/minimax/bake-voice', bakeVoiceMiddleware);
+        server.middlewares.use('/api/friend-feed/tikhub', tikhubMiddleware);
       },
     },
   ],
