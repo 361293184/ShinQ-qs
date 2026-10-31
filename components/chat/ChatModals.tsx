@@ -137,9 +137,6 @@ interface ChatModalsProps {
     onSetRecallCaughtChance?: (v: number) => void;
     recallOutputEnabled?: boolean;
     onToggleRecallOutput?: () => void;
-    // 角色心声（inner_voice）
-    innerVoiceEnabled?: boolean;
-    onToggleInnerVoice?: () => void;
     // Schedule
     scheduleData?: DailySchedule | null;
     isScheduleGenerating?: boolean;
@@ -292,7 +289,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable, voiceCollectable, onToggleVoiceFavorite, voiceFavorited,
     recallCaughtChance, onSetRecallCaughtChance, recallOutputEnabled, onToggleRecallOutput,
-    innerVoiceEnabled, onToggleInnerVoice,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
     onScheduleStyleChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
@@ -731,21 +727,6 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                     {chatVoiceLang && <p className="text-[10px] text-emerald-600/70 mt-1.5">选择非默认语种时，AI 台词会先翻译再生成语音。</p>}
                                 </div>
                             )}
-                        </div>
-                    </ChatSettingsSection>
-                    <ChatSettingsSection title="角色心声" summary="没说出口的心里话">
-                        {/* 角色心声（inner_voice）：每条回复随台词同一次输出一段「没说出口的心里话」，
-                            点最新一条角色消息的头像可读；旧「撤回心声」玩法已废弃并由本开关取代。 */}
-                        <div className="pt-2 border-t border-slate-100">
-                            <div className="flex justify-between items-center cursor-pointer" onClick={onToggleInnerVoice}>
-                                <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">角色心声</label>
-                                <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${innerVoiceEnabled !== false ? 'bg-amber-200' : 'bg-slate-200'}`}>
-                                    <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${innerVoiceEnabled !== false ? 'translate-x-4' : ''}`}></div>
-                                </div>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                                开启后，角色每句话都藏着一层没说出口的内心。点最新一条角色消息的头像，可看到她此刻的心里话；「戳破她」能把它转发进聊天。
-                            </p>
                         </div>
                     </ChatSettingsSection>
                     <ChatSettingsSection title="扩展功能" summary="小红书与 HTML 卡片">

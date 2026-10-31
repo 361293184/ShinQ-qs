@@ -83,131 +83,13 @@ async function callLlm(creds, messages, options = {}) {
   }
 }
 
-// utils/innerVoice.ts
-var KNOWN_TAGS = /* @__PURE__ */ new Set(["\u771F\u5FC3\u8BDD", "\u5410\u69FD", "\u5C0F\u52A8\u4F5C", "\u9884\u8C0B", "\u56DE\u5FC6", "\u5173\u7CFB"]);
-var VOICE_BLOCK_RE = /<inner_voice>([\s\S]*?)<\/inner_voice>/;
-var VOICE_OPEN_RE = /<inner_voice>([\s\S]*)$/;
-var LEFTOVER_TAG_RE = /<\/?inner_voice>/g;
-var LAYER_TAG_RE = /^【([^】]+)】(.*)$/u;
-var MAX_LAYER_TEXT = 72;
-var MAX_BLOCK_TEXT = 400;
-var MAX_LAYERS = 12;
-var softTruncate = (text, max) => {
-  const t = text.trim();
-  if (t.length <= max) return t;
-  const head = t.slice(0, max);
-  const matches = [];
-  for (const m of head.matchAll(/[。！？….!?]/g)) {
-    matches.push((m.index ?? 0) + m[0].length);
-  }
-  const cut = matches.length > 0 ? matches[matches.length - 1] : -1;
-  if (cut >= Math.floor(max * 0.6)) {
-    return t.slice(0, cut);
-  }
-  return `${head}\u2026`;
-};
-var extractInnerVoice = (raw) => {
-  try {
-    if (!raw) return { clean: raw || "", innerVoice: null };
-    const text = String(raw);
-    let blockMatch = VOICE_BLOCK_RE.exec(text);
-    let inner = blockMatch ? blockMatch[1] : null;
-    if (!inner) {
-      const openMatch = VOICE_OPEN_RE.exec(text);
-      if (openMatch) {
-        inner = openMatch[1];
-        blockMatch = openMatch;
-      }
-    }
-    if (!inner) {
-      return { clean: text.replace(LEFTOVER_TAG_RE, ""), innerVoice: null };
-    }
-    const rawInner = inner.trim();
-    if (!rawInner || /^\s*$/.test(rawInner)) {
-      return { clean: removeBlock(text, blockMatch?.[0] || ""), innerVoice: null };
-    }
-    if (!/^【[^】]+】/mu.test(rawInner)) {
-      const fallbackText = softTruncate(rawInner.replace(/[\n\r]+/g, "").replace(LEFTOVER_TAG_RE, ""), MAX_LAYER_TEXT);
-      const layers2 = fallbackText ? [{ type: "\u5FC3\u58F0", text: fallbackText }] : [];
-      const clean2 = removeBlock(text, blockMatch?.[0] || "");
-      return { clean: clean2, innerVoice: layers2.length ? { layers: layers2, at: Date.now() } : null };
-    }
-    const layers = [];
-    const lines = rawInner.split("\n");
-    let current = null;
-    for (let line of lines) {
-      line = line.trim();
-      if (!line) continue;
-      const tagMatch = LAYER_TAG_RE.exec(line);
-      if (tagMatch) {
-        const label = tagMatch[1].trim();
-        const rest = tagMatch[2].trim();
-        const type = KNOWN_TAGS.has(label) ? label : "\u5FC3\u58F0";
-        current = { type, text: rest ? rest : "" };
-        layers.push(current);
-      } else {
-        if (!current) {
-          current = { type: "\u5FC3\u58F0", text: "" };
-          layers.push(current);
-        }
-        current.text = current.text ? `${current.text}${line}` : line;
-      }
-    }
-    const filled = layers.filter((l) => l.text);
-    if (filled.length === 0) {
-      return { clean: removeBlock(text, blockMatch?.[0] || ""), innerVoice: null };
-    }
-    if (filled.length > MAX_LAYERS) {
-      return { clean: removeBlock(text, blockMatch?.[0] || ""), innerVoice: null };
-    }
-    let totalLen = 0;
-    const normalized = [];
-    for (const l of filled) {
-      const cleaned = softTruncate(stripWrappingQuotes(l.text), MAX_LAYER_TEXT);
-      if (!cleaned) continue;
-      const room = MAX_BLOCK_TEXT - totalLen;
-      if (room <= 0) break;
-      let sliced = room < 10 ? cleaned.slice(0, room) : softTruncate(cleaned, room);
-      if (sliced.length > room) sliced = sliced.slice(0, room);
-      if (!sliced) break;
-      normalized.push({ type: l.type, text: sliced });
-      totalLen += sliced.length;
-    }
-    if (normalized.length === 0) {
-      return { clean: removeBlock(text, blockMatch?.[0] || ""), innerVoice: null };
-    }
-    const clean = removeBlock(text, blockMatch?.[0] || "");
-    return {
-      clean,
-      innerVoice: { layers: normalized, at: Date.now() }
-    };
-  } catch {
-    return { clean: raw || "", innerVoice: null };
-  }
-};
-var removeBlock = (text, blockText) => {
-  let clean = blockText ? text.replace(blockText, "") : text;
-  clean = clean.replace(LEFTOVER_TAG_RE, "");
-  return clean.replace(/^\s*\n/, "").replace(/\n\s*$/, "").trim();
-};
-var stripWrappingQuotes = (text) => {
-  let t = text.trim();
-  t = t.replace(/^["“「『]([\s\S]*?)["”」』"]$/, "$1").trim();
-  if (t.length >= 2) {
-    const first = t[0];
-    const last = t[t.length - 1];
-    if (/["“「『"]/.test(first) && /["”」』"]/.test(last)) t = t.slice(1, -1).trim();
-  }
-  return t;
-};
-
 // worker/wechat-bridge/src/reply.ts
 var LINE_BREAK_RE = /(?:\r\n|\r|\n|\u2028|\u2029)+/;
 var DIVIDER_ONLY_RE = /^[\s\-*_—–]{3,}$/;
 var MAX_SEGMENTS = 8;
 var normalizeReplyForWechat = (raw) => {
   let text = String(raw ?? "");
-  text = extractInnerVoice(text).clean;
+  text = text.replace(/<inner_voice>[\s\S]*?<\/inner_voice>/gi, "").replace(/<\/?inner_voice>/gi, "");
   text = text.replace(/<think[\s\S]*?<\/think>/gi, "");
   text = text.replace(/<reasoning[\s\S]*?<\/reasoning>/gi, "");
   const emojiNames = [];

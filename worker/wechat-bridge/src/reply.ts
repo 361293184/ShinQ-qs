@@ -17,12 +17,9 @@
  *
  * 这份是**刻意重复**的最小实现：worker bundle 不能把前端那套后处理（带浏览器依赖、
  * 还要二次调 LLM、还有 amsg-instant 依赖的横幅管线）整个搬进来。改动那边时这里要跟着看。
- * 唯一例外是心声剥离——那份实现零依赖且是客户端唯一真相，直接 import 共用（见下）。
  *
  * 零浏览器依赖。
  */
-
-import { extractInnerVoice } from '../../../utils/innerVoice';
 
 /** 换行 = 气泡边界（与客户端 chunkText 同一组字符）。 */
 const LINE_BREAK_RE = /(?:\r\n|\r|\n|\u2028|\u2029)+/;
@@ -57,8 +54,9 @@ export interface NormalizedReply {
 export const normalizeReplyForWechat = (raw: string): NormalizedReply => {
   let text = String(raw ?? '');
 
-  // 0. 心声：与客户端共用同一份剥离实现（唯一真相），别在这里另写正则。
-  text = extractInnerVoice(text).clean;
+  // 0. 心声：功能已下线（客户端不再请求 `<inner_voice>`），这里只做防御性剥离，
+  //    防止历史提示词缓存 / 自定义提示词里残留的块被原样发到微信。
+  text = text.replace(/<inner_voice>[\s\S]*?<\/inner_voice>/gi, '').replace(/<\/?inner_voice>/gi, '');
 
   // 1. 思考链
   text = text.replace(/<think[\s\S]*?<\/think>/gi, '');

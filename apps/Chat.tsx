@@ -86,7 +86,6 @@ import ConfirmDialog from '../components/os/ConfirmDialog';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
-import { HeartFloats, ReadMindStickerSet } from '../components/chat/InnerVoicePanelFx';
 import ChatModals from '../components/chat/ChatModals';
 import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import type { ChatCleanupPlan } from '../utils/chatHistoryCleanup';
@@ -205,8 +204,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [pendingLetter, setPendingLetter] = useState<LetterRecord | null>(null);
     // 来信触发判定需要「用户纪念日」（按 MM-DD 命中 core）；一次性加载，失败降级为空。
     const [letterAnniversaries, setLetterAnniversaries] = useState<Anniversary[]>([]);
-    // 角色心声：点最新一条角色消息头像 → 弹出「此刻的心里话」；null = 未打开
-    const [innerVoiceMsg, setInnerVoiceMsg] = useState<Message | null>(null);
     // 即时对话：这一轮已经交给云端、还没等到回复。它跟 isTyping 不一样——生成不在这台
     // 设备上跑，所以要扛得住关页面重开（记录落在 localStorage，见 amsgInstantChat）。
     const [instantChatPending, setInstantChatPending] = useState(false);
@@ -3932,48 +3929,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         setSelectedMsgIds(new Set());
     };
 
-    // ── 角色心声（inner_voice）──
-    // 只有「当前对话最新一条角色消息」且带 innerVoice 时，头像可点 → 弹读心面板。
-    const handleOpenInnerVoice = useCallback((m: Message) => {
-        if (!m?.metadata?.innerVoice) return;
-        // 关闭正在编辑的回复态，避免底栏按钮与面板同屏（无条件清，不读现值 → 引用恒稳，不击穿 MessageItem memo）
-        setReplyTarget(null);
-        setInnerVoiceMsg(m);
-    }, []);
-
-    const closeInnerVoice = useCallback(() => setInnerVoiceMsg(null), []);
-
-    // 「戳破她」＝把这段心声做成一张"转发卡片"消息发进当前聊天（记为用户消息）。
-    // 不触发 AI 回复——何时让角色开口仍由常规交互决定；不注入称谓、不安排她的反应。
-    const handlePokeInnerVoice = useCallback(async () => {
-        const host = innerVoiceMsg;
-        const voice = host?.metadata?.innerVoice;
-        if (!host || !voice || !char) return;
-        const layers = Array.isArray(voice.layers) ? voice.layers : [];
-        if (layers.length === 0) return;
-        const forwardData = {
-            kind: 'inner_voice',
-            charName: char.name || '角色',
-            at: voice.at || Date.now(),
-            layers,
-        };
-        try {
-            await DB.saveMessage({
-                charId: char.id,
-                role: 'user',
-                type: 'chat_forward' as MessageType,
-                content: JSON.stringify(forwardData),
-            });
-            addToast(`已把她的心声转发给她看`, 'success');
-        } catch (e: any) {
-            addToast(`转发失败：${e?.message || '未知错误'}`, 'error');
-            return;
-        }
-        setInnerVoiceMsg(null);
-        // 刷新消息列表让转发卡出现；不调用 triggerAI
-        await reloadMessages(visibleCountRef.current);
-    }, [innerVoiceMsg, char, reloadMessages]);
-
     // ── 协同工作 → 聊天转发（上游新增：独立 sidecar 只有用户点「发送给 ChatApp」时才走这个窄桥）──
     const handleCollaborationPreviewHandled = useCallback(() => {
         setCollaborationPreviewAssetId(null);
@@ -4181,19 +4136,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }, [activeCharacterId, renderedMessages, streamingBubbles]);
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
-
-    // 角色心声：只有「当前对话最新一条带 innerVoice 的角色消息」的头像可点
-    // （数据层只挂在该轮最后落库的 assistant 消息上，UI 心智 = 她此刻的心里话）。
-    // 角色心声开关关掉时，历史已存的心声也不点亮（开关 = 整个功能的总闸）。
-    const innerVoiceFeatureOn = char?.innerVoiceEnabled !== false;
-    const innerVoiceHostId = useMemo(() => {
-        if (!innerVoiceFeatureOn) return null;
-        for (let i = displayMessages.length - 1; i >= 0; i--) {
-            const mm = displayMessages[i];
-            if (mm.role === 'assistant' && mm.metadata?.innerVoice) return mm.id;
-        }
-        return null;
-    }, [displayMessages, innerVoiceFeatureOn]);
 
     // ── 新消息进入动画 ──────────────────────────────────────────────
     // 只让「刚追加的最新消息」（自己发的 / AI 回的）整条淡入一次。
@@ -4685,8 +4627,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 onSetRecallCaughtChance={(v) => updateCharacter(char.id, { recallCaughtChance: v })}
                 recallOutputEnabled={!!char.recallOutputEnabled}
                 onToggleRecallOutput={() => updateCharacter(char.id, { recallOutputEnabled: !char.recallOutputEnabled })}
-                innerVoiceEnabled={char.innerVoiceEnabled !== false}
-                onToggleInnerVoice={() => updateCharacter(char.id, { innerVoiceEnabled: char.innerVoiceEnabled === false ? true : false })}
                 scheduleData={scheduleData}
                 isScheduleGenerating={isScheduleGenerating}
                 onScheduleEdit={handleScheduleEdit}
@@ -4966,8 +4906,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             charName={char.name}
                             userAvatar={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
                             isLatestMessage={!nextMessage}
-                            innerVoiceHost={m.id === innerVoiceHostId}
-                            onOpenInnerVoice={handleOpenInnerVoice}
                             onMediaLoad={handleMessageMediaLoad}
                             moduleAlign={mergedFineTune.chatModuleAlign || 'center'}
                             onLongPress={handleMessageLongPress}
@@ -5356,91 +5294,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             subModel={apiConfig.subModel}
                             availableModes={['char', 'user', 'joint']}
                         />
-                    </div>
-                </>
-            )}
-
-            {/* 角色心声 · 读心面板：最新一条角色消息带 innerVoice 时点头像弹出；仅你可见 */}
-            {char && innerVoiceMsg?.metadata?.innerVoice && char.innerVoiceEnabled !== false && (
-                <>
-                    <div className="fixed inset-0 z-[88] bg-black/35 backdrop-blur-[1px]" onClick={closeInnerVoice} />
-                    <div className="fixed inset-x-5 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[90] w-[min(92vw,356px)] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        {/*
-                            wrapper 负责容纳「探出纸边的贴纸花」：自身不 overflow-hidden；
-                            奶绿垫纸/内层卡各自圆角裁切，都不影响花的溢出可见。
-                        */}
-                        <div className="relative">
-                            {/* 便签贴纸装饰层：四角溢出小花 + 右下深棕折角 + 底部小书旗 + 褐色圆点 */}
-                            <ReadMindStickerSet />
-
-                            {/* 外圈：浅奶绿纸面 + 虚线描边（比内层便签大一圈） */}
-                            <div className="relative rounded-[26px] border-2 border-dashed border-[#C6CB9C] bg-[#E9E6D3] p-2.5 overflow-hidden shadow-[0_24px_60px_-12px_rgba(78,59,38,0.35)]">
-                                {/* 内层：米白格纹便签纸（stacking context，HeartFloats z-1 画在其背景上文字下） */}
-                                <div
-                                    className="relative z-10 flex max-h-[76vh] flex-col overflow-hidden rounded-[16px] bg-[#FCF9F2] animate-fade-in"
-                                    style={{
-                                        backgroundImage:
-                                            'repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(194,199,156,0.10) 23px, rgba(194,199,156,0.10) 24px),' +
-                                            'repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(194,199,156,0.07) 23px, rgba(194,199,156,0.07) 24px)',
-                                    }}
-                                >
-                                    {/* 卡内杏金爱心粒子（克制呼吸）：透明细线、pointer-events-none，不拦截滚动/按钮 */}
-                                    <HeartFloats />
-
-                                    {/* 头部：头像 + 名字 · 心声 + 收起 */}
-                                    <div className="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0">
-                                        <div className="relative shrink-0">
-                                            <TokenImg value={char.avatar} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-[#D7DAB6]/80" />
-                                            <span aria-hidden className="absolute -inset-[3px] rounded-full border pointer-events-none" style={{ borderColor: 'rgba(127,140,82,0.25)' }} />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-baseline gap-1.5">
-                                                <span className="text-[15px] font-semibold text-[#3A3A38] truncate">{char.name}</span>
-                                                <span className="shrink-0 rounded-[5px] border border-[#C2C79B]/80 bg-[#E4E7CB] px-1 py-px text-[9px] font-bold tracking-wide text-[#6F7C54]">心声</span>
-                                            </div>
-                                            <div className="text-[10px] text-[#A89B7F] mt-0.5">仅你可见</div>
-                                        </div>
-                                        <button onClick={closeInnerVoice} aria-label="收起"
-                                            className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[#A89B7F] hover:text-[#6F7C54] hover:bg-[#F0EFE2] transition-colors">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </div>
-
-                                    {/* 中部：分层心声列表（固定高，层多内部滚动） */}
-                                    <div className="mx-5 h-px shrink-0 bg-[#EBE7D8]" />
-                                    <div className="flex-1 min-h-0 overflow-y-auto px-5 py-1 no-scrollbar">
-                                        {(() => {
-                                            const voice = innerVoiceMsg.metadata.innerVoice;
-                                            const layers = Array.isArray(voice?.layers) ? voice.layers : [];
-                                            if (layers.length === 0) {
-                                                return <div className="py-6 text-center text-xs italic text-[#A89B7F]">她此刻没有多余的心事。</div>;
-                                            }
-                                            return (
-                                                <div>
-                                                    {layers.map((l: any, i: number) => (
-                                                        <div key={i} className="py-3">
-                                                            {i > 0 && <div className="mb-3 border-t border-dashed border-[#E6E1CF]" />}
-                                                            <div className="flex items-start gap-2.5">
-                                                                <span className="shrink-0 mt-[3px] text-[10px] font-medium text-[#A89B7F] tracking-wide leading-none w-12">{l?.type || '心声'}</span>
-                                                                <span className="text-[13px] leading-relaxed text-[#3A3A38] italic">{l?.text || ''}</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-
-                                    {/* 底部：戳破她 = 转发心声卡片 */}
-                                    <div className="px-5 py-3.5 shrink-0 flex justify-center">
-                                        <button onClick={handlePokeInnerVoice}
-                                            className="-rotate-1 px-6 h-9 rounded-[10px] text-[13px] font-semibold transition-all active:scale-[0.97] bg-[#E4E7CB] text-[#6F7C54] border border-[#C2C79B] shadow-[0_2px_8px_rgba(127,140,82,0.16)] hover:bg-[#DCE0BC] hover:shadow-[0_3px_10px_rgba(127,140,82,0.22)]">
-                                            戳破ta
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </>
             )}
