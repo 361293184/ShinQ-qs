@@ -37,7 +37,6 @@ import {
   Wrench,
   HouseLine,
   Feather,
-  CalendarBlank,
   ArrowsLeftRight,
 } from '@phosphor-icons/react';
 
@@ -80,7 +79,6 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   CharCreatorDev: ({ className }) => <Wrench className={className} weight="regular" />,
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
   Fanwai: ({ className }) => <Feather className={className} weight="regular" />,
-  Techo: ({ className }) => <CalendarBlank className={className} weight="regular" />,
   RealityBridge: ({ className }) => <ArrowsLeftRight className={className} weight="regular" />,
   Weread: ({ className }) => <Books className={className} weight="regular" />,
 };
@@ -101,7 +99,6 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Bank, name: '存钱罐', icon: 'Bank', color: 'lime' }, // Hidden
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update
-  { id: AppID.Techo, name: 'Techo', icon: 'Techo', color: 'fuchsia' },
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },
   { id: AppID.Study, name: '自习室', icon: 'Study', color: 'emerald' },
   { id: AppID.Game, name: 'TRPG', icon: 'Game', color: 'orange' },
@@ -125,7 +122,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.SpecialMoments, name: '特别时光', icon: 'SpecialMoments', color: 'pink' },
   { id: AppID.Music, name: '音乐', icon: 'Music', color: 'rose' },
   { id: AppID.CharCreatorDev, name: '捏脸·开发', icon: 'CharCreatorDev', color: 'amber' }, // 仅开发模式显示（Launcher 过滤）
-  { id: AppID.Weread, name: '微信读书', icon: 'Weread', color: 'green' },
+  // { id: AppID.Weread, name: '微信读书', icon: 'Weread', color: 'green' }, // Hidden（代码保留，取消注释即恢复）
   // { id: AppID.QQBridge, name: 'QQ 桥', icon: 'QQBridge', color: 'sky' }, // Hidden temporarily
 ];
 
@@ -133,6 +130,8 @@ export const INSTALLED_APPS: AppConfig[] = [
 // 只查 INSTALLED_APPS 的话这些 App 会被静默漏掉（比如「家园」是从小小窝进的）。
 export const HIDDEN_APP_NAMES: Partial<Record<AppID, string>> = {
   [AppID.WorldHome]: '家园',
+  // 微信读书已从桌面隐藏（代码保留），补上中文名以免使用统计里显示成裸 id。
+  [AppID.Weread]: '微信读书',
 };
 
 export const DOCK_APPS = [AppID.Chat, AppID.GroupChat, AppID.Social, AppID.Settings];

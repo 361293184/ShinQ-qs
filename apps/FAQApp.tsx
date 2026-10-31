@@ -392,18 +392,6 @@ const GUIDE_DATA: GuideEntry[] = [
         links: ['神经链接', '聊天'],
     },
     {
-        name: '手账（Techo）',
-        icon: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d3.png',
-        color: 'from-fuchsia-50 to-pink-50 border-fuchsia-200',
-        desc: '个人日程/打卡/碎碎念手账，有封面、日、周、月、年、习惯、设置。',
-        how: [
-            '底部导航可切换 日 / 周 / 月 / 年 / 习惯 / 设置。',
-            '月视图会显示节假日、纪念日和当日完成的任务。',
-            '设置里可以开「角色感知」，让角色读到你的手账并在聊天里自然提起。',
-        ],
-        links: ['聊天', '神经链接', '日程'],
-    },
-    {
         name: 'Spark',
         icon: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f525.png',
         color: 'from-red-50 to-orange-50 border-red-200',

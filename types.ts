@@ -39,7 +39,6 @@ export enum AppID {
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Fanwai = 'fanwai', // 拾光 — 番外收藏：私聊生成的小说式番外，收藏后可转发给角色（写入记忆+注入私聊）
-  Techo = 'techo', // 手账 — 个人日程/打卡/碎碎念手账（源自 techo 插件移植）
   GameHub = 'game_hub', // 游戏大厅 — 小游戏合集（首个内置「你说我猜」综艺局）
   RealityBridge = 'reality_bridge', // 现实桥 — iPhone 快捷指令 ↔ 云端 ↔ 角色聊天的双向数据桥
   Weread = 'weread', // 微信读书 — 真实书架/笔记/正文（个人自用）+ 角色感知开关
@@ -1408,115 +1407,6 @@ export interface RecentLetterContext {
     expiresAt: number;
     /** 剩余可注入轮数：每轮 AI 回复后 -1，≤0 即失效。 */
     turnsLeft: number;
-}
-
-// =====================================================================
-// --- TECNO HANDOU (手账) TYPES ---
-// 个人日程/打卡/碎碎念手账（源自 techo 插件 React 移植）。
-// 存储走 STORE_TECHO 通用 KV store，key 见 utils/techoStore.ts。
-// =====================================================================
-
-/** 时间轴任务（有固定时间的任务）。 */
-export interface TechoTimelineItem {
-    id: string;
-    time: string;        // "HH:mm"
-    text: string;
-    done: boolean;
-    star?: boolean;
-}
-
-/** 灵活任务（Todo，无固定时间）。 */
-export interface TechoTodoItem {
-    id: string;
-    text: string;
-    done: boolean;
-    star?: boolean;
-    overdue?: boolean;   // 延期滚入次日标记
-}
-
-/** 单日数据。 */
-export interface TechoDayData {
-    date: string;        // YYYY-MM-DD
-    timeline: TechoTimelineItem[];
-    todos: TechoTodoItem[];
-    notes: string;       // 碎碎念
-}
-
-/** 习惯频率。 */
-export type TechoHabitFrequency =
-    | { type: 'daily' }
-    | { type: 'weekly_count'; count: number }
-    | { type: 'weekly_fixed'; days: number[] }; // 0-6 周日-周六
-
-/** 习惯。 */
-export interface TechoHabit {
-    id: string;
-    name: string;
-    icon: string;
-    frequency: TechoHabitFrequency;
-    targetDays?: number;   // 养成目标（每日习惯=天数，每周习惯=周数）
-    startDate: string;
-    phase: 'growing' | 'sustained';
-    checkins: Record<string, number>; // { YYYY-MM-DD: 次数 }
-    color?: string;        // 习惯专属色（年视图色带 / 周视图标记用），旧数据兜底为随机中性色
-}
-
-/** 21 天挑战。进行中 = 每天打卡，连续 21 天完成；中断超 3 天判定失效。 */
-export interface TechoChallenge {
-    id: string;
-    name: string;
-    icon: string;
-    color: string;
-    startDate: string;          // 开始日 YYYY-MM-DD
-    targetDays: number;         // 目标天数（默认 21）
-    checkins: Record<string, number>; // { YYYY-MM-DD: 1 }
-    status: 'active' | 'done' | 'failed';
-    doneDate?: string;          // 完成日
-    failDate?: string;          // 失效日
-}
-
-/** 大事记。 */
-export interface TechoMilestone {
-    id: string;
-    date: string;
-    text: string;
-}
-
-/** 年度目标。 */
-export interface TechoGoal {
-    id: string;
-    text: string;
-    target: number;
-    type: 'habit_count';
-    habitId: string;
-}
-
-/** 生理期记录（存月数据里）。 */
-export interface TechoPeriod {
-    start: string;
-    end: string;
-}
-
-/** 月数据（月备注 + 生理期）。 */
-export interface TechoMonthData {
-    note: string;
-    period: TechoPeriod | null;
-}
-
-/** 手账设置。 */
-export interface TechoSettings {
-    theme: string;
-    fontSize: number;
-    notebookName: string;
-    city: string;
-    characterFrequency: 'high' | 'medium' | 'low';
-    characterTone: 'gentle' | 'direct';
-    charWhitelist: string[];
-    charData: Record<string, { name: string; lastSeen: number }>;
-    nodeSwitches: { period: boolean; weather: boolean; habit: boolean; milestone: boolean };
-    habitReminder: boolean;
-    bgUrl: string;
-    bgOpacity: number;
 }
 
 // =====================================================================
@@ -3392,9 +3282,6 @@ export interface CharacterProfile {
   // 总开关：默认关（opt-in）。开启后才注入「用户生活记录」section（潜意识背景约束 +
   // 各模块今日摘要 + [[LIFE:...]] 代记指令说明）。关闭时连指令说明都不给角色看。
   lifeRecordEnabled?: boolean;
-  // 手账感知总开关：默认关（opt-in）。开启后把用户手账（techo：今日日程/碎碎念/习惯）
-  // 作为「潜意识背景」注入角色对话上下文，角色自然接话（不点破、不逐条复述）。
-  journalSensingEnabled?: boolean;
   // 小开关：默认开（!== false 即开），受总开关统辖；分别控制对应模块的数据摘要与代记指令。
   lifeRecordPeriodEnabled?: boolean;    // 生理期
   lifeRecordMedEnabled?: boolean;       // 药盒

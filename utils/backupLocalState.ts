@@ -135,16 +135,6 @@ export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
         content: true,
     },
     {
-        // 权威定义：utils/techoStore.ts:13 `PREFIX = 'techo_'`
-        // 整套手账数据：每日日程 / 习惯打卡 / 碎碎念 / 大事记 / 目标 /
-        // 周月备注 / 生理期 / 下周池 / 角色收集 / 天气缓存。
-        // 全部以 localStorage 为权威源，没有任何 IndexedDB 通道 —— 漏登记即整站丢失。
-        key: 'techo_',
-        prefix: true,
-        label: '手账（日程/打卡/碎碎念/大事记/目标/生理期等）',
-        content: true,
-    },
-    {
         // 权威定义：context/MusicContext.tsx:74 `LS_LOCAL_ALBUM_KEY`
         // 本机导入 / AI 生成的歌曲专辑，内含指向本机音频资源的引用
         key: 'sully_music_local_album_v1',

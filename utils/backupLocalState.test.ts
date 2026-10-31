@@ -43,7 +43,7 @@ function adaptZip(zip: JSZip): { writer: ZipFileWriter; reader: ZipFileReader } 
     return { writer, reader };
 }
 
-/** 样例覆盖：各个前缀项（nrcache_ / os_letter_written_ / techo_ / sully_char_lyric_v1_ …）与各精确项。 */
+/** 样例覆盖：各个前缀项（nrcache_ / os_letter_written_ / sully_char_lyric_v1_ …）与各精确项。 */
 const SAMPLE: Record<string, string> = {
     // 前缀 nrcache_
     'nrcache_nr_books': '[{"id":"b1","title":"测试书","source":"local","passages":["第一段"],"createdAt":1}]',
@@ -74,10 +74,6 @@ const SAMPLE: Record<string, string> = {
     'acnh_wallpaper_backup': 'linear-gradient(#fff, #000)',
     'sully-call-fake-camera-image-v1': 'blobref:b_def456',
     'os_vision_available_models': '["gpt-4o","qwen-vl-max"]',
-    // 前缀 techo_（整套手账：日程 / 习惯 / 生理期 … 全部同前缀）
-    'techo_2026-09-26': '{"todos":[{"id":"t1","text":"写代码","done":true}]}',
-    'techo_habits': '[{"id":"h1","name":"喝水"}]',
-    'techo_period': '{"lastStart":"2026-09-01"}',
     // 本机音乐专辑 / 自定义 CSS 预设 / 银行家具素材（后两者内含 blobref 令牌）
     'sully_music_local_album_v1': '[{"id":"a1","title":"本地专辑","localAssetKey":"blobref:b_mus1"}]',
     'sully_chrome_css_presets_v1': '[{"id":"c1","name":"暗色白框","css":".chat-chrome{color:#fff}"}]',
@@ -185,13 +181,10 @@ describe('backupLocalState', () => {
         }
     });
 
-    it('登记表覆盖了穷尽排查补入的「techo_ / sully_ / sully-」系列键', () => {
+    it('登记表覆盖了穷尽排查补入的「sully_ / sully-」系列键', () => {
         // 这批键的共同特征：既不落在 sullyos_ 前缀扫描里，也不在既有显式字段里。
         // 它们曾整批漏出备份（换设备必丢），这里钉住，防止日后被误删。
         const expected = [
-            // techo_ 前缀族（整套手账：日程 / 习惯 / 生理期 … 全部同前缀）
-            'techo_2026-09-26',
-            'techo_habits',
             // 用户内容类
             'sully_music_local_album_v1',
             'sully_chrome_css_presets_v1',

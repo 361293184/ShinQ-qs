@@ -64,7 +64,7 @@ const importers: Partial<Record<AppID, () => Promise<unknown>>> = {
   [AppID.SpecialMoments]: () => import('../ValentineEvent'),
   [AppID.VRWorld]: () => import('../../apps/VRWorldApp'),
   [AppID.CharCreatorDev]: () => import('../../apps/CharCreatorDevApp'),
-  [AppID.Weread]: () => import('../../apps/WeReadApp'),
+  // [AppID.Weread]: () => import('../../apps/WeReadApp'), // Hidden：微信读书入口已隐藏
 };
 
 // 已发起预取的 App（去重，避免同一图标多次 pointerdown 重复触发）。

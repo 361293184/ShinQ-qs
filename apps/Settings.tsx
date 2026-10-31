@@ -5721,8 +5721,8 @@ const Settings: React.FC = () => {
                   )}
               </div>
 
-              {/* 微信读书（真实书架/笔记 + 角色感知） */}
-              <div className="bg-emerald-50/60 p-4 rounded-2xl space-y-3">
+              {/* 微信读书入口已隐藏：把下面的 false 改回 true 即恢复（桌面图标见 constants.tsx） */}
+              {false && <div className="bg-emerald-50/60 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Book size={20} weight="fill" className="text-emerald-600" />
@@ -5770,7 +5770,7 @@ const Settings: React.FC = () => {
                           </p>
                       </div>
                   )}
-              </div>
+              </div>}
               </>}
 
           </div>
