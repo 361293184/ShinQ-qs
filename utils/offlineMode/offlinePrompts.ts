@@ -143,6 +143,7 @@ export const buildOfflinePhonePropBlock = (charName: string, userName: string): 
     const uname = userName || '对方';
     return `### 📱 手机这件道具
 场景里有一部真实的手机，可以在你和${uname}之间易手。这是现场的道具，不是聊天界面。
+（下面的标记和 图片-、<语音> 一样是**给系统的指令**，不是写给人看的话；系统会自己剥掉，用户看不到。）
 
 **三种持有状态**（默认：各人拿各人的）：
 - 你的手机在你手里（默认状态）
@@ -181,8 +182,9 @@ export const buildOfflineMainBlock = (input: {
     parts.push(OFFLINE_FORMAT_BLOCK);
     // 紧跟格式块：必须紧挨着「说出口的话独立成行加引号」那条去覆盖它，
     // 否则模型会拿那条去写 NPC 的台词 → 行首引号 → NPC 变成角色的气泡。
-    parts.push(buildOfflineNpcBlock(resolveNpcEnabled(cfg), char.name, userName, !!bilingual?.active));
+    // 手机块紧跟格式块：它同样属于「输出协议」，放在最后容易被前面几百行规则淹掉
     parts.push(buildOfflinePhonePropBlock(char.name, userName));
+    parts.push(buildOfflineNpcBlock(resolveNpcEnabled(cfg), char.name, userName, !!bilingual?.active));
     if (bilingual?.active) {
         parts.push(buildOfflineBilingualBlock(bilingual.sourceLang, bilingual.targetLang));
     }
@@ -211,7 +213,8 @@ export const buildOfflineMainBlock = (input: {
  * 所以格式必须在这里再钉一次——否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去，
  * 表现为「有时候有旁白有时候没有」。双语 / HTML / MCP 都有自己的末尾 Reminder，线下这块是补的缺口。
  */
-export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。]`;
+export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。
+若这一轮手机在你们之间易手（他递给你 / 你递给他 / 他顺手拿走 / 你还回去），必须在回复里**单独一行**输出 [[手机:他]] 或 [[手机:空]] 或 [[手机:我]]，否则界面上的手机状态不会跟着变。没有易手就不要输出。]`;
 
 /**
  * 把末尾提醒挂到最后一条 system 之后（历史之后、模型开口之前）。

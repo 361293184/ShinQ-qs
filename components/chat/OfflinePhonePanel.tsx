@@ -5,6 +5,7 @@ import {
 } from '@phosphor-icons/react';
 import { nowInTimeZone } from '../../utils/timezone';
 import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
+import OfflinePhoneWechat from './OfflinePhoneWechat';
 
 /**
  * 线下模式 · 悬浮手机弹窗（方向 A 的外壳）。
@@ -55,7 +56,9 @@ const APPS_MINE: AppEntry[] = [
 interface Props {
     open: boolean;
     holder: PhoneHolder;
+    charId: string;
     charName: string;
+    userName: string;
     /** 角色时区 id，用于状态栏时间（resolveCharTimeZone 的结果） */
     charTimeZone?: string;
     onClose: () => void;
@@ -63,7 +66,7 @@ interface Props {
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 
-export default function OfflinePhonePanel({ open, holder, charName, charTimeZone, onClose }: Props) {
+export default function OfflinePhonePanel({ open, holder, charId, charName, userName, charTimeZone, onClose }: Props) {
     const [activeApp, setActiveApp] = useState<AppId | null>(null);
     const [clock, setClock] = useState(() => {
         const d = nowInTimeZone(charTimeZone);
@@ -142,13 +145,20 @@ export default function OfflinePhonePanel({ open, holder, charName, charTimeZone
                                     </button>
                                     <span className="text-[13px] font-bold text-slate-700">{current.label}</span>
                                 </div>
-                                <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
-                                    <span className={`w-14 h-14 rounded-[18px] bg-gradient-to-br ${current.bg} text-white flex items-center justify-center shadow`}>
-                                        {current.icon}
-                                    </span>
-                                    <div className="text-[12px] font-bold text-slate-600 mt-1">还没接上数据</div>
-                                    <div className="text-[11px] leading-5 text-slate-400">{current.note}</div>
-                                </div>
+                                {/* 微信：①② 类（和我的私聊 + 同步群）是真实同步，直接读主聊天数据 */}
+                                {current.id === 'wechat' && holder === 'char' ? (
+                                    <div className="flex-1 relative overflow-hidden">
+                                        <OfflinePhoneWechat charId={charId} charName={charName} userName={userName} />
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
+                                        <span className={`w-14 h-14 rounded-[18px] bg-gradient-to-br ${current.bg} text-white flex items-center justify-center shadow`}>
+                                            {current.icon}
+                                        </span>
+                                        <div className="text-[12px] font-bold text-slate-600 mt-1">还没接上数据</div>
+                                        <div className="text-[11px] leading-5 text-slate-400">{current.note}</div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

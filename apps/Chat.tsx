@@ -100,7 +100,7 @@ import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import OfflineInputBall from '../components/chat/OfflineInputBall';
 import OfflinePhoneBall from '../components/chat/OfflinePhoneBall';
 import OfflinePhonePanel from '../components/chat/OfflinePhonePanel';
-import { readPhoneHolder, subscribePhoneHolder, type PhoneHolder } from '../utils/offlineMode/phoneHolder';
+import { extractPhoneHolderMarker, readPhoneHolder, subscribePhoneHolder, writePhoneHolder, type PhoneHolder } from '../utils/offlineMode/phoneHolder';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
 import { buildOfflineDividerContent, buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
@@ -437,6 +437,27 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             if (charId === char.id) setPhoneHolder(holder);
         });
     }, [char?.id]);
+    // 手机道具兜底解析：本地管线在 applyAssistantPostProcessing 里已经解析过一次，
+    // 但**云端 / worker 落库的回复走的是 OSContext 自己的 DB.saveMessage**，完全绕过后处理。
+    // 所以在这里从消息流里再兜一遍——不管是哪条路径写进来的，界面看到消息就一定解析得到。
+    const phoneMarkerSeen = useRef('');
+    useEffect(() => {
+        if (!char?.id) return;
+        for (let i = messages.length - 1, scanned = 0; i >= 0 && scanned < 6; i--, scanned++) {
+            const msg = messages[i];
+            if (msg.role !== 'assistant') continue;
+            const raw = typeof msg.content === 'string' ? msg.content : '';
+            if (!raw.includes('手机')) continue;
+            const msgKey = String(msg.id ?? '');
+            if (phoneMarkerSeen.current === msgKey) return;
+            const { holder } = extractPhoneHolderMarker(raw);
+            if (holder) {
+                phoneMarkerSeen.current = msgKey;
+                writePhoneHolder(char.id, holder);
+            }
+            return;
+        }
+    }, [messages, char?.id]);
     const memoryRepairRound = useMemo(() => {
         let assistantIndex = -1;
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -5217,7 +5238,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     <OfflinePhonePanel
                         open={phonePanelOpen}
                         holder={phoneHolder}
+                        charId={char.id}
                         charName={char.name}
+                        userName={userProfile?.name || '你'}
                         charTimeZone={resolveCharTimeZone(char)}
                         onClose={() => setPhonePanelOpen(false)}
                     />

@@ -12,6 +12,7 @@ const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFi
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { detectOfflineFormatBreak, parseOfflineMessage } from '../../utils/offlineMode/offlineParser';
+import { stripPhoneHolderMarker } from '../../utils/offlineMode/phoneHolder';
 import { describeOfflineClock } from '../../utils/offlineMode/offlinePrompts';
 import { normalizeOfflineConfig, isChineseText } from '../../utils/offlineMode/offlineSettings';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -3811,7 +3812,8 @@ const MessageItem = React.memo(({
     const rawShown = showExpandedTranslation
         ? langAContent
         : (isShowingTarget && langBContent) ? langBContent : langAContent;
-    const displayContent = isUser ? rawShown : stripImageGenMarkers(rawShown);
+    // 手机道具的状态标记（[[手机:…]]）是系统指令，任何路径写进来的都不能显示出来
+    const displayContent = stripPhoneHolderMarker(isUser ? rawShown : stripImageGenMarkers(rawShown));
     const showTranslateButton = translationEnabled && !showExpandedTranslation && hasBilingual && langBContent;
 
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
