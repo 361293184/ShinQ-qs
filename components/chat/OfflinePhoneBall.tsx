@@ -1,24 +1,27 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DeviceMobile } from '@phosphor-icons/react';
 import { clampBubblePos } from '../../utils/floatingBallBounds';
+import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
 
 /**
- * 线下模式 · 手机道具悬浮球（可拖动）。
+ * 线下模式 · 手机道具悬浮球（可拖动、圆形）。
  *
  * 一个球三件事：状态指示 + 入口 + 位置自由。
  * 悬浮球显示的就是「用户此刻手上那台手机」：
  *   me   = 自己的手机（默认）→ 正常手机图标
- *   none = 空（自己的手机在角色手里）→ 虚线 + 半透明 + 「空」角标
+ *   none = 空（自己的手机在角色手里）→ 虚线 + 半透明 + 「空」角标，点了打不开
  *   char = 角色的手机 → 深色机身样式，与自己的明确区分
  *
- * 位置记在 localStorage，拖动时夹在屏幕内（躲刘海与 home 条）。
+ * 拖动手感：
+ *  - 用 transform 位移（走合成层），不再改 left/top；
+ *  - 位置状态用 rAF 合并，一次拖动不会每像素触发一次 React 渲染；
+ *  - 拖动过程中不加任何 transition（加了会有"被拽着走"的黏滞感，这就是之前发堵的原因）。
  */
 
 const SIZE = 46;
 const DRAG_THRESHOLD = 4;
 const POSITION_KEY = 'os_offline_phone_ball_pos';
 
-export type PhoneHolder = 'me' | 'none' | 'char';
 type Position = { x: number; y: number };
 
 interface Props {
@@ -62,6 +65,7 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
     const latest = useRef(position);
     latest.current = position;
     const suppressClick = useRef(false);
+    const frame = useRef<number | null>(null);
     const drag = useRef<{
         pointerId: number;
         startX: number;
@@ -71,12 +75,25 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
         moved: boolean;
     } | null>(null);
 
+    const apply = (next: Position) => {
+        latest.current = next;
+        setPosition(next);
+    };
+
+    /** 拖动中的位移合并到下一帧，避免每个 pointermove 都渲染一次 */
+    const scheduleApply = (next: Position) => {
+        latest.current = next;
+        if (frame.current != null) return;
+        frame.current = requestAnimationFrame(() => {
+            frame.current = null;
+            setPosition(latest.current);
+        });
+    };
+
     useLayoutEffect(() => {
         const constrain = () => {
             const origin = latest.current || defaultPosition();
-            const next = clampBubblePos(origin.x, origin.y, currentBounds());
-            latest.current = next;
-            setPosition(next);
+            apply(clampBubblePos(origin.x, origin.y, currentBounds()));
         };
         constrain();
         window.addEventListener('resize', constrain);
@@ -91,15 +108,16 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
     useEffect(() => {
         const onViewport = () => {
             if (!latest.current) return;
-            const next = clampBubblePos(latest.current.x, latest.current.y, currentBounds());
-            latest.current = next;
-            setPosition(next);
+            apply(clampBubblePos(latest.current.x, latest.current.y, currentBounds()));
         };
         window.visualViewport?.addEventListener('resize', onViewport);
         return () => window.visualViewport?.removeEventListener('resize', onViewport);
     }, []);
 
-    // 空态用虚线边框（Tailwind 没有 ring-dashed，必须用 border-dashed）
+    useEffect(() => () => {
+        if (frame.current != null) cancelAnimationFrame(frame.current);
+    }, []);
+
     const skin = holder === 'char'
         ? 'bg-slate-800 text-white border-2 border-slate-300'
         : holder === 'none'
@@ -132,15 +150,14 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 const dy = event.clientY - state.startY;
                 if (!state.moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
                 state.moved = true;
-                const next = clampBubblePos(state.origin.x + dx, state.origin.y + dy, state.bounds);
-                latest.current = next;
-                setPosition(next);
+                scheduleApply(clampBubblePos(state.origin.x + dx, state.origin.y + dy, state.bounds));
             }}
             onPointerUp={(event) => {
                 const state = drag.current;
                 if (!state || state.pointerId !== event.pointerId) return;
                 suppressClick.current = state.moved;
                 if (state.moved && latest.current) {
+                    setPosition(latest.current);
                     try { localStorage.setItem(POSITION_KEY, JSON.stringify(latest.current)); } catch { /* 位置不持久不影响使用 */ }
                 }
                 drag.current = null;
@@ -151,15 +168,12 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
                 onOpen();
             }}
-            className={`fixed z-[45] rounded-2xl flex items-center justify-center shadow-lg select-none transition-all duration-200 ${skin}`}
+            className={`fixed left-0 top-0 z-[45] rounded-full flex items-center justify-center shadow-lg select-none transition-colors duration-150 will-change-transform ${skin}`}
             style={{
-                left: position?.x ?? undefined,
-                top: position?.y ?? undefined,
-                right: position ? undefined : 12,
-                bottom: position ? undefined : 132,
                 width: SIZE,
                 height: SIZE,
-                opacity: hidden ? 0 : 1,
+                transform: `translate3d(${position?.x ?? -999}px, ${position?.y ?? -999}px, 0)`,
+                opacity: hidden ? 0 : position ? 1 : 0,
                 pointerEvents: hidden ? 'none' : 'auto',
                 touchAction: 'none',
             }}

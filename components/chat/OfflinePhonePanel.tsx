@@ -4,7 +4,7 @@ import {
     MusicNotes, NotePencil, Notebook, Wallet, WifiHigh, BatteryFull,
 } from '@phosphor-icons/react';
 import { nowInTimeZone } from '../../utils/timezone';
-import type { PhoneHolder } from './OfflinePhoneBall';
+import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
 
 /**
  * 线下模式 · 悬浮手机弹窗（方向 A 的外壳）。
@@ -17,7 +17,8 @@ import type { PhoneHolder } from './OfflinePhoneBall';
  * 本步只做外壳：桌面网格 + 各 App 的占位页。微信真实同步、相册等内容放后面几步。
  */
 
-type AppId = 'wechat' | 'gallery' | 'memo' | 'alipay' | 'read' | 'browser' | 'diary' | 'music';
+type AppId = 'wechat' | 'gallery' | 'memo' | 'alipay' | 'read' | 'browser' | 'diary' | 'music'
+    | 'chat' | 'bank';
 
 interface AppEntry {
     id: AppId;
@@ -27,7 +28,8 @@ interface AppEntry {
     note: string;
 }
 
-const APPS: AppEntry[] = [
+/** 他的手机：这一套内容是本项目自建的，不复用「查手机」的数据 */
+const APPS_HIS: AppEntry[] = [
     { id: 'wechat', label: '微信', bg: 'from-emerald-400 to-emerald-500', icon: <ChatCircleDots className="w-6 h-6" weight="fill" />, note: '和他的聊天记录（和你这边的真实消息同步）、他自己的群、他和别人的私聊' },
     { id: 'gallery', label: '相册', bg: 'from-sky-400 to-indigo-400', icon: <Images className="w-6 h-6" weight="fill" />, note: '他眼里的世界：生活片段、随手拍、存下的图' },
     { id: 'memo', label: '备忘录', bg: 'from-amber-400 to-orange-400', icon: <NotePencil className="w-6 h-6" weight="fill" />, note: '待办、随手记、写了一半的句子' },
@@ -36,6 +38,18 @@ const APPS: AppEntry[] = [
     { id: 'browser', label: '浏览器', bg: 'from-slate-500 to-slate-600', icon: <MagnifyingGlass className="w-6 h-6" weight="bold" />, note: '搜索记录——最暴露内心的东西' },
     { id: 'diary', label: '日记', bg: 'from-violet-400 to-purple-500', icon: <Notebook className="w-6 h-6" weight="fill" />, note: '翻到就走不掉的内容' },
     { id: 'music', label: '音乐', bg: 'from-red-400 to-rose-500', icon: <MusicNotes className="w-6 h-6" weight="fill" />, note: '他最近在听什么' },
+];
+
+/**
+ * 你自己的手机：只放你自己的数据。
+ * 方案里这一屏的完整形态是「三个 App + 右上角齿轮进权限设置」（§5.26 J），
+ * 权限用来决定「他把你的手机拿过去之后能看到什么」——那是方向 B 的活，后面几步再做。
+ */
+const APPS_MINE: AppEntry[] = [
+    { id: 'chat', label: '聊天', bg: 'from-emerald-400 to-emerald-500', icon: <ChatCircleDots className="w-6 h-6" weight="fill" />, note: '你和他的聊天——就是他手机上那一段的另一面' },
+    { id: 'gallery', label: '相册', bg: 'from-sky-400 to-indigo-400', icon: <Images className="w-6 h-6" weight="fill" />, note: '你自己的相册（要不要对他开放，由权限设置决定）' },
+    { id: 'diary', label: '日记', bg: 'from-violet-400 to-purple-500', icon: <Notebook className="w-6 h-6" weight="fill" />, note: '你自己的日记，默认不对他开放' },
+    { id: 'bank', label: '账单', bg: 'from-blue-500 to-sky-500', icon: <Wallet className="w-6 h-6" weight="fill" />, note: '你自己的账单，默认不对他开放' },
 ];
 
 interface Props {
@@ -70,8 +84,10 @@ export default function OfflinePhonePanel({ open, holder, charName, charTimeZone
 
     if (!open) return null;
 
-    const current = APPS.find((a) => a.id === activeApp) || null;
-    const ownerLabel = holder === 'char' ? '他的手机' : holder === 'none' ? '你的手机 · 在他手里' : '你的手机';
+    // 看谁的手机会决定里面有什么：默认只能看自己的（他的手机得先在你手里）
+    const apps = holder === 'char' ? APPS_HIS : APPS_MINE;
+    const current = apps.find((a) => a.id === activeApp) || null;
+    const ownerLabel = holder === 'char' ? '他的手机' : '你的手机';
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
@@ -100,9 +116,11 @@ export default function OfflinePhonePanel({ open, holder, charName, charTimeZone
                     <div className="flex-1 relative overflow-hidden">
                         {!current ? (
                             <div className="px-4 pt-4">
-                                <div className="text-[11px] text-slate-400 mb-3 pl-1">{charName}的手机</div>
+                                <div className="text-[11px] text-slate-400 mb-3 pl-1">
+                                    {holder === 'char' ? `${charName}的手机` : '你的手机'}
+                                </div>
                                 <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-                                    {APPS.map((app) => (
+                                    {apps.map((app) => (
                                         <button
                                             key={app.id}
                                             onClick={() => setActiveApp(app.id)}

@@ -100,6 +100,7 @@ import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import OfflineInputBall from '../components/chat/OfflineInputBall';
 import OfflinePhoneBall from '../components/chat/OfflinePhoneBall';
 import OfflinePhonePanel from '../components/chat/OfflinePhonePanel';
+import { readPhoneHolder, subscribePhoneHolder, type PhoneHolder } from '../utils/offlineMode/phoneHolder';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
 import { buildOfflineDividerContent, buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
@@ -250,6 +251,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     // 线下手机道具：弹窗开关。三态（自己的 / 空 / 角色的）里的 holder 目前固定「自己的」，
     // 真正的易手判定要接主 API 的内联标记（下一步），这里先把外壳和入口跑通。
     const [phonePanelOpen, setPhonePanelOpen] = useState(false);
+    const [phoneHolder, setPhoneHolder] = useState<PhoneHolder>('me');
     const [offlineSettingsOpen, setOfflineSettingsOpen] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
@@ -427,6 +429,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
 
     const char = characters.find(c => c.id === activeCharacterId) || characters[0];
+    // 手机在谁手里（线下道具）：切换角色时重读，主角色的回复里带 [[手机:…]] 时由后处理广播过来
+    useEffect(() => {
+        if (!char?.id) return;
+        setPhoneHolder(readPhoneHolder(char.id));
+        return subscribePhoneHolder((charId, holder) => {
+            if (charId === char.id) setPhoneHolder(holder);
+        });
+    }, [char?.id]);
     const memoryRepairRound = useMemo(() => {
         let assistantIndex = -1;
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -5193,13 +5203,20 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             {char && isOfflineEnabled(char.offlineConfig) && (
                 <>
                     <OfflinePhoneBall
-                        holder="me"
+                        holder={phoneHolder}
                         hidden={phonePanelOpen}
-                        onOpen={() => setPhonePanelOpen(true)}
+                        onOpen={() => {
+                            // 手上是空的就打不开：手机在他手里，你看不了自己的手机
+                            if (phoneHolder === 'none') {
+                                addToast('你的手机在他那里', 'info');
+                                return;
+                            }
+                            setPhonePanelOpen(true);
+                        }}
                     />
                     <OfflinePhonePanel
                         open={phonePanelOpen}
-                        holder="me"
+                        holder={phoneHolder}
                         charName={char.name}
                         charTimeZone={resolveCharTimeZone(char)}
                         onClose={() => setPhonePanelOpen(false)}

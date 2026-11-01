@@ -27,6 +27,7 @@ import type { ConversationEngagementAnalysis } from './memoryPalace/conversation
 import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { buildOfflineMainBlock, withOfflineTailReminder } from './offlineMode/offlinePrompts';
+import { readPhoneHolder } from './offlineMode/phoneHolder';
 import { buildChatOutputStylePrompt } from './chatOutputStylePrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
 import type { McdMiniAppSnapshot } from './mcdToolBridge';
@@ -613,7 +614,14 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 线下模式的末尾 Reminder：必须是模型开口前读到的最后一条 system。
     // 线下主块拼在第一条 system（历史之前），对模型的约束力弱于贴着生成点的易变尾段，
     // 所以格式要在这里再钉一次，否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去。
-    fullMessages = withOfflineTailReminder(fullMessages, offlineActive);
+    // 手机此刻在谁手里：只在「不是自己拿着」时才提，稳定前缀不动、缓存不伤
+    const phoneHolder = offlineActive ? readPhoneHolder(char.id) : 'me';
+    const phoneHolderNote = phoneHolder === 'char'
+        ? '他的手机在你手里'
+        : phoneHolder === 'none'
+            ? '你的手机在他手里，你手上是空的'
+            : undefined;
+    fullMessages = withOfflineTailReminder(fullMessages, offlineActive, phoneHolderNote);
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;
     if (isSystemMessageMergeEnabled()) {

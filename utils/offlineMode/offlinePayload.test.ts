@@ -7,6 +7,7 @@ import {
     describeOfflineClock,
     withOfflineTailReminder,
 } from './offlinePrompts';
+import { extractPhoneHolderMarker } from './phoneHolder';
 
 /**
  * 回归守卫：线下模式最容易坏的地方都不在解析器，而在「prompt 装配」——
@@ -148,5 +149,33 @@ describe('出场人物块（NPC 写进旁白）', () => {
 
     it('默认（未配置）等于关闭档', () => {
         expect(block()).toContain('出场人物（关闭）');
+    });
+});
+
+describe('手机道具（状态标记 + 现场状态注入）', () => {
+    it('主块里写明三态与标记规则，且强调不是每轮都输出', () => {
+        const text = buildOfflineMainBlock({ char, userName: '条条', cfg: {} });
+        expect(text).toContain('📱 手机这件道具');
+        expect(text).toContain('[[手机:他]]');
+        expect(text).toContain('[[手机:空]]');
+        expect(text).toContain('只在真的易手时输出');
+    });
+
+    it('末尾提醒只在手机不在自己手里时附加状态（护住缓存）', () => {
+        const base = [{ role: 'system', content: 'system' }];
+        const withNote = withOfflineTailReminder(base, true, '他的手机在你手里');
+        expect(withNote[withNote.length - 1].content).toContain('[手机：他的手机在你手里]');
+        expect(withOfflineTailReminder(base, true)[1].content).not.toContain('[手机：');
+    });
+
+    it('标记解析：中英文都认，没标记不覆盖、且从正文剥净', () => {
+        expect(extractPhoneHolderMarker('他把手机递过来。[[手机:他]]').holder).toBe('char');
+        expect(extractPhoneHolderMarker('[[手机：空]]').holder).toBe('none');
+        expect(extractPhoneHolderMarker('[[手机:我]]').holder).toBe('me');
+        expect(extractPhoneHolderMarker('他什么也没说。').holder).toBeNull();
+
+        const { text } = extractPhoneHolderMarker('"给你。"\n[[手机:他]]');
+        expect(text).not.toContain('[[手机');
+        expect(text).toContain('"给你。"');
     });
 });

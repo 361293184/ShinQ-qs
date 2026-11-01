@@ -133,6 +133,37 @@ export const buildOfflineNpcBlock = (
 };
 
 /**
+ * 手机道具块。
+ *
+ * 三个状态由主 API 判断、用一条内联标记输出，前端只负责消费——
+ * 不给任何模板句（"他顺手把手机拿了过去"只是可能，不是必须），因为手机易手本来就可以什么都不说。
+ * 标记会在落库前被剥掉，不污染聊天流。
+ */
+export const buildOfflinePhonePropBlock = (charName: string, userName: string): string => {
+    const uname = userName || '对方';
+    return `### 📱 手机这件道具
+场景里有一部真实的手机，可以在你和${uname}之间易手。这是现场的道具，不是聊天界面。
+
+**三种持有状态**（默认：各人拿各人的）：
+- 你的手机在你手里（默认状态）
+- 你的手机在${uname}手里（他拿走了，你手上是空的）
+- 他的手机在你手里
+
+**只在真的发生易手时**输出一条标记，独占一行，形如 [[手机:他]] / [[手机:空]] / [[手机:我]]，含义是"你现在手里那台是谁的"：
+- [[手机:他]] = 他的手机到了你手里
+- [[手机:空]] = 你的手机被他拿走了，你手上是空的
+- [[手机:我]] = 手机回到你手里（或者本来就一直在）
+
+规则：
+1. 标记不进对话、不要解释、不要写"（手机状态）"之类，系统会自己剥掉。
+2. **只在真的易手时输出，不要每轮都带**。没有易手就不输出，保持沉默。
+3. 易手不一定伴随一句话——被他顺手拿走、你递过去什么都没说，都成立；不要为了输出标记硬写台词。
+4. 你必须知道自己手机里有什么（相册、聊天、备忘录、账单…），被问起时不能一脸茫然。
+5. 反过来也一样：手机到了对方手里，就默认对方已经看过里面的内容了。
+6. 你可以拒绝把手机给对方——拒绝本身就是剧情；状态没变就不要输出标记。`;
+};
+
+/**
  * 线下模式主系统块（send / reroll / 主动消息共用）。
  * 追加在既有系统提示之后，覆盖 ChatApp 默认的「纯聊天」写法。
  */
@@ -151,6 +182,7 @@ export const buildOfflineMainBlock = (input: {
     // 紧跟格式块：必须紧挨着「说出口的话独立成行加引号」那条去覆盖它，
     // 否则模型会拿那条去写 NPC 的台词 → 行首引号 → NPC 变成角色的气泡。
     parts.push(buildOfflineNpcBlock(resolveNpcEnabled(cfg), char.name, userName, !!bilingual?.active));
+    parts.push(buildOfflinePhonePropBlock(char.name, userName));
     if (bilingual?.active) {
         parts.push(buildOfflineBilingualBlock(bilingual.sourceLang, bilingual.targetLang));
     }
@@ -188,8 +220,12 @@ export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——�
 export const withOfflineTailReminder = <T extends { role: string; content: any }>(
     messages: T[],
     active: boolean,
+    /** 追加的现场状态（例如「他的手机在你手里」）。放在尾段，不污染开头的稳定前缀、不伤缓存。 */
+    extraNote?: string,
 ): Array<T | { role: string; content: string }> =>
-    active ? [...messages, { role: 'system', content: OFFLINE_TAIL_REMINDER }] : messages;
+    active
+        ? [...messages, { role: 'system', content: extraNote ? `${OFFLINE_TAIL_REMINDER}\n[手机：${extraNote}]` : OFFLINE_TAIL_REMINDER }]
+        : messages;
 
 /** 进入线下的时间锚点：凌晨 / 清晨 / 上午 / 中午 / 下午 / 傍晚 / 夜里 / 深夜 + HH:MM */
 export const describeOfflineClock = (date: Date = new Date()): string => {
