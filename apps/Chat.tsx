@@ -97,6 +97,7 @@ import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
+import OfflineInputBall from '../components/chat/OfflineInputBall';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
 import { buildOfflineDividerContent, buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
@@ -5162,7 +5163,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     showThinkingChain={!!(char as any).showThinkingChain}
                     offlineModeEnabled={isOfflineEnabled(char.offlineConfig)}
                     offlineInputMode={offlineInputMode}
-                    onOfflineInputModeChange={(m: 'dialogue' | 'narration') => setOfflineInputMode(m)}
                     inputStyle={osTheme.chatInputStyle}
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
@@ -5170,6 +5170,16 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 />
             </div>
 
+            {/* 线下模式 · 输入模式悬浮球（对话 / 旁白）：点一下切换，按住可拖到顺手的位置 */}
+            {char && isOfflineEnabled(char.offlineConfig) && (
+                <OfflineInputBall
+                    mode={offlineInputMode}
+                    onToggle={() => {
+                        setOfflineInputMode(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue');
+                        trackEvent('切换线下输入模式');
+                    }}
+                />
+            )}
 
             {/* Proactive Settings Modal */}
             {char && (

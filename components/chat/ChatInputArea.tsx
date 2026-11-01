@@ -76,10 +76,10 @@ interface ChatInputAreaProps {
     htmlModeEnabled?: boolean;
     // 思考过程展示（会话级）
     showThinkingChain?: boolean;
-    // 线下模式：激活态小点 + 输入模式（对话/旁白）
+    // 线下模式：激活态小点 + 输入模式（对话/旁白，只用于 placeholder 文案；
+    // 切换按钮已经搬到 Chat 里的可拖动悬浮球 OfflineInputBall）
     offlineModeEnabled?: boolean;
     offlineInputMode?: 'dialogue' | 'narration';
-    onOfflineInputModeChange?: (mode: 'dialogue' | 'narration') => void;
     // Input style
     inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
     sendButtonStyle?: 'circle' | 'pill' | 'minimal';
@@ -111,7 +111,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     showThinkingChain = false,
     offlineModeEnabled = false,
     offlineInputMode = 'dialogue',
-    onOfflineInputModeChange = () => {},
     inputStyle = 'default',
     sendButtonStyle = 'circle',
     chromeStyle = 'soft',
@@ -759,21 +758,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             <Smiley className="w-6 h-6" weight="regular" />
                         </button>
                     </div>
-                    {/* 线下模式：输入模式悬浮小圆球（对话/旁白），紧贴发送按钮左侧 */}
-                    {offlineModeEnabled && (
-                        <button
-                            onClick={() => { onOfflineInputModeChange(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue'); trackEvent('切换线下输入模式'); }}
-                            title={offlineInputMode === 'narration' ? '旁白输入' : '对话输入'}
-                            className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center active:scale-90 transition-transform select-none"
-                            style={{
-                                background: offlineInputMode === 'narration' ? (isDiscordStyle ? 'rgba(56,189,248,0.2)' : 'rgba(125,211,252,0.4)') : (isDiscordStyle ? 'rgba(51,65,85,0.9)' : 'rgba(226,232,240,0.9)'),
-                                color: offlineInputMode === 'narration' ? (isDiscordStyle ? '#7dd3fc' : '#0369a1') : (isDiscordStyle ? '#cbd5e1' : '#475569'),
-                                boxShadow: offlineInputMode === 'narration' ? '0 0 0 1.5px rgba(56,189,248,0.4)' : 'none',
-                            }}
-                        >
-                            <FilmScript className="w-5 h-5" weight={offlineInputMode === 'narration' ? 'fill' : 'regular'} />
-                        </button>
-                    )}
                     <button 
                         ref={sendButtonRef}
                         data-guide={isGenerateButton ? 'generate' : undefined}
