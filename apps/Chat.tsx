@@ -1485,17 +1485,23 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (type === 'image') {
             const recentChat = messages.slice(-10).map(m => {
                 const sender = m.role === 'user' ? userProfile.name : char.name;
-                return `${sender}: ${m.content.substring(0, 100)}`;
+                // 图片/表情存的是 blobref 令牌，原样抄进相册上下文只会印出一串读不懂的字符
+                return `${sender}: ${m.type === 'image' || m.type === 'emoji' ? buildReplySnapshotContent(m) : m.content.substring(0, 100)}`;
             });
-            await DB.saveGalleryImage({
-                id: `img-${Date.now()}-${Math.random()}`,
-                charId: char.id,
-                url: text,
-                timestamp: Date.now(),
-                savedDate: localDateKey,
-                chatContext: recentChat
-            });
-            addToast('图片已保存至相册', 'info');
+            // 这条消息本身照发：存相册失败（空间不足等）不该让刚发的图消失
+            try {
+                await DB.saveGalleryImage({
+                    id: `img-${Date.now()}-${Math.random()}`,
+                    charId: char.id,
+                    url: text,
+                    timestamp: Date.now(),
+                    savedDate: localDateKey,
+                    chatContext: recentChat
+                });
+                addToast('图片已保存至相册', 'info');
+            } catch (galleryError) {
+                console.warn('[Chat] save gallery image failed:', galleryError);
+            }
         }
 
         // 线下模式：用户消息统一带 offline 标记（渲染按行级解析）；
@@ -2113,16 +2119,22 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             // ---- 第 2 步：保存到 DB + 把占位卡片替换为真图 ----
             const recentChat = messages.slice(-10).map(m => {
                 const sender = m.role === 'user' ? userProfile.name : char.name;
-                return `${sender}: ${m.content.substring(0, 100)}`;
+                // 图片/表情存的是 blobref 令牌，原样抄进相册上下文只会印出一串读不懂的字符
+                return `${sender}: ${m.type === 'image' || m.type === 'emoji' ? buildReplySnapshotContent(m) : m.content.substring(0, 100)}`;
             });
-            await DB.saveGalleryImage({
-                id: `img-${Date.now()}-${Math.random()}`,
-                charId: char.id,
-                url: result.url,
-                timestamp: Date.now(),
-                savedDate: localDateKey,
-                chatContext: recentChat,
-            });
+            // 图已经生成好了，存相册失败不该让这张图发不出去
+            try {
+                await DB.saveGalleryImage({
+                    id: `img-${Date.now()}-${Math.random()}`,
+                    charId: char.id,
+                    url: result.url,
+                    timestamp: Date.now(),
+                    savedDate: localDateKey,
+                    chatContext: recentChat,
+                });
+            } catch (galleryError) {
+                console.warn('[Chat] save gallery image failed:', galleryError);
+            }
 
             const newMsgId = await DB.saveMessage({
                 charId: char.id,
@@ -2199,7 +2211,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (!char) return;
         const recentChat = messages.slice(-10).map(m => {
             const sender = m.role === 'user' ? userProfile.name : char.name;
-            return `${sender}: ${m.content.substring(0, 100)}`;
+            // 图片/表情存的是 blobref 令牌，原样抄进相册上下文只会印出一串读不懂的字符
+            return `${sender}: ${m.type === 'image' || m.type === 'emoji' ? buildReplySnapshotContent(m) : m.content.substring(0, 100)}`;
         });
         try {
             await DB.saveGalleryImage({
@@ -4206,6 +4219,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
     });
+    // 「正在回复」条的预览：图片/表情只显示占位符，别把 blobref 令牌印在输入框上方
+    const replyPreviewText = replyTarget ? buildReplySnapshotContent(replyTarget) : '';
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
     // hook 必须在下面的空态早退之前调用，所以用可选链读 char。
@@ -5097,7 +5112,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 )}
                 {replyTarget && (
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{replyTarget.content.length > 10 ? replyTarget.content.slice(0, 10) + '...' : replyTarget.content}</span></div>
+                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{replyPreviewText.length > 10 ? replyPreviewText.slice(0, 10) + '...' : replyPreviewText}</span></div>
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
                     </div>
                 )}
