@@ -1369,6 +1369,25 @@ ${voiceActingGuide()}`;
                         : '（你在共同世界「家园」里的生活记录——和你同世界的伙伴们一起生活时发生的事，聊到时当成自己最近的生活来讲。）';
                     content = `${timeStr}${frame}\n${body}`;
                 }
+                else if ((m.type as string) === 'fanwai_card') {
+                    // fanwai_card：用户把「拾光」里一篇以你为主角的番外转发给了你。
+                    // 卡片 message.content 只有标题，全文在 metadata.fanwaiStory.content —— 不展开的话，
+                    // 你只会"收到一个标题"，根本没法聊其中的细节。这里把正文塞进上下文（设上限），
+                    // 并框定为「一篇小说」：可以引用细节，但别当成真实发生过的事，也别逐字复述。
+                    const fw: any = m.metadata?.fanwaiStory || {};
+                    const rawBody = typeof fw.content === 'string' ? fw.content : (typeof m.content === 'string' ? m.content : '');
+                    const plain = fw.format === 'html'
+                        ? String(rawBody || '')
+                            .replace(/<style[\s\S]*?<\/style>/gi, '')
+                            .replace(/<script[\s\S]*?<\/script>/gi, '')
+                            .replace(/<[^>]{0,400}>/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                        : String(rawBody || '').trim();
+                    const trimmed = plain.length > 4000 ? `${plain.slice(0, 4000)}…` : plain;
+                    const fwTitle = (typeof fw.title === 'string' && fw.title.trim()) || (typeof m.content === 'string' ? m.content : '一篇番外');
+                    content = `${timeStr}（${userProfile?.name || '用户'}把一篇以你为主角的小说《${fwTitle}》转给了你，你收下后已经读完了。下面是小说的全文——聊到时可以自然地引用里面的细节和句子，但别整段复述，也别把小说里的事当成你真实经历过的现实。）\n${trimmed}`;
+                }
                 else if ((m.type as string) === 'sim_card') {
                     // sim_card：用户把一段「人格模拟」演出作为真实回忆送给你。
                     // 框定为「你真实经历过的一段过往」，让你可以在聊天中自然地拥有它带来的心情与记忆。
