@@ -26,7 +26,7 @@ import { renderConversationEngagementGuidance } from './memoryPalace/conversatio
 import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
 import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { normalizeTranslationLangLabel } from './translationLang';
-import { buildOfflineMainBlock } from './offlineMode/offlinePrompts';
+import { buildOfflineMainBlock, OFFLINE_TAIL_REMINDER } from './offlineMode/offlinePrompts';
 import { buildChatOutputStylePrompt } from './chatOutputStylePrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
 import type { McdMiniAppSnapshot } from './mcdToolBridge';
@@ -425,8 +425,11 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         ...(!input.appPrompt ? {
             translationConfig: offlineActive ? undefined : translationConfig,
             htmlMode: offlineActive ? undefined : htmlMode,
-            thinkingChain,
-            sarEnvelopeActive,
+            // 思考链与 SAR 信封同样是一种「外层格式」：思考链会让模型先写一段再进正文、
+            // 格式容易漂移；SAR 信封要求最外层是 <SAR_MODULE_OUTPUT>，行首不再可能是引号，
+            // 台词会被 100% 判成旁白。线下模式开着时两者一并让位。
+            thinkingChain: offlineActive ? { enabled: false } : thinkingChain,
+            sarEnvelopeActive: offlineActive ? false : sarEnvelopeActive,
         } : {}),
     });
     systemPrompt += outputStylePrompt;
@@ -531,7 +534,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 思考链/点单块拼在钢印之后、模型开口前最后读到的是格式说明书的问题。
     if (input.appPrompt) volatileTail += input.appPrompt.scene;
     volatileTail += parts.recencyTail;
-    if (sarModuleBlock) volatileTail += sarModuleBlock;
+    // 线下模式开着时 SAR（查手机）模块整块让位：它自带 XML 信封，会把行首引号的台词格式冲掉。
+    if (sarModuleBlock && !offlineActive) volatileTail += sarModuleBlock;
 
     // 结构：[稳定 system] + [历史消息] + [易变状态 system] (+ 末尾 reminder)。
     // 稳定前缀不再包含分钟级时间戳等易变内容 → 支持前缀缓存的中转能跨轮命中；
@@ -555,14 +559,14 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     if (mcpChatActive && !input.timelyByWorker) {
         fullMessages.push({ role: 'system', content: MCP_TAIL_REMINDER });
     }
-    if (sarModuleBlock && !input.appPrompt) {
+    if (sarModuleBlock && !input.appPrompt && !offlineActive) {
         fullMessages.push({
             role: 'system',
             content: '[SAR MODULE REMINDER: 模块是角色在彼方能感知、能记得的外来装置，不是幕后文风要求；CHAR_TRUE 必须包含角色对异常的当下反应，不能若无其事。生效时最终只输出 <SAR_MODULE_OUTPUT> 容器。聊天的 CHAR_TRUE / CHAR_SURFACE 必须逐气泡对齐；纯括号动作原位逐字复制，禁止删泡、合并或新增气泡。内置翻译要在两字段中分别保留完整翻译标签；语音要保留 <语音>/<字幕> 结构并同步改写口播与字幕；“日文（中文翻译）”一类同泡格式不可把括号译文误判成动作。真实语义写 CHAR_TRUE，临时外显写 CHAR_SURFACE，用户外显写 USER_SURFACE，不得把外显当作内心。]',
         });
     }
 
-    if (sarModulePlan?.user?.phase === 'active') {
+    if (sarModulePlan?.user?.phase === 'active' && !offlineActive) {
         fullMessages.push({ role: 'system', content: buildSARUserSurfaceRequest(
             selectSARUserSurfaceTargets(input.historyMsgs, char.id, sarModulePlan.user),
         ) });
@@ -601,6 +605,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         const visits=await homeVisitPrompt(char);
         if(visits)fullMessages.push({role:'system',content:visits});
         input.signal?.throwIfAborted();
+    }
+    // 线下模式的末尾 Reminder：必须是模型开口前读到的最后一条 system。
+    // 线下主块拼在第一条 system（历史之前），对模型的约束力弱于贴着生成点的易变尾段，
+    // 所以格式要在这里再钉一次，否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去。
+    if (offlineActive) {
+        fullMessages.push({ role: 'system', content: OFFLINE_TAIL_REMINDER });
     }
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;

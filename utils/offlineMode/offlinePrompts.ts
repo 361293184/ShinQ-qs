@@ -110,6 +110,16 @@ export const buildOfflineMainBlock = (input: {
     return parts.join('\n\n');
 };
 
+/**
+ * 线下模式的末尾提醒：拼在 fullMessages 最后一条 system（历史之后、模型开口之前）。
+ *
+ * 线下主块（buildOfflineMainBlock）在第一条 system、历史之前；而所有「此刻状态 / 续说 /
+ * 情绪适配」类指令都在历史之后紧贴生成点。按 recency 效应，模型对末尾的服从度更高，
+ * 所以格式必须在这里再钉一次——否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去，
+ * 表现为「有时候有旁白有时候没有」。双语 / HTML / MCP 都有自己的末尾 Reminder，线下这块是补的缺口。
+ */
+export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。]`;
+
 /** 进入线下时的开场旁白请求（用户侧一条 user 消息的文本） */
 export const buildOfflineOpeningRequest = (charName: string): string =>
     `（你轻轻走进${charName}所在的场景。请用一段旁白描写你此刻的状态、周围的环境和你们之间的气氛——只写旁白，不要说话，不要用引号。这一段用于建立氛围，篇幅两三行即可。）`;
