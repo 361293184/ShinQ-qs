@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ArrowLeft, ArrowsClockwise, BookOpen, ChatCircleDots, Images, MagnifyingGlass,
     MusicNotes, NotePencil, Notebook, Wallet, WifiHigh, BatteryFull,
@@ -7,7 +7,15 @@ import { nowInTimeZone } from '../../utils/timezone';
 import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
 import OfflinePhoneWechat from './OfflinePhoneWechat';
 import OfflinePhoneAppList from './OfflinePhoneAppList';
-import { generatePhoneContent, readPhoneContent, clearPhoneContent, type PhoneContent } from '../../utils/offlineMode/phoneContent';
+import OfflinePhoneAlipay from './OfflinePhoneAlipay';
+import OfflinePhoneMusic from './OfflinePhoneMusic';
+import OfflinePhoneGallery from './OfflinePhoneGallery';
+import OfflinePhoneMemo from './OfflinePhoneMemo';
+import {
+    generatePhoneContent, readPhoneContent, clearPhoneContent,
+    missingBlocks, PHONE_BLOCK_ORDER,
+    type PhoneBlockId, type PhoneContent, type PhoneListEntry,
+} from '../../utils/offlineMode/phoneContent';
 import type { SubApiConfig } from '../../utils/fanwaiGenerator';
 
 /**
@@ -89,47 +97,91 @@ export default function OfflinePhonePanel({
     open, holder, charId, charName, userName, subApi, char, user, charTimeZone, onClose,
 }: Props) {
     const [activeApp, setActiveApp] = useState<AppId | null>(null);
-    // 手机内容：一次性生成 + 缓存，打开他的手机时如果没有就生成一次
+    // 手机内容：按块并行生成 + 缓存，打开他的手机时只补缺的块
     const [content, setContent] = useState<PhoneContent | null>(null);
     const [generating, setGenerating] = useState(false);
     const [genError, setGenError] = useState<string>('');
+    // 进度（§5.9 E：显示「已完成 M / 共 N」，不出现「API」字样）
+    const [genProgress, setGenProgress] = useState<{ done: number; total: number } | null>(null);
+    // 右上角循环箭头的下拉菜单（文档 §4.2：先选范围，不直接覆盖已有内容）
+    const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
+    // 当前这次生成是「全量」还是「补齐」，只影响弹窗文案
+    const [genMode, setGenMode] = useState<'all' | 'fill'>('all');
+
+    /**
+     * char / user / subApi 都是父组件每次渲染新建的对象（尤其是 subApi 的内联字面量）。
+     * 一旦把它们放进 useEffect 依赖，父组件任何一次重渲染都会让下面这段重跑：
+     * 重读缓存 → setContent(新的解析结果) → 子组件 entries 换引用 → 刚点开的详情被重置。
+     * 这就是「点开详情不到一秒就退回去」的根因，所以这里用 ref 取最新值，依赖只留稳定项。
+     */
+    const latest = useRef({ char, user, subApi });
+    latest.current = { char, user, subApi };
+
+    /** only 只在挂载时用（那一刻 content 还是 null，不能靠组件状态判断缺哪块） */
+    const runGenerate = (mode: 'all' | 'fill', only?: PhoneBlockId[]) => {
+        const { char: curChar, user: curUser, subApi: curSub } = latest.current;
+        if (!curChar || !curUser || generating) return;
+        const targets: PhoneBlockId[] | undefined = mode === 'fill'
+            ? (only && only.length ? only : missingBlocks(content))
+            : undefined;
+        if (mode === 'fill' && targets && targets.length === 0) {
+            setGenError('没有缺的内容');
+            return;
+        }
+        if (mode === 'all') {
+            clearPhoneContent(charId);
+            setContent(null);
+            setActiveApp(null);
+        }
+        setGenMode(mode);
+        setGenerating(true);
+        setGenError('');
+        setGenProgress({ done: 0, total: targets?.length || PHONE_BLOCK_ORDER.length });
+        generatePhoneContent(curChar, curUser, curSub || ({} as SubApiConfig), {
+            force: mode === 'all',
+            only: targets,
+            onProgress: (done, total) => setGenProgress({ done, total }),
+        })
+            .then((result) => {
+                // 分块生成已经把旧内容合并进 result.content（含补齐的块），直接用最新的
+                if (result.content) setContent(result.content);
+                if (result.reason === 'no_sub_api') {
+                    setGenError('没有配置副 API，手机内容生成不了（设置 → 其他 API）');
+                } else if (result.failed.length) {
+                    setGenError(`有 ${result.failed.length} 块没生成出来，点右上角「仅补齐未完成的」再试一次`);
+                } else if (!result.content) {
+                    setGenError('生成失败了，点右上角重新生成');
+                }
+            })
+            .catch((error) => {
+                console.error('[offline-phone] 生成异常', error);
+                setGenError('生成失败了，点右上角重新生成');
+            })
+            .finally(() => {
+                setGenerating(false);
+                setGenProgress(null);
+            });
+    };
 
     useEffect(() => {
         if (!open || holder !== 'char' || !charId) return;
         const cached = readPhoneContent(charId);
-        if (cached) { setContent(cached); return; }
-        if (!char || !user) return;
-        let cancelled = false;
-        setGenerating(true);
-        setGenError('');
-        generatePhoneContent(char, user, subApi || ({} as SubApiConfig))
-            .then((result) => {
-                if (cancelled) return;
-                if (result.ok && result.content) setContent(result.content);
-                else setGenError(
-                    result.reason === 'no_sub_api'
-                        ? '没有配置副 API，手机内容生成不了（设置 → 其他 API）'
-                        : '生成失败了，点右上角重新生成',
-                );
-            })
-            .finally(() => { if (!cancelled) setGenerating(false); });
-        return () => { cancelled = true; };
-    }, [open, holder, charId, char, user, subApi]);
+        if (cached) {
+            // 只在还没内容时写入，避免每次重读都把 content 换成新对象引用
+            setContent((prev) => prev || cached);
+            const missing = missingBlocks(cached);
+            if (missing.length) runGenerate('fill', missing);
+            return;
+        }
+        runGenerate('all');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, holder, charId]);
 
-    const regenerate = () => {
-        if (!char || !user || generating) return;
-        clearPhoneContent(charId);
-        setContent(null);
-        setActiveApp(null);
-        setGenerating(true);
-        setGenError('');
-        generatePhoneContent(char, user, subApi || ({} as SubApiConfig))
-            .then((result) => {
-                if (result.ok && result.content) setContent(result.content);
-                else setGenError(result.reason === 'no_sub_api' ? '没有配置副 API' : '生成失败了，稍后再试');
-            })
-            .finally(() => setGenerating(false));
-    };
+    /**
+     * mode='all'：清缓存重生成，全部覆盖；
+     * mode='fill'：只补没内容的块（§5.9 G：任何失败都不该导致全部重来）。
+     */
+    const regenerate = (mode: 'all' | 'fill' = 'all') => runGenerate(mode);
     const [clock, setClock] = useState(() => {
         const d = nowInTimeZone(charTimeZone);
         return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -137,7 +189,7 @@ export default function OfflinePhonePanel({
 
     // 弹窗开着时每分钟推一次时间，别让状态栏停在打开那一刻
     useEffect(() => {
-        if (!open) { setActiveApp(null); return; }
+        if (!open) { setActiveApp(null); setRefreshMenuOpen(false); return; }
         const tick = () => {
             const d = nowInTimeZone(charTimeZone);
             setClock(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
@@ -153,6 +205,53 @@ export default function OfflinePhonePanel({
     const apps = holder === 'char' ? APPS_HIS : APPS_MINE;
     const current = apps.find((a) => a.id === activeApp) || null;
     const ownerLabel = holder === 'char' ? '他的手机' : '你的手机';
+    // §5.9 H：「仅补齐未完成的」平时不出现，只有确实缺块时才给
+    const missing = holder === 'char' ? missingBlocks(content) : [];
+
+    /**
+     * 他的手机里每个 App 有自己的界面（文档 §5.6~§5.14），
+     * 只有读书 / 浏览器 / 日记还走通用列表 + 详情。
+     */
+    const renderCharApp = (app: AppEntry) => {
+        if (!content) return null;
+        switch (app.id) {
+            case 'alipay':
+                return (
+                    <OfflinePhoneAlipay
+                        key="alipay"
+                        entries={content.alipay || []}
+                        assets={content.alipayAssets}
+                        emptyHint={`${app.label}里没有内容`}
+                    />
+                );
+            case 'music':
+                return (
+                    <OfflinePhoneMusic
+                        key="music"
+                        entries={content.music || []}
+                        playlists={content.musicPlaylists}
+                        emptyHint={`${app.label}里没有内容`}
+                    />
+                );
+            case 'gallery':
+                return <OfflinePhoneGallery key="gallery" entries={content.gallery || []} emptyHint={`${app.label}里没有内容`} />;
+            case 'memo':
+                return <OfflinePhoneMemo key="memo" entries={content.memo || []} emptyHint={`${app.label}里没有内容`} />;
+            default: {
+                const key = CONTENT_KEY[app.id];
+                if (!key) return null;
+                return (
+                    <OfflinePhoneAppList
+                        key={app.id}
+                        kind="list"
+                        entries={(content[key] as PhoneListEntry[] | undefined) || []}
+                        emptyHint={`${app.label}里没有内容`}
+                        label={app.label}
+                    />
+                );
+            }
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
@@ -164,25 +263,46 @@ export default function OfflinePhonePanel({
                 style={{ width: '82%', maxWidth: 330, height: '72%', maxHeight: 620 }}
             >
                 <div className="w-full h-full rounded-[35px] overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-100 flex flex-col relative">
-                    {/* 刘海 */}
-                    <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 rounded-full bg-slate-900/90 z-20" />
+                    {/* 刘海：永远最上层 */}
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 rounded-full bg-slate-900/90 z-50" />
+
+                    {/*
+                      菜单兜底层：必须低于状态栏（z-30）。
+                      状态栏是 flex 子元素且带 z-index，会自成一层；兜底层若是 z-20 盖在它上面，
+                      菜单虽然看得见却点不到——刷新按钮会「点了没反应」。
+                    */}
+                    {refreshMenuOpen && (
+                        <div className="absolute inset-0 z-10" onClick={() => setRefreshMenuOpen(false)} />
+                    )}
 
                     {/* 状态栏：角色时区的时间 + 这是谁的手机 */}
-                    <div className="h-9 shrink-0 flex items-center justify-between px-5 pt-1 text-[11px] font-bold text-slate-700 z-10">
+                    <div className="h-11 shrink-0 flex items-center justify-between px-5 pt-2.5 text-[11px] font-bold text-slate-700 z-30">
                         <span>{clock}</span>
                         <span className="flex items-center gap-1 text-slate-400 text-[10px] font-medium">
                             <span className="truncate max-w-[86px]">{ownerLabel}</span>
                             <WifiHigh className="w-3 h-3" weight="bold" />
                             <BatteryFull className="w-4 h-4" weight="fill" />
-                            {/* 文档 §4.2：右上角循环箭头 = 重新生成入口，默认不自动重复生成 */}
+                            {/* 文档 §4.2：右上角循环箭头 → 弹小菜单，不直接覆盖生成 */}
                             {holder === 'char' && (
-                                <button
-                                    onClick={regenerate}
-                                    title="重新生成手机内容"
-                                    className={`ml-0.5 w-5 h-5 rounded-full flex items-center justify-center active:bg-slate-200 ${generating ? 'animate-spin' : ''}`}
-                                >
-                                    <ArrowsClockwise className="w-3.5 h-3.5" weight="bold" />
-                                </button>
+                                <span className="relative">
+                                    <button
+                                        onClick={() => setRefreshMenuOpen((v) => !v)}
+                                        disabled={generating}
+                                        title="重新生成"
+                                        className={`ml-0.5 w-6 h-6 rounded-full flex items-center justify-center active:bg-slate-200 ${generating ? 'text-sky-500' : ''}`}
+                                    >
+                                        <ArrowsClockwise className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} weight="bold" />
+                                    </button>
+                                    {refreshMenuOpen && (
+                                        <span className="absolute right-0 top-7 w-40 rounded-xl bg-white shadow-[0_10px_30px_-6px_rgba(15,23,42,0.35)] border border-slate-200 py-1 z-40 block text-[11px] font-medium text-slate-600">
+                                            <button onClick={() => { setRefreshMenuOpen(false); regenerate('all'); }} className="w-full px-3 py-2 text-left active:bg-slate-100">重新生成全部</button>
+                                            {missing.length > 0 && (
+                                                <button onClick={() => { setRefreshMenuOpen(false); regenerate('fill'); }} className="w-full px-3 py-2 text-left active:bg-slate-100 whitespace-nowrap">仅补齐未完成的（{missing.length}）</button>
+                                            )}
+                                            <button onClick={() => setRefreshMenuOpen(false)} className="w-full px-3 py-2 text-left text-slate-400 active:bg-slate-100">取消</button>
+                                        </span>
+                                    )}
+                                </span>
                             )}
                         </span>
                     </div>
@@ -190,10 +310,16 @@ export default function OfflinePhonePanel({
                     {/* 桌面 / App 页 */}
                     <div className="flex-1 relative overflow-hidden">
                         {!current ? (
-                            <div className="px-4 pt-4">
+                            <div className="px-4 pt-6">
                                 <div className="text-[11px] text-slate-400 mb-3 pl-1">
                                     {holder === 'char' ? `${charName}的手机` : '你的手机'}
                                 </div>
+                                {/* 生成中由全屏弹窗负责提示，这里只剩失败回执 */}
+                                {!generating && genError && (
+                                    <div className="mb-3 rounded-lg bg-rose-50 border border-rose-100 text-rose-500 text-[10px] leading-4 px-3 py-1.5">
+                                        {genError}
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-4 gap-x-2 gap-y-4">
                                     {apps.map((app) => (
                                         <button
@@ -229,23 +355,21 @@ export default function OfflinePhonePanel({
                                             userName={userName}
                                             extraChats={content?.wechatChats}
                                             extraGroups={content?.wechatGroups}
+                                            profile={content?.profile}
+                                            moments={content?.moments}
                                         />
                                     </div>
                                 ) : holder === 'char' && CONTENT_KEY[current.id] ? (
                                     <div className="flex-1 relative overflow-hidden">
                                         {content ? (
-                                            <OfflinePhoneAppList
-                                                kind={current.id === 'gallery' ? 'gallery' : 'list'}
-                                                entries={(content[CONTENT_KEY[current.id]!] as any) || []}
-                                                emptyHint={`${current.label}里没有内容`}
-                                            />
+                                            renderCharApp(current)
                                         ) : (
                                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
                                                 <div className="text-[11px] text-slate-400">
                                                     {generating ? '正在生成他的手机…（首次需要十几秒）' : (genError || '内容还没生成')}
                                                 </div>
                                                 {!generating && (
-                                                    <button onClick={regenerate} className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] active:scale-95">
+                                                    <button onClick={() => regenerate('all')} className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] active:scale-95">
                                                         重新生成
                                                     </button>
                                                 )}
@@ -264,6 +388,35 @@ export default function OfflinePhonePanel({
                             </div>
                         )}
                     </div>
+
+                    {/*
+                      生成中弹窗：盖住屏幕内容区（刘海、Home 条保持原样），生成完自动消失。
+                      之前只有一行小字提示，很容易被当成「点了没反应」，这里改成能看见的等待层。
+                    */}
+                    {generating && (
+                        <div className="absolute left-0 right-0 top-0 bottom-6 z-40 flex flex-col items-center justify-center gap-3 px-6 text-center bg-white/85 backdrop-blur-[2px]">
+                            <ArrowsClockwise className="w-7 h-7 text-slate-500 animate-spin" weight="bold" />
+                            <div className="text-[12px] font-bold text-slate-700">
+                                {genMode === 'fill' ? '正在补齐没生成的部分…' : '正在生成他的手机…'}
+                            </div>
+                            {genProgress && genProgress.total > 0 && (
+                                <div className="flex items-center gap-1.5">
+                                    {Array.from({ length: genProgress.total }).map((_, index) => (
+                                        <span
+                                            key={index}
+                                            className={`w-1.5 h-1.5 rounded-full ${index < genProgress.done ? 'bg-slate-500' : 'bg-slate-300'}`}
+                                        />
+                                    ))}
+                                    <span className="ml-1 text-[10px] text-slate-500 font-medium">
+                                        {genProgress.done} / {genProgress.total}
+                                    </span>
+                                </div>
+                            )}
+                            <div className="text-[10px] leading-4 text-slate-400">
+                                分成几块同时生成，首次大概要十几秒；好了会自己关掉，之后就能挨个点开看
+                            </div>
+                        </div>
+                    )}
 
                     {/* Home 指示条 */}
                     <div className="h-6 shrink-0 flex items-start justify-center">
