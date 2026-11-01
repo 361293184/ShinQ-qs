@@ -20,6 +20,16 @@ const POV_OPTIONS: Array<{ id: OfflineConfig['pov']; label: string; sub: string 
     { id: 'third-you', label: '第三人称「你」', sub: `${'角色名'}看向你……` },
 ];
 
+/**
+ * 出场人物档位：只管权限上限，不管出现时机（时机由模型按场景判断）。
+ * 默认「关闭」——不写死禁止块的话，模型天生爱加配角，会自己长出陌生人。
+ */
+const NPC_OPTIONS: Array<{ id: NonNullable<OfflineConfig['npcPresence']>; label: string; sub: string }> = [
+    { id: 'none', label: '关闭（默认）', sub: '场景里只有你们两个人，路人只能当无声背景' },
+    { id: 'low', label: '较少', sub: '店员、前台、路人等临时人物，最多 1 人 1 句' },
+    { id: 'medium', label: '适中', sub: '可以有具名配角，但以你们两人为主，最多 2 句台词' },
+];
+
 const SAMPLE_NARRATION = '风把她的发梢吹得轻轻晃，她盯着你看了很久，才终于开口——';
 const SAMPLE_DIALOGUE = '"你终于来啦，我等你好久了。"';
 
@@ -122,6 +132,26 @@ export default function OfflineSettingsModal({ isOpen, onClose, value, onChange,
                                 >
                                     <div className={`text-[12px] font-bold ${value.pov === p.id ? 'text-sky-700' : 'text-slate-600'}`}>{p.label}</div>
                                     <div className="text-[10px] text-slate-400 mt-0.5">{p.sub.replace('角色名', charName).replace('对方', uname)}</div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 出场人物 */}
+                    <div>
+                        <div className="text-[12px] font-bold text-slate-500 mb-2">出场人物</div>
+                        <div className="text-[10px] text-slate-400 mb-2">
+                            出现谁、什么时候出现由角色自己按场景判断；这里定的是上限，不是频率。
+                        </div>
+                        <div className="space-y-2">
+                            {NPC_OPTIONS.map((p) => (
+                                <button
+                                    key={p.id}
+                                    onClick={() => onChange({ npcPresence: p.id })}
+                                    className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${value.npcPresence === p.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                                >
+                                    <div className={`text-[12px] font-bold ${value.npcPresence === p.id ? 'text-sky-700' : 'text-slate-600'}`}>{p.label}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{p.sub}</div>
                                 </button>
                             ))}
                         </div>
