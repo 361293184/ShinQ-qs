@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseOfflineMessage, hasDialogue, isQuoteStartLine } from './offlineParser';
+import { parseOfflineMessage, hasDialogue, isQuoteStartLine, detectOfflineFormatBreak } from './offlineParser';
 import { normalizeOfflineConfig, clampReplyLength, clampNarrationSize, isOfflineEnabled, isChineseText, DEFAULT_OFFLINE_CONFIG } from './offlineSettings';
 
 describe('parseOfflineMessage 行级解析', () => {
@@ -52,6 +52,20 @@ describe('parseOfflineMessage 行级解析', () => {
     it('isQuoteStartLine 只认行首引号', () => {
         expect(isQuoteStartLine('"你好"')).toBe(true);
         expect(isQuoteStartLine('他笑了笑说"你好"')).toBe(false);
+    });
+
+    it('台词变旁白时能给出诊断原因（格式失效可观测）', () => {
+        const noQuote = '她看着你。\n你今天去哪了？';
+        expect(detectOfflineFormatBreak(noQuote, parseOfflineMessage(noQuote))).toContain('没给台词加引号');
+
+        const quoteInside = '她低声说"你回来了"。';
+        expect(detectOfflineFormatBreak(quoteInside, parseOfflineMessage(quoteInside))).toContain('引号写在行中');
+
+        // 正常格式不报
+        const ok = '她笑了。\n"你回来了。"';
+        expect(detectOfflineFormatBreak(ok, parseOfflineMessage(ok))).toBeNull();
+        // 纯动作、无对话迹象不报
+        expect(detectOfflineFormatBreak('她把杯子放下。', parseOfflineMessage('她把杯子放下。'))).toBeNull();
     });
 });
 

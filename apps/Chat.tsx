@@ -99,7 +99,7 @@ import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettings
 import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
-import { buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
+import { buildOfflineDividerContent, buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
 import { useChatAI } from '../hooks/useChatAI';
 import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
@@ -1767,7 +1767,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 charId: char.id,
                 role: 'system',
                 type: 'text',
-                content: '─── 线下模式 · 进入 ───',
+                content: buildOfflineDividerContent('start'),
                 metadata: { offlineDivider: 'start' },
             });
             await reloadMessages(visibleCountRef.current);
@@ -1781,7 +1781,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 charId: char.id,
                 role: 'system',
                 type: 'text',
-                content: '─── 线下模式 · 结束 ───',
+                content: buildOfflineDividerContent('end'),
                 metadata: { offlineDivider: 'end' },
             });
             await reloadMessages(visibleCountRef.current);

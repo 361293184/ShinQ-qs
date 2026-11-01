@@ -86,3 +86,21 @@ export const parseOfflineMessage = (text: string): OfflineSegment[] => {
 /** 是否「含台词」（决定主动消息要不要打扰通知）：解析后存在 dialogue 段即算。 */
 export const hasDialogue = (segs: OfflineSegment[]): boolean =>
     segs.some((s) => s.type === 'dialogue');
+
+/**
+ * 格式失效诊断：解析后全是旁白、零台词，但文本里明显有对话特征时，返回一句原因。
+ *
+ * 解析器的设计原则是「最坏情况只错位、不炸格式」，副作用就是失效时完全静默：
+ * 用户只看到「台词变成了旁白」，看不出是模型没加引号（prompt 问题）还是解析错了（代码问题）。
+ * 这里只做判定，不打日志——调用方自己决定在 dev 下 console.warn，生产不受影响。
+ */
+export const detectOfflineFormatBreak = (raw: string, segs: OfflineSegment[]): string | null => {
+    if (!raw || segs.length === 0) return null;
+    if (hasDialogue(segs)) return null;
+    const text = String(raw);
+    const hasQuoteChar = /["「」『』“”]/.test(text);
+    const hasQuestion = /[?？]/.test(text);
+    if (hasQuoteChar) return '文本里有引号，但没有一行以引号开头（引号写在行中或包了整段）';
+    if (hasQuestion) return '出现问句却完全没有引号：模型大概率没给台词加引号';
+    return null;
+};

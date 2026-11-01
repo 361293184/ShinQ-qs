@@ -11,7 +11,8 @@ import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
 const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
-import { parseOfflineMessage } from '../../utils/offlineMode/offlineParser';
+import { detectOfflineFormatBreak, parseOfflineMessage } from '../../utils/offlineMode/offlineParser';
+import { describeOfflineClock } from '../../utils/offlineMode/offlinePrompts';
 import { normalizeOfflineConfig, isChineseText } from '../../utils/offlineMode/offlineSettings';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
@@ -3862,7 +3863,9 @@ const MessageItem = React.memo(({
                     className="text-[10px] font-bold tracking-wider"
                     style={{ color: entering ? 'rgba(56,189,248,0.85)' : 'rgba(100,116,139,0.8)' }}
                 >
-                    {entering ? '线下模式 · 进入' : '线下模式 · 结束'}
+                    {entering
+                        ? `线下模式 · 进入 · ${describeOfflineClock(m.timestamp ? new Date(m.timestamp) : new Date())}`
+                        : '线下模式 · 结束'}
                 </span>
                 <div className="flex-1 h-px" style={{ background: entering ? 'rgba(56,189,248,0.45)' : 'rgba(148,163,184,0.4)' }} />
             </div>,
@@ -3887,6 +3890,12 @@ const MessageItem = React.memo(({
             segs = [{ type: offlineRole, text: txt }];
         } else {
             segs = parseOfflineMessage(displayContent);
+            // dev 下给出「台词变旁白」的线索：区分模型没加引号（prompt 问题）与解析错（代码问题）。
+            // 解析器本身刻意保持静默（只错位不炸），所以诊断放在调用方这里、且只在开发期打。
+            if (import.meta.env.DEV && !isUser) {
+                const breakReason = detectOfflineFormatBreak(displayContent, segs);
+                if (breakReason) console.warn(`[offline] 台词没解析出来：${breakReason}`, displayContent.slice(0, 120));
+            }
         }
         if (segs.length > 0) {
             const oCfg = normalizeOfflineConfig(offlineConfig);
