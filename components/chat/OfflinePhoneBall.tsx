@@ -29,7 +29,22 @@ interface Props {
     /** 手机弹窗打开时淡出：此刻球已经变成手里那台手机了 */
     hidden?: boolean;
     onOpen: () => void;
+    /**
+     * 长按手动摆位（兜底）。
+     * 正常应该由主 API 用 [[手机:…]] 标记决定，但模型经常漏标记，
+     * 用户又没法验证「两台手机」到底长什么样 —— 所以留一个手动入口。
+     */
+    onPickHolder?: (holder: PhoneHolder) => void;
 }
+
+/** 长按多久算长按 */
+const LONG_PRESS_MS = 550;
+
+const HOLDER_OPTIONS: { id: PhoneHolder; label: string; hint: string }[] = [
+    { id: 'me', label: '我的手机', hint: '在我手上' },
+    { id: 'char', label: '他的手机', hint: '他递给我了' },
+    { id: 'none', label: '空手', hint: '我的手机在他那' },
+];
 
 const readPosition = (): Position | null => {
     try {
@@ -60,12 +75,15 @@ const defaultPosition = (): Position => ({
     y: Math.max(72, window.innerHeight - SIZE - 132),
 });
 
-export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
+export default function OfflinePhoneBall({ holder, hidden, onOpen, onPickHolder }: Props) {
     const [position, setPosition] = useState<Position | null>(readPosition);
     const latest = useRef(position);
     latest.current = position;
     const suppressClick = useRef(false);
     const frame = useRef<number | null>(null);
+    // 长按菜单（手动摆位兜底）
+    const [menuOpen, setMenuOpen] = useState(false);
+    const longPressTimer = useRef<number | null>(null);
     const drag = useRef<{
         pointerId: number;
         startX: number;
@@ -124,7 +142,19 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
             ? 'bg-white/60 text-slate-300 border border-dashed border-slate-400'
             : 'bg-white/95 text-slate-500 border border-slate-200';
 
+    // 长按菜单：贴着球摆，靠近右/下边缘时自动翻到另一侧
+    const menuStyle: React.CSSProperties | null = (() => {
+        if (!position) return null;
+        const menuW = 154;
+        const menuH = 140;
+        let left = position.x + SIZE + 8;
+        if (left + menuW > window.innerWidth - 8) left = Math.max(8, position.x - menuW - 8);
+        const top = Math.max(8, Math.min(window.innerHeight - menuH - 8, position.y - 8));
+        return { left, top, width: menuW };
+    })();
+
     return (
+        <>
         <button
             type="button"
             aria-label={holder === 'char' ? '他的手机（点击打开）' : holder === 'none' ? '手机不在你手边' : '你的手机（点击打开）'}
@@ -133,6 +163,13 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 if (event.button !== 0) return;
                 const origin = latest.current || defaultPosition();
                 suppressClick.current = false;
+                if (onPickHolder) {
+                    longPressTimer.current = window.setTimeout(() => {
+                        longPressTimer.current = null;
+                        suppressClick.current = true;
+                        setMenuOpen(true);
+                    }, LONG_PRESS_MS);
+                }
                 drag.current = {
                     pointerId: event.pointerId,
                     startX: event.clientX,
@@ -149,13 +186,22 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 const dx = event.clientX - state.startX;
                 const dy = event.clientY - state.startY;
                 if (!state.moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+                // 一旦开始拖，就不算长按了
+                if (longPressTimer.current != null) {
+                    window.clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
+                }
                 state.moved = true;
                 scheduleApply(clampBubblePos(state.origin.x + dx, state.origin.y + dy, state.bounds));
             }}
             onPointerUp={(event) => {
+                if (longPressTimer.current != null) {
+                    window.clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
+                }
                 const state = drag.current;
                 if (!state || state.pointerId !== event.pointerId) return;
-                suppressClick.current = state.moved;
+                suppressClick.current = state.moved || suppressClick.current;
                 if (state.moved && latest.current) {
                     setPosition(latest.current);
                     try { localStorage.setItem(POSITION_KEY, JSON.stringify(latest.current)); } catch { /* 位置不持久不影响使用 */ }
@@ -163,7 +209,14 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 drag.current = null;
                 try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* 已释放 */ }
             }}
-            onPointerCancel={() => { suppressClick.current = true; drag.current = null; }}
+            onPointerCancel={() => {
+                if (longPressTimer.current != null) {
+                    window.clearTimeout(longPressTimer.current);
+                    longPressTimer.current = null;
+                }
+                suppressClick.current = true;
+                drag.current = null;
+            }}
             onClick={(event) => {
                 if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
                 onOpen();
@@ -183,5 +236,35 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
                 <span className="absolute -top-1 -right-1 px-1 rounded-full bg-slate-400 text-white text-[9px] leading-4">空</span>
             )}
         </button>
+
+        {/* 长按：手动摆一下「手机在谁那儿」（正常由剧情决定，这里只是兜底） */}
+        {menuOpen && menuStyle && (
+            <>
+                <div className="fixed inset-0 z-[46]" onClick={() => setMenuOpen(false)} />
+                <div
+                    className="fixed z-[47] rounded-xl bg-white shadow-[0_12px_30px_-8px_rgba(15,23,42,0.4)] border border-slate-200 py-1"
+                    style={menuStyle}
+                >
+                    <div className="px-3 pt-1 pb-1.5 text-[9px] text-slate-400">手机在谁那儿</div>
+                    {HOLDER_OPTIONS.map((option) => (
+                        <button
+                            key={option.id}
+                            onClick={() => {
+                                setMenuOpen(false);
+                                onPickHolder?.(option.id);
+                            }}
+                            className={`w-full px-3 py-2 text-left active:bg-slate-100 ${holder === option.id ? 'bg-slate-50' : ''}`}
+                        >
+                            <span className="block text-[11px] font-bold text-slate-700">{option.label}</span>
+                            <span className="block text-[9px] text-slate-400">{option.hint}</span>
+                        </button>
+                    ))}
+                    <div className="px-3 pt-1 pb-1.5 text-[8px] leading-3 text-slate-300">
+                        正常应由剧情决定，这里是手动摆位
+                    </div>
+                </div>
+            </>
+        )}
+        </>
     );
 }

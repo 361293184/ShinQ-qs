@@ -381,8 +381,18 @@ export default function OfflinePhonePanel({
                                         <span className={`w-14 h-14 rounded-[18px] bg-gradient-to-br ${current.bg} text-white flex items-center justify-center shadow`}>
                                             {current.icon}
                                         </span>
-                                        <div className="text-[12px] font-bold text-slate-600 mt-1">还没接上数据</div>
+                                        <div className="text-[12px] font-bold text-slate-600 mt-1">
+                                            {holder === 'char' ? '这个 App 还没接上数据' : '这是你自己的手机'}
+                                        </div>
                                         <div className="text-[11px] leading-5 text-slate-400">{current.note}</div>
+                                        {holder !== 'char' && current.id === 'chat' ? (
+                                            <button
+                                                onClick={onClose}
+                                                className="mt-1 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] active:scale-95"
+                                            >
+                                                收起手机，回去说话
+                                            </button>
+                                        ) : null}
                                     </div>
                                 )}
                             </div>

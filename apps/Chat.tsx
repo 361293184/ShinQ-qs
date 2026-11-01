@@ -5234,6 +5234,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             }
                             setPhonePanelOpen(true);
                         }}
+                        onPickHolder={(next) => {
+                            // 长按手动摆位（模型漏发 [[手机:…]] 时的兜底）
+                            if (!char) return;
+                            writePhoneHolder(char.id, next);
+                            addToast(
+                                next === 'char' ? '已切到：他的手机' : next === 'none' ? '已切到：空手' : '已切到：你的手机',
+                                'info',
+                            );
+                        }}
                     />
                     <OfflinePhonePanel
                         open={phonePanelOpen}
