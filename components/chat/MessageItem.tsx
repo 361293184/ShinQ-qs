@@ -3943,7 +3943,7 @@ const MessageItem = React.memo(({
                         </div>
                     )}
                     <div
-                        className={`relative flex flex-col ${suppressEntranceAnimation ? '' : 'animate-fade-in'} ${isUser ? 'items-end' : 'items-start'} min-w-0 w-full`}
+                        className={`relative flex flex-col ${isUser ? 'items-end' : 'items-start'} min-w-0 w-full`}
                     >
                         {segs.map((seg, i) =>
                             seg.type === 'narration' ? (
