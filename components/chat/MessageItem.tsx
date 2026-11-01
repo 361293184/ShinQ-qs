@@ -7,7 +7,6 @@ import { createPortal } from 'react-dom';
 import { Message, ChatTheme, OfflineConfig, LetterRecord, LetterPaperThemeId } from '../../types';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
 import { HTML_TYPE_LABELS } from '../../utils/fanwai/formatDetector';
-import FanwaiReaderModal, { type FanwaiCardStory } from './FanwaiReaderModal';
 // SAR 设施卡：钓鱼卖出回执（上游新增，按需加载）
 const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { phoneFieldToText } from '../../utils/phoneEvidence';
@@ -1263,8 +1262,6 @@ const MessageItem = React.memo(({
     const [showSarTruth, setShowSarTruth] = useState(false);
     // 来信卡片：点击拆开 → 信封浮层（null = 未打开）
     const [openLetter, setOpenLetter] = useState<LetterRecord | null>(null);
-    // 拾光转发的番外：点击卡片 → 阅读器浮层（正文存在 metadata.fanwaiStory.content 里）
-    const [openFanwai, setOpenFanwai] = useState<FanwaiCardStory | null>(null);
     // 回信卡片：点击展开我写的那封（null = 未打开）
     const [openReply, setOpenReply] = useState<{ text: string; occasion: string; paperTheme?: LetterPaperThemeId } | null>(null);
     const [replyOffset, setReplyOffset] = useState(0);
@@ -2131,14 +2128,7 @@ const MessageItem = React.memo(({
         // HTML 番外：转发的是完整 HTML（存 metadata），聊天里渲染成缩小预览图（沙盒 iframe 禁脚本）
         if (fw.format === 'html' && fw.content) {
             return commonLayout(
-                <>
-                <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setOpenFanwai(fw)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setOpenFanwai(fw); }}
-                    className="w-60 cursor-pointer overflow-hidden rounded-2xl border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none bg-white transition-transform active:scale-[0.98]"
-                >
+                <div className="w-60 overflow-hidden rounded-2xl border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none bg-white">
                     <div className="flex items-center justify-between px-3 py-1.5 bg-[#12101d]">
                         <span className="text-[9px] italic font-extrabold tracking-wider text-[#f5c86b]">拾光 · 番外（{HTML_TYPE_LABELS[((fw.htmlType as string) || 'custom') as keyof typeof HTML_TYPE_LABELS]}）</span>
                         <span className="text-[9px] italic text-[#c8bbd6]/70">{who || ''}</span>
@@ -2150,24 +2140,16 @@ const MessageItem = React.memo(({
                         style={{ width: '100%', height: 220, border: 'none', background: '#fff', pointerEvents: 'none' }}
                     />
                     <div className="px-3 py-1.5 bg-[#16131f] flex items-center gap-2">
-                        <span className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f]">轻触阅读</span>
+                        <span className="shrink-0 rounded-full bg-gradient-to-r from-[#f0b64f] to-[#d98a3e] px-2 py-0.5 text-[9px] italic font-extrabold text-[#16131f]">HTML 预览</span>
                         <span className="text-[10px] text-[#c8bbd6] line-clamp-1 min-w-0">{title}</span>
                     </div>
                 </div>
-                {openFanwai && <FanwaiReaderModal story={openFanwai} onClose={() => setOpenFanwai(null)} />}
-                </>
             );
         }
         // 方正几何感字体：英数 Nunito + 中文 Noto Sans SC（均已在 index.html 引入），斜体 italic 走 Nunito italic
         const SQUARE = '"Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
         return commonLayout(
-            <>
-            <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setOpenFanwai(fw)}
-                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setOpenFanwai(fw); }}
-                className="w-60 cursor-pointer overflow-hidden rounded-2xl bg-[#12101d] border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none transition-transform active:scale-[0.98]">
+            <div className="w-60 overflow-hidden rounded-2xl bg-[#12101d] border border-[#3a2f55]/70 shadow-[0_8px_28px_rgba(0,0,0,0.45)] select-none">
                 {/* 上下布局：上方黑金封面标题条 + 下方摘要区，整体压扁成横版长方形 */}
                 {/* 封面标题条：高度更扁，左侧发光羽 + 斜体大字标题 + 右上角色名 */}
                 <div className="relative h-16 bg-gradient-to-br from-[#0c0a14] via-[#1a0f1c] to-[#2a1530] overflow-hidden flex items-center">
@@ -2213,16 +2195,18 @@ const MessageItem = React.memo(({
                         <p style={{ fontFamily: SQUARE }} className="italic text-[11px] text-[#c8bbd6] leading-snug line-clamp-1 min-w-0">
                             {summary}
                         </p>
-                    ) : (
-                        <p style={{ fontFamily: SQUARE }} className="italic text-[10px] text-[#8b7f9e]/70 line-clamp-1 min-w-0">暂无摘要</p>
-                    )}
-                    <span style={{ fontFamily: SQUARE }} className="shrink-0 ml-auto italic text-[9px] font-bold text-[#f5c86b]/80">
-                        阅读 ›
-                    </span>
+                    ) : null}
+                </div>
+                {/* 正文直接铺在卡片里（可滚动），不用点开任何东西 —— 之前那个"点开阅读"的浮层已经去掉 */}
+                <div
+                    style={{ fontFamily: SQUARE }}
+                    className="px-3 pb-2.5 bg-[#16131f] max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-[1.8] text-[#c8bbd6]"
+                >
+                    {typeof fw.content === 'string' && fw.content.trim()
+                        ? fw.content
+                        : '（这篇番外没有留下正文）'}
                 </div>
             </div>
-            {openFanwai && <FanwaiReaderModal story={openFanwai} onClose={() => setOpenFanwai(null)} />}
-            </>
         );
     }
 
