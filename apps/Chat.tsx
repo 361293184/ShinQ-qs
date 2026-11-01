@@ -98,6 +98,8 @@ import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal'
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import OfflineInputBall from '../components/chat/OfflineInputBall';
+import OfflinePhoneBall from '../components/chat/OfflinePhoneBall';
+import OfflinePhonePanel from '../components/chat/OfflinePhonePanel';
 import LocationPickerModal from '../components/chat/LocationPickerModal';
 import { isOfflineEnabled, normalizeOfflineConfig } from '../utils/offlineMode/offlineSettings';
 import { buildOfflineDividerContent, buildOfflineOpeningRequest } from '../utils/offlineMode/offlinePrompts';
@@ -245,6 +247,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [offlineInputMode, setOfflineInputMode] = useState<'dialogue' | 'narration'>('dialogue');
     // 悬浮球吸附锚点：底栏那一层容器，球的纵坐标跟着它的上边缘走
     const offlineBallAnchorRef = useRef<HTMLDivElement>(null);
+    // 线下手机道具：弹窗开关。三态（自己的 / 空 / 角色的）里的 holder 目前固定「自己的」，
+    // 真正的易手判定要接主 API 的内联标记（下一步），这里先把外壳和入口跑通。
+    const [phonePanelOpen, setPhonePanelOpen] = useState(false);
     const [offlineSettingsOpen, setOfflineSettingsOpen] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
@@ -5182,6 +5187,24 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         trackEvent('切换线下输入模式');
                     }}
                 />
+            )}
+
+            {/* 线下模式 · 手机道具：可拖动悬浮球 + 悬浮手机弹窗（弹窗打开时球淡出） */}
+            {char && isOfflineEnabled(char.offlineConfig) && (
+                <>
+                    <OfflinePhoneBall
+                        holder="me"
+                        hidden={phonePanelOpen}
+                        onOpen={() => setPhonePanelOpen(true)}
+                    />
+                    <OfflinePhonePanel
+                        open={phonePanelOpen}
+                        holder="me"
+                        charName={char.name}
+                        charTimeZone={resolveCharTimeZone(char)}
+                        onClose={() => setPhonePanelOpen(false)}
+                    />
+                </>
             )}
 
             {/* Proactive Settings Modal */}
