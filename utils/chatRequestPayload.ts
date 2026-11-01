@@ -616,11 +616,23 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 所以格式要在这里再钉一次，否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去。
     // 手机此刻在谁手里：只在「不是自己拿着」时才提，稳定前缀不动、缓存不伤
     const phoneHolder = offlineActive ? readPhoneHolder(char.id) : 'me';
-    const phoneHolderNote = phoneHolder === 'char'
+    let phoneHolderNote = phoneHolder === 'char'
         ? '他的手机在你手里'
         : phoneHolder === 'none'
             ? '你的手机在他手里，你手上是空的'
             : undefined;
+    // 你的手机在他手里 = 默认他已经翻过（§5.26 A）。被授权范围内的内容要成为他的已知事实，
+    // 否则会出现「他提起相册里的照片、自己却不知道」的矛盾；关掉的项不注入，他对应地看不到。
+    if (offlineActive && phoneHolder === 'none') {
+        try {
+            const { buildUserPhoneDigest } = await import('./offlineMode/userPhoneDigest');
+            const digest = await buildUserPhoneDigest(char.id, char.name, (userProfile?.name || '用户'));
+            if (digest) phoneHolderNote = `${phoneHolderNote}。${digest}`;
+        } catch (error) {
+            console.error('[offline-phone] 注入"他看过什么"失败', error);
+        }
+        input.signal?.throwIfAborted();
+    }
     fullMessages = withOfflineTailReminder(fullMessages, offlineActive, phoneHolderNote);
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;

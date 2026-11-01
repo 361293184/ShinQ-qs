@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ArrowLeft, ArrowsClockwise, BookOpen, ChatCircleDots, Images, MagnifyingGlass,
+    ArrowLeft, ArrowsClockwise, BookOpen, ChatCircleDots, Gear, Images, MagnifyingGlass,
     MusicNotes, NotePencil, Notebook, Wallet, WifiHigh, BatteryFull,
 } from '@phosphor-icons/react';
 import { nowInTimeZone } from '../../utils/timezone';
@@ -11,6 +11,8 @@ import OfflinePhoneAlipay from './OfflinePhoneAlipay';
 import OfflinePhoneMusic from './OfflinePhoneMusic';
 import OfflinePhoneGallery from './OfflinePhoneGallery';
 import OfflinePhoneMemo from './OfflinePhoneMemo';
+import OfflinePhoneUserPhone from './OfflinePhoneUserPhone';
+import OfflinePhonePermissions from './OfflinePhonePermissions';
 import {
     generatePhoneContent, readPhoneContent, clearPhoneContent,
     missingBlocks, PHONE_BLOCK_ORDER,
@@ -50,18 +52,6 @@ const APPS_HIS: AppEntry[] = [
     { id: 'browser', label: '浏览器', bg: 'from-slate-500 to-slate-600', icon: <MagnifyingGlass className="w-6 h-6" weight="bold" />, note: '搜索记录——最暴露内心的东西' },
     { id: 'diary', label: '日记', bg: 'from-violet-400 to-purple-500', icon: <Notebook className="w-6 h-6" weight="fill" />, note: '翻到就走不掉的内容' },
     { id: 'music', label: '音乐', bg: 'from-red-400 to-rose-500', icon: <MusicNotes className="w-6 h-6" weight="fill" />, note: '他最近在听什么' },
-];
-
-/**
- * 你自己的手机：只放你自己的数据。
- * 方案里这一屏的完整形态是「三个 App + 右上角齿轮进权限设置」（§5.26 J），
- * 权限用来决定「他把你的手机拿过去之后能看到什么」——那是方向 B 的活，后面几步再做。
- */
-const APPS_MINE: AppEntry[] = [
-    { id: 'chat', label: '聊天', bg: 'from-emerald-400 to-emerald-500', icon: <ChatCircleDots className="w-6 h-6" weight="fill" />, note: '你和他的聊天——就是他手机上那一段的另一面' },
-    { id: 'gallery', label: '相册', bg: 'from-sky-400 to-indigo-400', icon: <Images className="w-6 h-6" weight="fill" />, note: '你自己的相册（要不要对他开放，由权限设置决定）' },
-    { id: 'diary', label: '日记', bg: 'from-violet-400 to-purple-500', icon: <Notebook className="w-6 h-6" weight="fill" />, note: '你自己的日记，默认不对他开放' },
-    { id: 'bank', label: '账单', bg: 'from-blue-500 to-sky-500', icon: <Wallet className="w-6 h-6" weight="fill" />, note: '你自己的账单，默认不对他开放' },
 ];
 
 interface Props {
@@ -107,6 +97,8 @@ export default function OfflinePhonePanel({
     const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
     // 当前这次生成是「全量」还是「补齐」，只影响弹窗文案
     const [genMode, setGenMode] = useState<'all' | 'fill'>('all');
+    // 你的手机：右上角齿轮 → 「他能看到什么」（§5.26 J ②）
+    const [permissionsOpen, setPermissionsOpen] = useState(false);
 
     /**
      * char / user / subApi 都是父组件每次渲染新建的对象（尤其是 subApi 的内联字面量）。
@@ -202,8 +194,8 @@ export default function OfflinePhonePanel({
     if (!open) return null;
 
     // 看谁的手机会决定里面有什么：默认只能看自己的（他的手机得先在你手里）
-    const apps = holder === 'char' ? APPS_HIS : APPS_MINE;
-    const current = apps.find((a) => a.id === activeApp) || null;
+    const apps = APPS_HIS;
+    const current = holder === 'char' ? (apps.find((a) => a.id === activeApp) || null) : null;
     const ownerLabel = holder === 'char' ? '他的手机' : '你的手机';
     // §5.9 H：「仅补齐未完成的」平时不出现，只有确实缺块时才给
     const missing = holder === 'char' ? missingBlocks(content) : [];
@@ -304,12 +296,30 @@ export default function OfflinePhonePanel({
                                     )}
                                 </span>
                             )}
+                            {/* 你的手机：右上角是齿轮（和他的手机那个刷新箭头正好对称） */}
+                            {holder !== 'char' && (
+                                <button
+                                    onClick={() => setPermissionsOpen(true)}
+                                    title="他能看到什么"
+                                    className="ml-0.5 w-6 h-6 rounded-full flex items-center justify-center active:bg-slate-200"
+                                >
+                                    <Gear className="w-3.5 h-3.5" weight="bold" />
+                                </button>
+                            )}
                         </span>
                     </div>
 
                     {/* 桌面 / App 页 */}
                     <div className="flex-1 relative overflow-hidden">
-                        {!current ? (
+                        {holder !== 'char' ? (
+                            /* 你的手机：三个真实 App + 齿轮（§5.26 J）。没有生成、没有加载 */
+                            <OfflinePhoneUserPhone
+                                charId={charId}
+                                charName={charName}
+                                userName={userName}
+                                onOpenPermissions={() => setPermissionsOpen(true)}
+                            />
+                        ) : !current ? (
                             <div className="px-4 pt-6">
                                 <div className="text-[11px] text-slate-400 mb-3 pl-1">
                                     {holder === 'char' ? `${charName}的手机` : '你的手机'}
@@ -398,6 +408,17 @@ export default function OfflinePhonePanel({
                             </div>
                         )}
                     </div>
+
+                    {/* 权限设置：盖住整块屏幕（刘海之上留出来），返回键回主屏 */}
+                    {permissionsOpen && holder !== 'char' && (
+                        <div className="absolute left-0 right-0 top-0 bottom-6 z-[45]">
+                            <OfflinePhonePermissions
+                                charId={charId}
+                                charName={charName}
+                                onBack={() => setPermissionsOpen(false)}
+                            />
+                        </div>
+                    )}
 
                     {/*
                       生成中弹窗：盖住屏幕内容区（刘海、Home 条保持原样），生成完自动消失。
