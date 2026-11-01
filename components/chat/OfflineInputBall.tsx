@@ -103,6 +103,9 @@ export default function OfflineInputBall({ mode, onToggle }: Props) {
 
     const isNarration = mode === 'narration';
 
+    // 层级：底栏（.sully-chat-inputbar）和动作面板都是 z-40，球必须再高一档，
+    // 否则拖到底部会被底栏盖住、只剩半个图标；模态框在 z-[89] 以上，仍然盖得住球。
+
     return (
         <button
             type="button"
@@ -149,7 +152,7 @@ export default function OfflineInputBall({ mode, onToggle }: Props) {
                 if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
                 onToggle();
             }}
-            className={`fixed z-30 rounded-full flex items-center justify-center shadow-lg select-none transition-colors ${isNarration ? 'bg-sky-500 text-white ring-2 ring-sky-200' : 'bg-white/95 text-slate-500 ring-1 ring-slate-200'}`}
+            className={`fixed z-[45] rounded-full flex items-center justify-center shadow-lg select-none transition-colors ${isNarration ? 'bg-sky-500 text-white ring-2 ring-sky-200' : 'bg-white/95 text-slate-500 ring-1 ring-slate-200'}`}
             style={{
                 left: position?.x ?? undefined,
                 top: position?.y ?? undefined,
