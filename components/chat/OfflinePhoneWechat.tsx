@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, CaretRight, ChatCircleDots, Heart, ImageSquare } from '@phosphor-icons/react';
 import { DB } from '../../utils/db';
 import { stripPhoneHolderMarker } from '../../utils/offlineMode/phoneHolder';
+import { takeRecentMessages, RECENT_MESSAGE_LIMIT } from '../../utils/offlineMode/phoneMessages';
 import type { GeneratedChat, PhoneMoment, PhoneWechatProfile } from '../../utils/offlineMode/phoneContent';
 
 /**
@@ -106,10 +107,12 @@ export default function OfflinePhoneWechat({
             try {
                 const list: Conversation[] = [];
 
-                // ① 他和「我」的私聊：和主聊天同一份数据
-                const own = await DB.getMessagesByCharId(charId);
+                // ① 他和「我」的私聊：和主聊天同一份数据。
+                // 只同步最近 100 条（phoneMessages.RECENT_MESSAGE_LIMIT）——几千条全塞进手机没意义，还卡
+                const own = takeRecentMessages(
+                    (await DB.getMessagesByCharId(charId)).filter((m) => m.role !== 'system'),
+                );
                 const ownMessages: PhoneMessage[] = own
-                    .filter((m) => m.role !== 'system')
                     .map((m): PhoneMessage => ({
                         id: String(m.id ?? `${m.timestamp}-${Math.random()}`),
                         // 视角翻转：他说的话在他手机里是「我发的」，在右边
@@ -135,9 +138,11 @@ export default function OfflinePhoneWechat({
                 const groups = await DB.getGroups();
                 for (const group of groups) {
                     if (!Array.isArray(group.members) || !group.members.includes(charId)) continue;
-                    const raw = await DB.getGroupMessages(group.id);
+                    // 群聊同样只同步最近 100 条
+                    const raw = takeRecentMessages(
+                        (await DB.getGroupMessages(group.id)).filter((m) => m.role !== 'system'),
+                    );
                     const messages: PhoneMessage[] = raw
-                        .filter((m) => m.role !== 'system')
                         .map((m): PhoneMessage => ({
                             id: String(m.id ?? `${m.timestamp}-${Math.random()}`),
                             side: m.role === 'user' ? 'left' : 'right',
@@ -325,7 +330,7 @@ export default function OfflinePhoneWechat({
                 {tab === 'chats' && (
                     <div className="absolute inset-0 flex flex-col">
                         <div className="shrink-0 px-3 py-2 text-[10px] text-slate-500 bg-[#ededed] border-b border-slate-200">
-                            和「你」的聊天、你在的群，都是真实同步的
+                            和「你」的聊天、你在的群，都是真实同步的（每个会话最近 {RECENT_MESSAGE_LIMIT} 条）
                         </div>
                         <div className="flex-1 overflow-y-auto">
                             {conversations.length === 0 && (

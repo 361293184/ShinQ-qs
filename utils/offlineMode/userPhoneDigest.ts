@@ -1,5 +1,6 @@
 import { DB } from '../db';
 import { readUserPhonePermissions, type UserPhonePermissions } from './userPhonePermissions';
+import { takeRecentMessages } from './phoneMessages';
 
 /**
  * 「他已经翻过你的手机」——把被授权范围内的真实内容压成一段摘要，注入他的上下文（§5.26 A / §6.2）。
@@ -62,8 +63,9 @@ export async function buildUserPhoneDigest(
 
     try {
         // ① 你和他的对话：永远可见（那是你们俩的，不存在"给不给看"）
-        const own = await DB.getMessagesByCharId(charId);
-        const ownCount = own.filter((m) => m.role !== 'system').length;
+        // 口径和手机界面一致：只算最近 100 条，别让他"记得"几千条之外的细节
+        const own = takeRecentMessages((await DB.getMessagesByCharId(charId)).filter((m) => m.role !== 'system'));
+        const ownCount = own.length;
         lines.push(`你们俩的 ${ownCount} 条对话（全部）`);
 
         // ② 你和其他角色的私聊（默认关，最敏感）
@@ -72,8 +74,10 @@ export async function buildUserPhoneDigest(
             const others = characters.filter((c) => c.id !== charId).slice(0, 6);
             const parts: string[] = [];
             for (const other of others) {
-                const messages = await DB.getMessagesByCharId(other.id);
-                const last = messages.filter((m) => m.role !== 'system').slice(-1)[0];
+                const messages = takeRecentMessages(
+                    (await DB.getMessagesByCharId(other.id)).filter((m) => m.role !== 'system'),
+                );
+                const last = messages.slice(-1)[0];
                 if (!last) continue;
                 const who = last.role === 'user' ? userName : other.name;
                 parts.push(`和「${other.name}」的对话（最近一条 ${who}：${clip(String(last.content || ''), 28)}）`);
@@ -88,8 +92,10 @@ export async function buildUserPhoneDigest(
             const groups = await DB.getGroups();
             const picked = groups.slice(0, 3);
             for (const group of picked) {
-                const messages = await DB.getGroupMessages(group.id);
-                const last = messages.filter((m) => m.role !== 'system').slice(-1)[0];
+                const messages = takeRecentMessages(
+                    (await DB.getGroupMessages(group.id)).filter((m) => m.role !== 'system'),
+                );
+                const last = messages.slice(-1)[0];
                 if (!last) continue;
                 lines.push(`群「${group.name}」最近一条：${clip(String(last.content || ''), 30)}`);
             }

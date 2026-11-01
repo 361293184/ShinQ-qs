@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChatCircleDots } from '@phosphor-icons/react';
 import { DB } from '../../utils/db';
 import { stripPhoneHolderMarker } from '../../utils/offlineMode/phoneHolder';
+import { takeRecentMessages } from '../../utils/offlineMode/phoneMessages';
 
 /**
  * 你的手机 · 微信（方案 §5.26 C）
@@ -78,9 +79,11 @@ export default function OfflinePhoneUserWechat({ primaryCharId, charName, userNa
                 const characters = await DB.getAllCharacters();
                 const conversations: Conversation[] = [];
                 for (const character of characters) {
-                    const messages = await DB.getMessagesByCharId(character.id);
+                    // 每个会话只同步最近 100 条（和他的手机同一口径）
+                    const messages = takeRecentMessages(
+                        (await DB.getMessagesByCharId(character.id)).filter((m) => m.role !== 'system'),
+                    );
                     const mapped: PhoneMessage[] = messages
-                        .filter((m) => m.role !== 'system')
                         .map((m): PhoneMessage => ({
                             id: String(m.id ?? `${m.timestamp}-${Math.random()}`),
                             // 常规视角：我说的在右，他说的在左
@@ -107,9 +110,10 @@ export default function OfflinePhoneUserWechat({ primaryCharId, charName, userNa
                 const groupList: Conversation[] = [];
                 const rawGroups = await DB.getGroups();
                 for (const group of rawGroups) {
-                    const messages = await DB.getGroupMessages(group.id);
+                    const messages = takeRecentMessages(
+                        (await DB.getGroupMessages(group.id)).filter((m) => m.role !== 'system'),
+                    );
                     const mapped: PhoneMessage[] = messages
-                        .filter((m) => m.role !== 'system')
                         .map((m): PhoneMessage => ({
                             id: String(m.id ?? `${m.timestamp}-${Math.random()}`),
                             side: m.role === 'user' ? 'right' : 'left',
