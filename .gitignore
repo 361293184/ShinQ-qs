@@ -10,8 +10,10 @@ lerna-debug.log*
 node_modules
 .npm-cache
 dist
-dist-verify
+dist-verify*
 dist-ssr
+build-verify.log
+build-verify.err
 *.local
 
 # build artifact — `pnpm run build:workers` 原样复制过来的，与源文件逐字节相同；
