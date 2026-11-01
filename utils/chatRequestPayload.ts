@@ -26,7 +26,7 @@ import { renderConversationEngagementGuidance } from './memoryPalace/conversatio
 import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
 import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { normalizeTranslationLangLabel } from './translationLang';
-import { buildOfflineMainBlock, OFFLINE_TAIL_REMINDER } from './offlineMode/offlinePrompts';
+import { buildOfflineMainBlock, withOfflineTailReminder } from './offlineMode/offlinePrompts';
 import { buildChatOutputStylePrompt } from './chatOutputStylePrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
 import type { McdMiniAppSnapshot } from './mcdToolBridge';
@@ -369,6 +369,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 但主 API 的 historyMsgsForPrompt 来自完整 DB，仍然会看到它们。模式切换必须以 API
     // 真正要发送的历史为准，否则模型会收到特殊模式正文，却收不到「切回聊天格式」的提示。
     const returningFromMode = detectChatModeTransition(chronologicalHistory);
+    // 线下模式开关：历史构建和 system prompt 都要用到，提到最前面算一次。
+    const offlineActive = !!input.offlineConfig?.enabled;
     // 在公共上下文管线之前准备实际历史，世界书触发和摆放共用这一份消息。
     const { apiMessages } = ChatPrompts.buildMessageHistory(
         historyMsgsForPrompt,
@@ -377,7 +379,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         userProfile,
         emojis,
         undefined,
-        { useVisionDescriptions, contextHighWaterMark, protectPendingChatTurn: true },
+        { useVisionDescriptions, contextHighWaterMark, protectPendingChatTurn: true, offlineMode: offlineActive },
     );
 
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
@@ -400,6 +402,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             // 角色「允许主动发照片」开关：由 Chat 主链路从 apiConfig 透传，注入主动发图引导
             imageGenProactiveEnabled: input.imageGenProactiveEnabled === true,
             appRules: input.appPrompt?.rules,
+            // 线下模式接管 ChatApp 规则开头（手机聊天 / 不要输出行为 → 面对面 + 旁白格式）
+            offlineMode: offlineActive,
         },
     ));
     input.signal?.throwIfAborted();
@@ -418,7 +422,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // proactive messages reuse the exact same protocol.
     // Local delta: offline mode is also an output format, so it must win. When offline
     // is on we do not pass translationConfig/htmlMode, otherwise the formats fight.
-    const offlineActive = !!input.offlineConfig?.enabled;
+    // （offlineActive 在上面 buildMessageHistory 之前就算好了，这里直接复用。）
     const { prompt: outputStylePrompt, bilingualActive, htmlActive, thinkingActive } = buildChatOutputStylePrompt({
         charName: char.name,
         userName: userProfile?.name,
@@ -609,9 +613,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 线下模式的末尾 Reminder：必须是模型开口前读到的最后一条 system。
     // 线下主块拼在第一条 system（历史之前），对模型的约束力弱于贴着生成点的易变尾段，
     // 所以格式要在这里再钉一次，否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去。
-    if (offlineActive) {
-        fullMessages.push({ role: 'system', content: OFFLINE_TAIL_REMINDER });
-    }
+    fullMessages = withOfflineTailReminder(fullMessages, offlineActive);
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;
     if (isSystemMessageMergeEnabled()) {

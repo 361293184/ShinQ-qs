@@ -106,7 +106,12 @@ export const buildOfflineMainBlock = (input: {
     if (extra) parts.push(extra);
     parts.push(buildOfflineLengthBlock(cfg));
     parts.push(`### 🌍 场景
-根据最近的对话自然延续当前场景（时间 / 地点 / 天气以最近的消息为准，不要凭空重开）。`);
+根据最近的对话自然延续当前场景（时间 / 地点 / 天气以最近的消息为准，不要凭空重开）。
+
+**你能感知到的**：对方的表情、视线落在哪里、呼吸的轻重、语气里的停顿、身上的气味、两个人之间的距离和角度、周围的光线声音温度。
+**你能做的**：靠近或退开、伸手、递东西、并肩沉默、起身带对方去别处、把话题岔开、碰一下对方的手。
+**你不能做的**：发消息、等回复、手机没电、网络不好、「我先下了」「回头聊」「刚才没看到」——你们之间没有屏幕，也没有延迟和已读不回。
+**时间怎么走**：连续流逝的，不是「距离上一条消息多久」。安静就是此刻的安静，是两个人待在一起的一部分，不是对方在冷落你。`);
     return parts.join('\n\n');
 };
 
@@ -119,6 +124,34 @@ export const buildOfflineMainBlock = (input: {
  * 表现为「有时候有旁白有时候没有」。双语 / HTML / MCP 都有自己的末尾 Reminder，线下这块是补的缺口。
  */
 export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。]`;
+
+/**
+ * 把末尾提醒挂到最后一条 system 之后（历史之后、模型开口之前）。
+ * 抽成纯函数：可以在单测里断言「线下才挂、且挂在最后一条」，不用起整个 payload。
+ */
+export const withOfflineTailReminder = <T extends { role: string; content: any }>(
+    messages: T[],
+    active: boolean,
+): Array<T | { role: string; content: string }> =>
+    active ? [...messages, { role: 'system', content: OFFLINE_TAIL_REMINDER }] : messages;
+
+/** 进入线下的时间锚点：凌晨 / 清晨 / 上午 / 中午 / 下午 / 傍晚 / 夜里 / 深夜 + HH:MM */
+export const describeOfflineClock = (date: Date = new Date()): string => {
+    const h = date.getHours();
+    const period = h < 5 ? '凌晨' : h < 8 ? '清晨' : h < 11 ? '上午' : h < 13 ? '中午'
+        : h < 17 ? '下午' : h < 19 ? '傍晚' : h < 23 ? '夜里' : '深夜';
+    return `${period} ${h.toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
+
+/**
+ * 分隔线文案（存进那条 system 消息的 content）。
+ * 带上时间锚点：关掉「开场旁白」时，进入那一刻至少有个具体的时间感，不至于完全悬空。
+ * 地点 / 天气没写进来——那要实时世界块，属于下一层的事。
+ */
+export const buildOfflineDividerContent = (kind: 'start' | 'end', date: Date = new Date()): string =>
+    kind === 'start'
+        ? `─── 线下模式 · 进入 · ${describeOfflineClock(date)} ───`
+        : '─── 线下模式 · 结束 ───';
 
 /** 进入线下时的开场旁白请求（用户侧一条 user 消息的文本） */
 export const buildOfflineOpeningRequest = (charName: string): string =>

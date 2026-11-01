@@ -161,6 +161,13 @@ export const detectChatModeTransition = (messages: readonly Message[]): ChatMode
 export interface PromptBuildOptions {
     /** Other conversation surfaces replace only app rules; shared context and recency stay identical. */
     appRules?: string;
+    /**
+     * 线下模式：只接管 ChatApp 规则开头那两条（「你正在手机聊天 / 请不要输出你的行为」
+     * 「哪怕面对面也是线上聊天」），换成面对面 + 旁白格式的写法。
+     * 下文的功能规则（表情包 / 发图 / 转账 / 纪念日 / 搜索…）原样保留——
+     * 整段替换会把这些能力教没了，而且不报错，属于最隐蔽的回归。
+     */
+    offlineMode?: boolean;
     /** 已完成清洗的实际消息，由公共上下文管线统一处理世界书。 */
     history?: import('./context').ContextMessage[];
     forFirePack?: boolean;
@@ -196,7 +203,7 @@ export const ChatPrompts = {
     },
 
     // 格式化时间差提示（tz 影响「深夜/清晨」判断，时差本身不变）
-    getTimeGapHint: (lastMsg: Message | undefined, currentTimestamp: number, tz?: string): string => {
+    getTimeGapHint: (lastMsg: Message | undefined, currentTimestamp: number, tz?: string, offline?: boolean): string => {
         if (!lastMsg) return '';
         const diffMs = currentTimestamp - lastMsg.timestamp;
         const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -204,6 +211,17 @@ export const ChatPrompts = {
         const currentHour = nowInTimeZone(tz, new Date(currentTimestamp)).getHours();
         const isNight = currentHour >= 23 || currentHour <= 6;
         if (diffMins < 10) return ''; 
+        // 线下模式：你们在同一个空间，「距离上一条消息多久」根本不成立（没有消息这回事），
+        // 换成「你们之间安静了多久」——沉默是相处的一部分，不是延迟或掉线。
+        if (offline) {
+            if (diffMins < 60) return `[系统提示: 你们之间安静了 ${diffMins} 分钟。无话的间隙也是相处，不必急着用话填满。]`;
+            if (diffHours < 6) return isNight
+                ? `[系统提示: 你们之间安静了 ${diffHours} 小时。夜已经深了。]`
+                : `[系统提示: 你们之间安静了 ${diffHours} 小时。对方可能走开了一会儿，也可能只是没说话。]`;
+            if (diffHours < 24) return `[系统提示: 你们之间安静了 ${diffHours} 小时。]`;
+            const quietDays = Math.floor(diffHours / 24);
+            return `[系统提示: 你们之间安静了 ${quietDays} 天。按你们的关系做出反应（想念、生气、担心，或者只是继续待着）。]`;
+        }
         if (diffMins < 60) return `[系统提示: 距离上一条消息: ${diffMins} 分钟。短暂的停顿。]`;
         if (diffHours < 6) {
             if (isNight) return `[系统提示: 距离上一条消息: ${diffHours} 小时。现在是深夜/清晨。沉默是正常的（正在睡觉）。]`;
@@ -691,11 +709,23 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const scheduleMessageTagEnabled = !forFirePack
             && !(timelyByWorker && isAmsg2EnabledForChar(char));
 
-        baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
+        // 线下模式接管本节开头。原本这两句是给「见面模式 → 回 ChatApp」防串味用的，
+        // 但线下模式的立身之本就是「面对面 + 写旁白」：一句「请不要输出你的行为」、
+        // 一句「哪怕面对面也是线上聊天」，会把线下模式的设定直接推翻。
+        // 只换开头两条，下文的功能规则（表情包 / 发图 / 转账 / 纪念日 / 搜索…）原样保留。
+        const offlineMode = promptOptions?.offlineMode === true;
+        const userName = userProfile?.name || '用户';
+        const chatAppRuleHead = offlineMode
+            ? `### 聊天 App 行为规范 (Chat App Rules)
+**TOP 1｜线下见面（本节最高优先级）**：你和${userName}此刻就在同一个地方、同一个时刻面对面相处，不是隔着手机聊天，也不存在「切回线上」这回事。回复按「旁白 + 台词」写：动作、神态、氛围、心理用旁白（不加引号），真正说出口的话必须整行用英文双引号包住、引号是该行行首第一个字符。
+1. **沉浸感**: 保持角色扮演。你现在是一个真人站在对方身边，用这个人的方式说话、动作、沉默。
+`
+            : `### 聊天 App 行为规范 (Chat App Rules)
 **TOP 1｜ChatApp 格式（本节最高优先级）**：你是发消息的真实存在，以自然短句、短气泡为主；一个气泡一行，气泡间直接另起一行（实际换行，不要输出“\\n”字样）。
             **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
 1. **沉浸感**: 保持角色扮演。使用适合即时通讯(IM)的口语化风格。
-2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
+`;
+        baseSystemPrompt += `${chatAppRuleHead}2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
 2.5 **对话质量 (极其重要)**:
    - **拒绝空话**: 不要说”我会一直在”、”我不会离开你”这类万能安慰句。这些话谁都能说，毫无信息量。
    - **相对更浓烈的表达**: 在只有文字沟通的前提下，往往情绪的传达会被淡化，说话前思考一下：这样真的能传达我的心情吗？根据对方的性格，这样说会让ta产生不必要的误解吗？
@@ -722,8 +752,11 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
 4. **引用功能 (Quote/Reply)**:
    - 如果你想专门回复用户某句具体的话，可以在回复开头使用: \`[[QUOTE: 引用内容]]\`。这会在UI上显示为对该消息的引用。
 5. **环境感知**:
-   - 留意 [系统提示] 中的时间跨度。如果用户消失了很久，请根据你们的关系做出反应（如撒娇、生气、担心或冷漠）。
-   - 如果用户发送了图片，请对图片内容进行评论。
+${offlineMode
+            ? `   - 留意 [系统提示] 中的时间跨度：那是**你们之间安静了多久**（同一个空间里的沉默），不是消息延迟、不是对方掉线。安静久了按你们的关系自然反应（靠过去、嗔一句、或者干脆继续陪着）。
+   - 对方给你看什么（递过来手机、指着某处、把东西放到你面前），直接对眼前这个实物/这件事做出反应，不要说「你发的图片」。`
+            : `   - 留意 [系统提示] 中的时间跨度。如果用户消失了很久，请根据你们的关系做出反应（如撒娇、生气、担心或冷漠）。
+   - 如果用户发送了图片，请对图片内容进行评论。`}
 6. **可用动作**:
    - **📷 发送照片**: 想给对方发照片、自拍或合照时，另起**单独一行**输出: \`图片- 画面描述\`，系统会据此生成并发送一张真实照片（不是文字描述，也不是 HTML 卡片）。
      - **每一轮都自己判断一次，不用等 ta 开口**：回复前先自问「这一轮有没有值得给 ta 看的东西？」——有就发，没有就不发。发图不是你被要求时才做的动作，而是你随时都可能做的事。
@@ -1136,6 +1169,8 @@ ${voiceActingGuide()}`;
             timeAwarenessEnabled?: boolean;
             /** 线上请求兜底旧剧情副本的错序，见面自身历史不启用。 */
             protectPendingChatTurn?: boolean;
+            /** 线下模式：间隔提示改成「安静了多久」，不提「消息」。 */
+            offlineMode?: boolean;
         },
     ) => {
         // Filter Logic
@@ -1165,7 +1200,7 @@ ${voiceActingGuide()}`;
                 }
             }
             // 时间感知关闭时，互动间隔与现实消息时间戳一起遮住。
-            if (lastRealMsg && currentMsg && timeAwarenessOn && hasReliableMessageTimestamp(currentMsg)) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz);
+            if (lastRealMsg && currentMsg && timeAwarenessOn && hasReliableMessageTimestamp(currentMsg)) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz, options?.offlineMode === true);
         }
 
         return {
