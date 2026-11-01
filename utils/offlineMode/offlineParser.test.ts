@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseOfflineMessage, hasDialogue, isQuoteStartLine, detectOfflineFormatBreak } from './offlineParser';
-import { normalizeOfflineConfig, clampReplyLength, clampNarrationSize, isOfflineEnabled, isChineseText, DEFAULT_OFFLINE_CONFIG } from './offlineSettings';
+import { normalizeOfflineConfig, clampReplyLength, clampNarrationSize, isOfflineEnabled, isChineseText, DEFAULT_OFFLINE_CONFIG, resolveNpcEnabled } from './offlineSettings';
 
 describe('parseOfflineMessage 行级解析', () => {
     it('纯旁白 → 相邻旁白合并成一段', () => {
@@ -123,11 +123,15 @@ describe('offlineSettings 归一化', () => {
         expect(normalizeOfflineConfig({ pov: 'third-name' }).pov).toBe('third-name');
     });
 
-    it('出场人物档位：默认关闭，非法值回落 none', () => {
-        expect(normalizeOfflineConfig().npcPresence).toBe('none');
-        expect(normalizeOfflineConfig({ npcPresence: 'low' }).npcPresence).toBe('low');
-        expect(normalizeOfflineConfig({ npcPresence: 'medium' }).npcPresence).toBe('medium');
-        expect(normalizeOfflineConfig({ npcPresence: 'always' as any }).npcPresence).toBe('none');
+    it('出场人物开关：默认关闭，旧三档数据自动迁移', () => {
+        expect(normalizeOfflineConfig().npcEnabled).toBe(false);
+        expect(normalizeOfflineConfig({ npcEnabled: true }).npcEnabled).toBe(true);
+        // 上一版存过三档的角色：选了较少 / 适中的视为开启
+        expect(resolveNpcEnabled({ npcPresence: 'low' } as any)).toBe(true);
+        expect(resolveNpcEnabled({ npcPresence: 'medium' } as any)).toBe(true);
+        expect(resolveNpcEnabled({ npcPresence: 'none' } as any)).toBe(false);
+        // 新字段优先于旧字段
+        expect(resolveNpcEnabled({ npcEnabled: false, npcPresence: 'medium' } as any)).toBe(false);
     });
 
     it('isOfflineEnabled 判定', () => {

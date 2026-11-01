@@ -778,12 +778,12 @@ export interface OfflineConfig {
   /** 进入时开场旁白（默认开）：开启后进入时角色先来一段场景旁白建立氛围 */
   openingNarration?: boolean;
   /**
-   * 出场人物（NPC）权限上限，只管「能不能 / 最多几个 / 什么身份」，不定出现时机——
-   * 什么时候出现谁由模型按当前场景自己判断。
-   * none=只有你们两人（默认，老角色无感）；low=功能性临时人物（店员/路人）；medium=可有具名配角。
-   * NPC 的话一律写进旁白（行首不是引号 → 解析器判 narration），解析器不需要认识 NPC 这个概念。
+   * 出场人物（NPC）开关，默认关（老角色无感）。
+   * 只控制「允不允许别人出现」；出现谁、什么时候出现、说几句，全部由主 API 按场景判断，
+   * 不设人数和句数配额。NPC 的话一律写进旁白（行首不是引号 → 解析器判 narration），
+   * 所以解析器不需要认识 NPC 这个概念。
    */
-  npcPresence?: 'none' | 'low' | 'medium';
+  npcEnabled?: boolean;
 }
 
 export interface RoomItem {

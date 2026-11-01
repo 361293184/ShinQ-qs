@@ -107,16 +107,16 @@ describe('进入线下的时间锚点', () => {
 });
 
 describe('出场人物块（NPC 写进旁白）', () => {
-    const block = (npcPresence?: 'none' | 'low' | 'medium', bilingual?: boolean) => buildOfflineMainBlock({
+    const block = (npcEnabled?: boolean, bilingual?: boolean) => buildOfflineMainBlock({
         char,
         userName: '条条',
-        cfg: npcPresence ? { npcPresence } : {},
+        cfg: npcEnabled === undefined ? {} : { npcEnabled },
         bilingual: bilingual ? { active: true, sourceLang: '中文', targetLang: '日语' } : undefined,
     });
 
-    it('三档都必须覆盖「台词独立成行加引号」，否则 NPC 会冒充角色说话', () => {
-        for (const tier of ['none', 'low', 'medium'] as const) {
-            const text = block(tier);
+    it('开关两档都必须覆盖「台词独立成行加引号」，否则 NPC 会冒充角色说话', () => {
+        for (const enabled of [false, true]) {
+            const text = block(enabled);
             expect(text).toContain('不能单独成行');
             // 必须排在格式块之后（格式块先立规则、NPC 块再去覆盖它）
             expect(text.indexOf('别人说的话写在哪')).toBeGreaterThan(text.indexOf('线下模式 · 回复格式'));
@@ -124,32 +124,26 @@ describe('出场人物块（NPC 写进旁白）', () => {
     });
 
     it('关闭档：明确禁止第三方人物开口', () => {
-        const text = block('none');
+        const text = block(false);
         expect(text).toContain('出场人物（关闭）');
         expect(text).toContain('不得给名字、不得说话');
         expect(text).not.toContain('配角约束');
     });
 
-    it('较少档：功能性临时人物 + 1 人 1 句 + 防抢戏', () => {
-        const text = block('low');
-        expect(text).toContain('出场人物（较少）');
-        expect(text).toContain('每轮最多 1 人、最多 1 句');
-        expect(text).toContain('不给他们名字');
-        expect(text).toContain('配角约束');
+    it('开启档：不设人数与句数配额，出场与否全交给主 API', () => {
+        const text = block(true);
+        expect(text).toContain('出场人物（开启）');
         expect(text).toContain('完全由你根据此刻正在发生的场景判断');
-    });
-
-    it('适中档：可有具名配角，但优先沿用对方提过的人', () => {
-        const text = block('medium');
-        expect(text).toContain('出场人物（适中）');
+        expect(text).toContain('没有人数配额，也没有句数配额');
+        expect(text).not.toContain('最多 1 人');
+        expect(text).not.toContain('不超过 2 句');
         expect(text).toContain('优先沿用条条在旁白里提到过的人名和设定');
-        expect(text).toContain('不超过 2 句');
         expect(text).toContain('配角约束');
     });
 
     it('双语角色额外提醒：别人的话不要单独包 <翻译> 块', () => {
-        expect(block('medium', true)).toContain('不要单独包成一个 <翻译> 块');
-        expect(block('medium', false)).not.toContain('不要单独包成一个 <翻译> 块');
+        expect(block(true, true)).toContain('不要单独包成一个 <翻译> 块');
+        expect(block(true, false)).not.toContain('不要单独包成一个 <翻译> 块');
     });
 
     it('默认（未配置）等于关闭档', () => {

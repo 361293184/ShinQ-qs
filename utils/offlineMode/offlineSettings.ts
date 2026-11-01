@@ -14,14 +14,18 @@ export const DEFAULT_OFFLINE_CONFIG: Required<OfflineConfig> = {
     userNarrationColor: '#5b8def',
     narrationSize: 15,
     openingNarration: true,
-    npcPresence: 'none',
+    npcEnabled: false,
 };
 
-/** 出场人物的合法档位：非三值之一一律回落 none（默认：只有你们两人） */
-export const normalizeNpcPresence = (
-    v: OfflineConfig['npcPresence'] | undefined,
-): 'none' | 'low' | 'medium' =>
-    (v === 'low' || v === 'medium' ? v : 'none');
+/**
+ * 出场人物开关。出现时机、是谁、说几句都交给主 API，这里只判「允不允许」。
+ * 兼容上一版的三档字段：当时选了「较少 / 适中」的角色视为开启，否则关闭。
+ */
+export const resolveNpcEnabled = (cfg?: Partial<OfflineConfig> | null): boolean => {
+    if (cfg?.npcEnabled !== undefined) return cfg.npcEnabled === true;
+    const legacy = (cfg as { npcPresence?: string } | null | undefined)?.npcPresence;
+    return legacy === 'low' || legacy === 'medium';
+};
 
 /** 回复总字数（旁白+台词）的合法区间 */
 export const OFFLINE_LENGTH_MIN = 50;
@@ -50,7 +54,7 @@ export const normalizeOfflineConfig = (cfg?: Partial<OfflineConfig> | null): Req
     narrationSize: clampNarrationSize(cfg?.narrationSize),
     pov: cfg?.pov === 'third-name' || cfg?.pov === 'third-you' ? cfg.pov : (cfg?.pov === 'first-you' ? 'first-you' : DEFAULT_OFFLINE_CONFIG.pov),
     style: cfg?.style || DEFAULT_OFFLINE_CONFIG.style,
-    npcPresence: normalizeNpcPresence(cfg?.npcPresence),
+    npcEnabled: resolveNpcEnabled(cfg),
 });
 
 /** 角色是否开启线下模式 */
