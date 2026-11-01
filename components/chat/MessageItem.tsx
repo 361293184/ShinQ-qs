@@ -3949,7 +3949,10 @@ const MessageItem = React.memo(({
                             seg.type === 'narration' ? (
                                 <div
                                     key={i}
-                                    className="w-full max-w-[80%] mx-auto text-center italic select-text px-1"
+                                    // 旁白不再按 80% 居中收窄（两侧各空 10% 看着太挤），改成占满整行只留
+                                    // px-4 的内边距：16px > 消息行的 px-3(12px)，所以文字边界仍落在
+                                    // 头像列的内侧，不会越过头像、也不会糊到屏幕边。
+                                    className="w-full mx-auto text-center italic select-text px-4"
                                     style={{ color: nColor, fontSize: oCfg.narrationSize, lineHeight: 1.75 }}
                                 >
                                     {renderInline(seg.text)}
