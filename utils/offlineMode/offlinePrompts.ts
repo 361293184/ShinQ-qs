@@ -1,6 +1,6 @@
 import type { CharacterProfile, OfflineConfig } from '../../types';
 import { DATE_STYLE_PRESETS } from '../datePrompts';
-import { DEFAULT_OFFLINE_CONFIG } from './offlineSettings';
+import { DEFAULT_OFFLINE_CONFIG, normalizeNpcPresence } from './offlineSettings';
 
 /**
  * 线下模式 prompt 构建（私聊 ChatApp 内注入）。
@@ -80,6 +80,78 @@ export const buildOfflineLengthBlock = (cfg?: Partial<OfflineConfig> | null): st
 };
 
 /**
+ * 出场人物（NPC）块。
+ *
+ * 核心设计：NPC 的话**全部写进旁白**，不占气泡、不做头像、不存档案。
+ * 解析器唯一判据是「行首第一个字符是不是引号」，所以 NPC 的话只要不独占一行就天然是旁白，
+ * 整个功能零解析器改动；跨轮一致性靠「沿用对方旁白里提过的人」这一句，不需要数据库。
+ *
+ * 档位只定权限上限（能不能出现 / 最多几个 / 什么身份），
+ * 什么时候出现谁，一律交给模型按当前场景判断——不写场景规则（家里也会有人敲门）。
+ */
+export const buildOfflineNpcBlock = (
+    presence: OfflineConfig['npcPresence'] | undefined,
+    charName: string,
+    userName: string,
+    bilingualActive = false,
+): string => {
+    const uname = userName || '对方';
+    const tier = normalizeNpcPresence(presence);
+
+    // 这条必须最先说：格式块要求「说出口的话独立成行、行首加引号」，
+    // 模型会拿它去处理路人的台词 → 那行行首是引号 → 解析器判成【角色的气泡】，
+    // 等于 NPC 冒充主角说话。这比「台词变旁白」严重得多。
+    const quoteGuard = `### 👥 别人说的话写在哪（覆盖上方「说出口的话必须独立成行加引号」）
+上面那条「台词必须独占一行、行首加引号」**只适用于你（${charName}）和${uname}本人**。
+其他任何人的话都不适用：一律用成对引号内联在旁白那一行里，**绝对不能单独成行**——
+单独成行加引号会被系统当成你说的，别人就冒充了你。${bilingualActive ? `
+（双语：别人的话不要单独包成一个 <翻译> 块，跟着旁白那一句一起写。）` : ''}`;
+
+    if (tier === 'none') {
+        return `${quoteGuard}
+
+### 👥 出场人物（关闭）
+这个场景里只有你和${uname}，不要出现任何第三方人物，也不要让任何人开口说话。
+人群只能作为无声的环境背景一笔带过（例如"邻桌的客人""街上来往的人"），不得给名字、不得说话。`;
+    }
+
+    const sharedGuard = `⚠️ 配角约束（无论哪档都必须遵守）
+1. 配角是另一个独立的人，绝不是${uname}。不要把配角当成对方，也不要中途改用对对方的口吻。
+2. 配角不能替${uname}做决定、不能替${uname}说话、不能替${uname}表态。
+3. 配角不能凭空制造冲突或误会（不要突然扇耳光、冷嘲热讽来拆散你们这类抢戏情节）。
+4. 配角说的任何话都不能是"${uname}心里想说的话"——不要借配角之口推进本该由对方回应的剧情。
+5. 你和${uname}始终是这段戏的主角，配角只做背景和催化剂。`;
+
+    const whenBlock = `除你和${uname}以外，是否出现别人、出现谁、什么时候出现，**完全由你根据此刻正在发生的场景判断**——不用每轮都有人，也不用刻意回避；有人敲门、店员过来、路人搭话、同事经过，都是真实生活里会发生的事。`;
+
+    if (tier === 'low') {
+        return `${quoteGuard}
+
+### 👥 出场人物（较少）
+${whenBlock}
+如果出现：
+1. 只出现**功能性的临时人物**：店员、服务员、前台、路人、同事、快递员等。
+2. **不给他们名字**，用身份称呼即可（"店员""前台小哥"）。
+3. 上限：**每轮最多 1 人、最多 1 句**，说完即退场。
+4. 他们只提供场景服务或气氛，**不参与你和${uname}之间的主线**。
+
+${sharedGuard}`;
+    }
+
+    return `${quoteGuard}
+
+### 👥 出场人物（适中）
+${whenBlock}
+如果出现：
+1. 可以有**具名的配角**（例如"林小满""老陈"），给一句简短的身份即可。
+2. **优先沿用${uname}在旁白里提到过的人名和设定**——提过谁就写谁，不要改名、不要换性格、不要重新安关系。
+3. 上限：每轮**最多 1~2 人**，所有配角的台词**加起来不超过 2 句**。
+4. 配角的作用是**衬托或推动你和${uname}的关系**，不是抢戏。
+
+${sharedGuard}`;
+};
+
+/**
  * 线下模式主系统块（send / reroll / 主动消息共用）。
  * 追加在既有系统提示之后，覆盖 ChatApp 默认的「纯聊天」写法。
  */
@@ -95,6 +167,9 @@ export const buildOfflineMainBlock = (input: {
     parts.push(`### 🌙 线下模式 · 系统设定（覆盖上方所有"聊天对话"类指令）
 你们不是在手机上聊天，而是在同一个地方、同一个时刻【线下见面】。回复一律按下方格式输出。`);
     parts.push(OFFLINE_FORMAT_BLOCK);
+    // 紧跟格式块：必须紧挨着「说出口的话独立成行加引号」那条去覆盖它，
+    // 否则模型会拿那条去写 NPC 的台词 → 行首引号 → NPC 变成角色的气泡。
+    parts.push(buildOfflineNpcBlock(cfg?.npcPresence, char.name, userName, !!bilingual?.active));
     if (bilingual?.active) {
         parts.push(buildOfflineBilingualBlock(bilingual.sourceLang, bilingual.targetLang));
     }

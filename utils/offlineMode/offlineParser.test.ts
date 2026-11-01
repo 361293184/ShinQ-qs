@@ -69,6 +69,37 @@ describe('parseOfflineMessage 行级解析', () => {
     });
 });
 
+describe('NPC 台词写进旁白（解析器零改动的回归保护）', () => {
+    it('NPC 台词内联在旁白行内 → 整行仍是 narration', () => {
+        const segs = parseOfflineMessage('林小满端着咖啡走过来，"两位要续杯吗？"');
+        expect(segs).toHaveLength(1);
+        expect(segs[0].type).toBe('narration');
+    });
+
+    it('NPC 台词独立成行带引号 → 被判成 dialogue（串号，锁定行为提醒 prompt 必须禁止）', () => {
+        const segs = parseOfflineMessage('林小满走过来\n"两位要续杯吗？"');
+        expect(segs[1].type).toBe('dialogue');
+    });
+
+    it('NPC 行不因内联成对引号而改变类型', () => {
+        const segs = parseOfflineMessage('老陈笑了笑，"行啊。"然后又低下头。');
+        expect(segs[0].type).toBe('narration');
+    });
+
+    it('未闭合台词会吞掉后续 NPC 行（既有容错，回归锁定）', () => {
+        const segs = parseOfflineMessage('"我其实——\n林小满推门进来，"打扰了。"');
+        expect(segs).toHaveLength(1);
+        expect(segs[0].type).toBe('dialogue');
+    });
+
+    it('混合：旁白(含NPC) → 角色台词 → 旁白', () => {
+        const segs = parseOfflineMessage(
+            '林小满端着咖啡走过来，"两位要续杯吗？"\n"不用了，谢谢。"\n她点点头，转身离开。',
+        );
+        expect(segs.map((s) => s.type)).toEqual(['narration', 'dialogue', 'narration']);
+    });
+});
+
 describe('offlineSettings 归一化', () => {
     it('空配置 → 默认值兜底', () => {
         const cfg = normalizeOfflineConfig();
@@ -90,6 +121,13 @@ describe('offlineSettings 归一化', () => {
     it('非法 pov 回退默认，合法值保留', () => {
         expect(normalizeOfflineConfig({ pov: 'xxx' as any }).pov).toBe('first-you');
         expect(normalizeOfflineConfig({ pov: 'third-name' }).pov).toBe('third-name');
+    });
+
+    it('出场人物档位：默认关闭，非法值回落 none', () => {
+        expect(normalizeOfflineConfig().npcPresence).toBe('none');
+        expect(normalizeOfflineConfig({ npcPresence: 'low' }).npcPresence).toBe('low');
+        expect(normalizeOfflineConfig({ npcPresence: 'medium' }).npcPresence).toBe('medium');
+        expect(normalizeOfflineConfig({ npcPresence: 'always' as any }).npcPresence).toBe('none');
     });
 
     it('isOfflineEnabled 判定', () => {

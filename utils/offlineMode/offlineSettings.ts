@@ -14,7 +14,14 @@ export const DEFAULT_OFFLINE_CONFIG: Required<OfflineConfig> = {
     userNarrationColor: '#5b8def',
     narrationSize: 15,
     openingNarration: true,
+    npcPresence: 'none',
 };
+
+/** 出场人物的合法档位：非三值之一一律回落 none（默认：只有你们两人） */
+export const normalizeNpcPresence = (
+    v: OfflineConfig['npcPresence'] | undefined,
+): 'none' | 'low' | 'medium' =>
+    (v === 'low' || v === 'medium' ? v : 'none');
 
 /** 回复总字数（旁白+台词）的合法区间 */
 export const OFFLINE_LENGTH_MIN = 50;
@@ -43,6 +50,7 @@ export const normalizeOfflineConfig = (cfg?: Partial<OfflineConfig> | null): Req
     narrationSize: clampNarrationSize(cfg?.narrationSize),
     pov: cfg?.pov === 'third-name' || cfg?.pov === 'third-you' ? cfg.pov : (cfg?.pov === 'first-you' ? 'first-you' : DEFAULT_OFFLINE_CONFIG.pov),
     style: cfg?.style || DEFAULT_OFFLINE_CONFIG.style,
+    npcPresence: normalizeNpcPresence(cfg?.npcPresence),
 });
 
 /** 角色是否开启线下模式 */
