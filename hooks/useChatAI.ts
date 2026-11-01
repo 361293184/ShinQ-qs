@@ -959,6 +959,8 @@ export const useChatAI = ({
                 : withChatContinuation(payload.fullMessages, userProfile.name, {
                     // 生成前收进来的主动消息落在用户刚发的那句之后：该回的是用户那句。
                     unansweredUserTurn: hasUnansweredUserTurn(currentMsgs, contextMsgs),
+                    // 线下模式：补的话术不能压旁白（原文案「只写你自己的话」会让模型只吐台词）
+                    offline: !!(charForGen as any).offlineConfig?.enabled,
                 });
             const promptBuildSkipped = payload.flags.promptBuildSkipped;
             if (!promptBuildSkipped) {

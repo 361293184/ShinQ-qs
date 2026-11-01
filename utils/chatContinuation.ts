@@ -34,7 +34,7 @@ export function hasUnansweredUserTurn(messagesAtSend: Speaker[], historyForReque
 export function withChatContinuation<T extends { role: string; content: any }>(
     messages: T[],
     userName?: string,
-    options: { unansweredUserTurn?: boolean } = {},
+    options: { unansweredUserTurn?: boolean; offline?: boolean } = {},
 ): Array<T | { role: string; content: string }> {
     if (lastSpeakerRole(messages) !== 'assistant') return messages;
     const name = userName?.trim() || '对方';
@@ -42,6 +42,10 @@ export function withChatContinuation<T extends { role: string; content: any }>(
         role: 'user',
         content: options.unansweredUserTurn
             ? `[上面最后这几句是你先前主动发给${name}的消息，刚刚才送达，不是对${name}那句话的回应。${name}刚才说的话还没有人回，现在回应它；不要重复或续写那几句。]`
-            : `[${name}还想听你接着说。顺着刚才的话自然继续，只写你自己的话，说完就等${name}回应。]`,
+            // 线下模式：这条提示是模型读到的最后一句，原文案「只写你自己的话」会把旁白整段砍掉。
+            // 换成不压制旁白的说法，并顺手把格式再提一次。
+            : options.offline
+                ? `[${name}还想听你接着说。顺着刚才的场景自然继续，按线下模式写：动作、神态、氛围写成旁白（不加引号），说出口的话整行用引号包住，说完就等${name}回应。]`
+                : `[${name}还想听你接着说。顺着刚才的话自然继续，只写你自己的话，说完就等${name}回应。]`,
     }];
 }

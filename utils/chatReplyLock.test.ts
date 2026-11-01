@@ -67,4 +67,17 @@ describe('手动回复边界', () => {
             { role: 'user', content: [{ type: 'image_url', image_url: { url: 'test.png' } }] },
         ]]) expect(withChatContinuation(history)).toBe(history);
     });
+
+    it('线下模式下续说提示不压制旁白，并要求台词加引号', () => {
+        const history = [
+            { role: 'user', content: '外面下雨了' },
+            { role: 'assistant', content: '嗯。' },
+        ];
+        const offlineRequest = withChatContinuation(history, '小雨', { offline: true });
+        expect(offlineRequest[2].content).not.toContain('只写你自己的话');
+        expect(offlineRequest[2].content).toContain('旁白');
+        expect(offlineRequest[2].content).toContain('引号');
+        // 非线下仍走原话术，不能被这次改动带偏
+        expect(withChatContinuation(history, '小雨')[2].content).toContain('只写你自己的话');
+    });
 });
