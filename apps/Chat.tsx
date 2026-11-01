@@ -243,6 +243,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     // 线下模式：用户输入模式（对话=自动包引号 / 旁白=不加引号），设置弹窗开关
     const [offlineInputMode, setOfflineInputMode] = useState<'dialogue' | 'narration'>('dialogue');
+    // 悬浮球吸附锚点：底栏那一层容器，球的纵坐标跟着它的上边缘走
+    const offlineBallAnchorRef = useRef<HTMLDivElement>(null);
     const [offlineSettingsOpen, setOfflineSettingsOpen] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [novelReaderOpen, setNovelReaderOpen] = useState(false);
@@ -5066,7 +5068,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 )}
             </div>
 
-            <div className="relative z-40">
+            <div className="relative z-40" ref={offlineBallAnchorRef}>
                 {mcdActivated && (
                     <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
                         <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
@@ -5170,9 +5172,10 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 />
             </div>
 
-            {/* 线下模式 · 输入模式悬浮球（对话 / 旁白）：点一下切换，按住可拖到顺手的位置 */}
+            {/* 线下模式 · 输入模式悬浮球（对话 / 旁白）：吸附在底栏右上角外侧，点一下切换 */}
             {char && isOfflineEnabled(char.offlineConfig) && (
                 <OfflineInputBall
+                    anchorRef={offlineBallAnchorRef}
                     mode={offlineInputMode}
                     onToggle={() => {
                         setOfflineInputMode(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue');
