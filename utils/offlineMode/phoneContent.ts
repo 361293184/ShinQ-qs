@@ -74,11 +74,13 @@ export interface PhoneAlipayAssets {
     yuebao?: string;
     monthExpense?: string;
     monthIncome?: string;
-    cards?: { name: string; tail?: string; balance?: string }[];
+    cards?: { name: string; tail?: string; balance?: string; type?: string }[];
     /** 基金 / 理财持仓：盈亏按项目规则「涨红跌绿」 */
     funds?: { name: string; amount?: string; profit?: string; profitRate?: string }[];
     /** 花呗 / 借呗待还 */
     huabei?: string;
+    /** 花呗额度（还款页画用量条用） */
+    huabeiLimit?: string;
 }
 
 /** 音乐：概念歌单（文档 §5.14 D：3 个概念歌单，名字本身就暴露性格） */
@@ -279,16 +281,16 @@ const BLOCKS: Record<PhoneBlockId, BlockSpec> = {
 2. alipayAssets：首页的资产总览（数字必须和上面的流水自洽：本月收支能对上大致量级）
   - total 总资产　- balance 余额　- yuebao 余额宝
   - monthExpense 本月支出　- monthIncome 本月收入
-  - cards 银行卡 [{name, tail 尾号后四位, balance}]
+  - cards 银行卡 [{name, tail 尾号后四位, balance, type（储蓄卡 / 信用卡）}]
   - funds 基金/理财 [{name, amount 市值, profit 盈亏（带符号）, profitRate 收益率}]
-  - huabei 花呗/借呗待还（没有就省略）
+  - huabei 花呗/借呗待还（没有就省略）　- huabeiLimit 花呗额度
 
 输出：
 {"alipay":[{"title":"...","meta":"-38.00","sub":"9月14日 20:14","category":"餐饮","body":"..."}],
  "alipayAssets":{"total":"...","balance":"...","yuebao":"...","monthExpense":"...","monthIncome":"...",
-   "cards":[{"name":"招商银行储蓄卡","tail":"8821","balance":"..."}],
+   "cards":[{"name":"招商银行储蓄卡","tail":"8821","balance":"...","type":"储蓄卡"}],
    "funds":[{"name":"...","amount":"...","profit":"+...","profitRate":"+..."}],
-   "huabei":"..."}}`,
+   "huabei":"...","huabeiLimit":"..."}}`,
     },
     memoRead: {
         id: 'memoRead',

@@ -19,7 +19,9 @@ interface Props {
     emptyHint: string;
 }
 
-type Page = 'home' | 'bills' | 'assets';
+type Page =
+    | 'home' | 'bills' | 'assets'
+    | 'transfer' | 'finance' | 'fund' | 'huabei' | 'credit' | 'more';
 
 const CATEGORY_COLORS: Record<string, string> = {
     餐饮: 'bg-orange-100 text-orange-600',
@@ -31,7 +33,39 @@ const CATEGORY_COLORS: Record<string, string> = {
     转账: 'bg-blue-100 text-blue-600',
 };
 
-const GRID_ITEMS = ['账单', '资产', '转账', '理财', '基金', '花呗', '信用卡', '更多'];
+/** 宫格 8 项，全部能点进去（§5.10 B ③） */
+const GRID_ITEMS: { label: string; page: Page }[] = [
+    { label: '账单', page: 'bills' },
+    { label: '资产', page: 'assets' },
+    { label: '转账', page: 'transfer' },
+    { label: '理财', page: 'finance' },
+    { label: '基金', page: 'fund' },
+    { label: '花呗', page: 'huabei' },
+    { label: '信用卡', page: 'credit' },
+    { label: '更多', page: 'more' },
+];
+
+/** 更多服务里的装饰项（点了给一句软提示，不假装能用） */
+const MORE_ITEMS = ['生活缴费', '手机充值', '蚂蚁森林', '蚂蚁庄园', '我的快递', '公益捐赠'];
+
+/** 子页面统一外壳：返回键 + 标题 */
+const SubPage = ({ title, extra, onBack, children }: {
+    title: string;
+    extra?: string;
+    onBack: () => void;
+    children: React.ReactNode;
+}) => (
+    <div className="absolute inset-0 bg-slate-50 flex flex-col">
+        <div className="h-10 shrink-0 flex items-center gap-1 px-2 bg-white border-b border-slate-100">
+            <button onClick={onBack} className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 active:bg-slate-100">
+                <ArrowLeft className="w-4 h-4" weight="bold" />
+            </button>
+            <span className="text-[12px] font-bold text-slate-700">{title}</span>
+            {extra ? <span className="ml-auto pr-2 text-[9px] text-slate-400">{extra}</span> : null}
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">{children}</div>
+    </div>
+);
 
 /** "9月14日 20:14" → "9月"；解析不出来就归「更早」 */
 const monthGroupOf = (text?: string): string => {
@@ -209,6 +243,168 @@ export default function OfflinePhoneAlipay({ entries, assets, emptyHint }: Props
         );
     }
 
+    /* ---------------- 转账 ---------------- */
+    if (page === 'transfer') {
+        const transfers = entries.filter((entry) => entry.category === '转账' || /转账/.test(entry.title));
+        return (
+            <SubPage title="转账" extra={transfers.length ? `${transfers.length} 笔` : undefined} onBack={() => setPage('home')}>
+                {transfers.map((entry, index) => (
+                    <button
+                        key={`${entry.title}-${index}`}
+                        onClick={() => setOpenIndex(entries.indexOf(entry))}
+                        className="w-full rounded-xl bg-white p-3 text-left active:bg-slate-50"
+                    >
+                        <div className="flex items-center justify-between">
+                            <span className="text-[12px] font-bold text-slate-700 truncate">{entry.title}</span>
+                            <span className={`text-[12px] font-bold shrink-0 ${isIncome(entry) ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                {entry.amount || entry.meta || ''}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                            <span className="text-[9px] text-slate-400">{entry.sub || ''}</span>
+                            {entry.body ? <span className="text-[9px] text-slate-500 truncate max-w-[60%]">{entry.body}</span> : null}
+                        </div>
+                    </button>
+                ))}
+                {!transfers.length && <div className="py-10 text-center text-[11px] text-slate-400">最近没有转账</div>}
+            </SubPage>
+        );
+    }
+
+    /* ---------------- 理财 ---------------- */
+    if (page === 'finance') {
+        return (
+            <SubPage title="理财" onBack={() => setPage('home')}>
+                <div className="rounded-xl bg-white p-3">
+                    <div className="text-[10px] text-slate-400">余额宝</div>
+                    <div className="text-[20px] font-bold text-slate-800 mt-0.5">{assets?.yuebao || '—'}</div>
+                    <div className="text-[9px] text-slate-400 mt-1">七日年化 —　昨日收益 —</div>
+                </div>
+                {(assets?.funds || []).length > 0 ? (
+                    <div className="rounded-xl bg-white p-3">
+                        <div className="text-[10px] font-bold text-slate-400 mb-2">持有的理财</div>
+                        {(assets?.funds || []).map((fund, index) => (
+                            <div key={`${fund.name}-${index}`} className="flex items-center justify-between py-1.5">
+                                <span className="text-[11px] text-slate-700 truncate">{fund.name}</span>
+                                <span className={`text-[10px] font-bold shrink-0 ${profitColor(fund.profitRate || fund.profit)}`}>
+                                    {fund.profitRate || fund.profit || '—'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="py-8 text-center text-[11px] text-slate-400">没有理财持仓</div>
+                )}
+            </SubPage>
+        );
+    }
+
+    /* ---------------- 基金 ---------------- */
+    if (page === 'fund') {
+        const funds = assets?.funds || [];
+        return (
+            <SubPage title="基金" extra={funds.length ? `${funds.length} 只` : undefined} onBack={() => setPage('home')}>
+                {funds.map((fund, index) => (
+                    <div key={`${fund.name}-${index}`} className="rounded-xl bg-white p-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-700 truncate">{fund.name}</span>
+                            <span className="text-[11px] text-slate-700 shrink-0">{fund.amount || '—'}</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-[9px] text-slate-400">持有收益</span>
+                            <span className={`text-[10px] font-bold ${profitColor(fund.profit)}`}>
+                                {fund.profit || '—'}{fund.profitRate ? `（${fund.profitRate}）` : ''}
+                            </span>
+                        </div>
+                    </div>
+                ))}
+                {!funds.length && <div className="py-10 text-center text-[11px] text-slate-400">没有基金持仓</div>}
+            </SubPage>
+        );
+    }
+
+    /* ---------------- 花呗 ---------------- */
+    if (page === 'huabei') {
+        const owe = Number(String(assets?.huabei || '').replace(/[^\d.-]/g, '')) || 0;
+        const limit = Number(String(assets?.huabeiLimit || '').replace(/[^\d.-]/g, '')) || 0;
+        const used = limit > 0 ? Math.min(100, (owe / limit) * 100) : 0;
+        return (
+            <SubPage title="花呗" onBack={() => setPage('home')}>
+                <div className="rounded-xl bg-white p-4">
+                    <div className="text-[10px] text-slate-400">待还金额</div>
+                    <div className="text-[24px] font-bold text-slate-800 mt-0.5">{assets?.huabei || '—'}</div>
+                    {limit > 0 ? (
+                        <>
+                            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-3">
+                                <div className="h-full bg-[#1677ff]" style={{ width: `${used}%` }} />
+                            </div>
+                            <div className="flex justify-between text-[9px] text-slate-400 mt-1">
+                                <span>已用 {Math.round(used)}%</span>
+                                <span>额度 {assets?.huabeiLimit}</span>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-[9px] text-slate-400 mt-2">还款日 每月 9 日</div>
+                    )}
+                </div>
+                <div className="rounded-xl bg-white p-3">
+                    <div className="text-[10px] font-bold text-slate-400 mb-1.5">近三个月账单</div>
+                    <div className="text-[10px] text-slate-400 leading-5">
+                        这个月的还没出账。上个月按时还了，没有分期。
+                    </div>
+                </div>
+            </SubPage>
+        );
+    }
+
+    /* ---------------- 信用卡 ---------------- */
+    if (page === 'credit') {
+        const cards = (assets?.cards || []).filter((card) => /信用/.test(card.name) || card.type === '信用卡');
+        const showCards = cards.length ? cards : (assets?.cards || []);
+        return (
+            <SubPage title="信用卡" extra={showCards.length ? `${showCards.length} 张` : undefined} onBack={() => setPage('home')}>
+                {showCards.map((card, index) => (
+                    <div key={`${card.name}-${index}`} className="rounded-xl bg-white p-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-700">{card.name}</span>
+                            {card.tail ? <span className="text-[9px] text-slate-400">尾号 {card.tail}</span> : null}
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                            <span className="text-[9px] text-slate-400">{card.type === '信用卡' ? '本期账单' : '当前余额'}</span>
+                            <span className="text-[12px] font-bold text-slate-800">{card.balance || '—'}</span>
+                        </div>
+                    </div>
+                ))}
+                {!showCards.length && <div className="py-10 text-center text-[11px] text-slate-400">还没绑信用卡</div>}
+                <div className="text-center text-[9px] text-slate-400 pt-1">还款日 每月 9 日</div>
+            </SubPage>
+        );
+    }
+
+    /* ---------------- 更多 ---------------- */
+    if (page === 'more') {
+        return (
+            <SubPage title="更多" onBack={() => setPage('home')}>
+                <div className="rounded-xl bg-white overflow-hidden">
+                    {MORE_ITEMS.map((item) => (
+                        <button
+                            key={item}
+                            onClick={() => {
+                                setHint(`${item}暂时打不开`);
+                                window.setTimeout(() => setHint(''), 1400);
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-3 text-left active:bg-slate-50 border-b border-slate-50 last:border-0"
+                        >
+                            <span className="text-[12px] text-slate-700">{item}</span>
+                            <CaretRight className="w-3 h-3 text-slate-300" weight="bold" />
+                        </button>
+                    ))}
+                </div>
+                {hint ? <div className="text-center text-[9px] text-slate-400">{hint}</div> : null}
+            </SubPage>
+        );
+    }
+
     /* ---------------- 首页 ---------------- */
     const recent = entries.slice(0, 5);
     return (
@@ -229,27 +425,18 @@ export default function OfflinePhoneAlipay({ entries, assets, emptyHint }: Props
 
             {/* 功能宫格 */}
             <div className="bg-white mx-3 -mt-3 rounded-xl px-2 py-3 grid grid-cols-4 gap-y-3 shadow-sm relative">
-                {GRID_ITEMS.map((item) => {
-                    const enabled = item === '账单' || item === '资产';
-                    return (
-                        <button
-                            key={item}
-                            onClick={() => {
-                                if (item === '账单') { setPage('bills'); return; }
-                                if (item === '资产') { setPage('assets'); return; }
-                                // 其余是「真实感」，点了给一句软提示，不假装能用
-                                setHint(`${item}暂时打不开`);
-                                window.setTimeout(() => setHint(''), 1400);
-                            }}
-                            className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
-                        >
-                            <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold ${enabled ? 'bg-[#1677ff]/10 text-[#1677ff]' : 'bg-slate-100 text-slate-400'}`}>
-                                {item[0]}
-                            </span>
-                            <span className={`text-[9px] ${enabled ? 'text-slate-600' : 'text-slate-400'}`}>{item}</span>
-                        </button>
-                    );
-                })}
+                {GRID_ITEMS.map((item) => (
+                    <button
+                        key={item.label}
+                        onClick={() => setPage(item.page)}
+                        className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                    >
+                        <span className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold bg-[#1677ff]/10 text-[#1677ff]">
+                            {item.label[0]}
+                        </span>
+                        <span className="text-[9px] text-slate-600">{item.label}</span>
+                    </button>
+                ))}
                 {hint ? (
                     <div className="absolute left-1/2 -translate-x-1/2 bottom-1 px-2.5 py-1 rounded-full bg-slate-900/85 text-white text-[9px]">
                         {hint}

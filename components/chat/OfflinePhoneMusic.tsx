@@ -51,10 +51,16 @@ export default function OfflinePhoneMusic({ entries, playlists, emptyHint }: Pro
     const [song, setSong] = useState<SongRef | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    // 真实搜索到的歌曲 id：只靠歌名比较会因为「名字不完全一致」判不出来，
+    // 结果就是播放键永远显示"播放"，点了又重搜一遍——看起来像「没法暂停」。
+    const [activeId, setActiveId] = useState<number | null>(null);
 
-    /** 当前这首是不是真的在全局播放器里 */
-    const isCurrent = (ref: SongRef | null | undefined): boolean =>
-        !!ref && !!music.current && music.current.name === ref.title;
+    /** 当前这首是不是真的在全局播放器里（有 id 用 id，没有才退回歌名比较） */
+    const isCurrent = (ref: SongRef | null | undefined): boolean => {
+        if (!ref || !music.current) return false;
+        if (activeId !== null) return music.current.id === activeId;
+        return music.current.name === ref.title;
+    };
 
     const openSong = (ref: SongRef) => {
         setSong(ref);
@@ -65,8 +71,13 @@ export default function OfflinePhoneMusic({ entries, playlists, emptyHint }: Pro
     /** 真播：搜同名歌 → 交给全局播放器（搜不到就说清楚，不假装） */
     const play = async () => {
         if (!song) return;
+        // 已经是当前这首：直接暂停 / 继续，不再重新搜索
         if (isCurrent(song) && music.current) {
             music.togglePlay();
+            return;
+        }
+        if (!music.cfg.cookie) {
+            setError('音乐还没登录，先去「音乐」App 里配置音源');
             return;
         }
         setLoading(true);
@@ -74,24 +85,37 @@ export default function OfflinePhoneMusic({ entries, playlists, emptyHint }: Pro
         try {
             const keyword = `${song.title} ${song.artist || ''}`.trim();
             const result = await musicApi.search(music.cfg, keyword);
-            const first = result?.result?.songs?.[0];
-            if (!first) {
+            const songs: Array<Record<string, any>> = result?.result?.songs || [];
+            if (!songs.length) {
                 setError('没找到这首歌的音源');
                 return;
             }
-            const mapped: Song = {
-                id: first.id,
-                name: first.name,
-                artists: (first.ar || first.artists || []).map((a: { name: string }) => a.name).join(' / '),
-                album: first.al?.name || first.album?.name || '',
-                albumPic: toHttps(first.al?.picUrl || first.album?.picUrl || ''),
-                duration: (first.dt || first.duration || 0) / 1000,
-                fee: first.fee ?? 0,
-            };
-            await music.playSong(mapped);
+            // 优先免播放版权的，最多试 3 个候选（生成出来的歌名经常只有一部分对得上）
+            const candidates = [...songs].sort((a, b) => (a.fee ?? 0) - (b.fee ?? 0)).slice(0, 3);
+            let lastError: unknown = null;
+            for (const candidate of candidates) {
+                try {
+                    const mapped: Song = {
+                        id: candidate.id,
+                        name: candidate.name,
+                        artists: (candidate.ar || candidate.artists || []).map((a: { name: string }) => a.name).join(' / '),
+                        album: candidate.al?.name || candidate.album?.name || '',
+                        albumPic: toHttps(candidate.al?.picUrl || candidate.album?.picUrl || ''),
+                        duration: (candidate.dt || candidate.duration || 0) / 1000,
+                        fee: candidate.fee ?? 0,
+                    };
+                    await music.playSong(mapped);
+                    setActiveId(mapped.id);
+                    return;
+                } catch (err) {
+                    lastError = err;
+                }
+            }
+            console.error('[offline-phone] 音乐播放失败', lastError);
+            setError('这几首都放不了，可能是没版权或音源异常');
         } catch (err) {
-            console.error('[offline-phone] 音乐播放失败', err);
-            setError('播放失败，检查一下音乐设置里的音源');
+            console.error('[offline-phone] 音乐搜索失败', err);
+            setError('搜索失败，检查一下音乐设置里的音源');
         } finally {
             setLoading(false);
         }
@@ -135,7 +159,7 @@ export default function OfflinePhoneMusic({ entries, playlists, emptyHint }: Pro
                         disabled={loading}
                         className="mt-5 w-12 h-12 rounded-full bg-white text-slate-900 flex items-center justify-center active:scale-95"
                     >
-                        {loading ? (
+                        {loading || (currentSong && music.loadingSong) ? (
                             <ArrowsClockwise className="w-5 h-5 animate-spin" weight="bold" />
                         ) : playing ? (
                             <Pause className="w-5 h-5" weight="fill" />
@@ -143,6 +167,9 @@ export default function OfflinePhoneMusic({ entries, playlists, emptyHint }: Pro
                             <Play className="w-5 h-5 ml-0.5" weight="fill" />
                         )}
                     </button>
+                    {currentSong && !playing && !loading ? (
+                        <div className="text-[9px] text-white/40 mt-1.5">已暂停 · 点一下继续</div>
+                    ) : null}
                     {error ? <div className="text-[9px] text-rose-300 mt-2">{error}</div> : null}
 
                     {song.lyric ? (
