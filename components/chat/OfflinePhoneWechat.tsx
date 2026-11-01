@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChatCircleDots } from '@phosphor-icons/react';
 import { DB } from '../../utils/db';
 import { stripPhoneHolderMarker } from '../../utils/offlineMode/phoneHolder';
+import type { GeneratedChat } from '../../utils/offlineMode/phoneContent';
 
 /**
  * 他手机里的微信。
@@ -30,13 +31,37 @@ interface Conversation {
     ts: number;
     messages: PhoneMessage[];
     kind: 'p2p' | 'group';
+    /** ③④ 类：内容由副 API 生成，不是真实同步，界面上要标出来 */
+    generated?: boolean;
 }
 
 interface Props {
     charId: string;
     charName: string;
     userName: string;
+    /** ③ 角色独有群 / ④ 他和别人的私聊（LLM 生成，来自 phoneContent） */
+    extraChats?: GeneratedChat[];
+    extraGroups?: GeneratedChat[];
 }
+
+/** 一次渲染多少条：全部渲染在长会话上会明显卡 */
+const PAGE_SIZE = 60;
+
+/** 生成的会话 → 统一的消息结构（他的消息在右） */
+const toPhoneMessages = (chat: GeneratedChat, charName: string): PhoneMessage[] =>
+    (chat.messages || [])
+        .map((m, index): PhoneMessage => {
+            const from = String(m?.from || '').trim();
+            const isMine = from === 'me' || from === '我' || from === charName;
+            const text = cleanText(m?.text);
+            return {
+                id: `${chat.name}-${index}`,
+                side: isMine ? 'right' : 'left',
+                text: isMine ? text : (from && from !== chat.name ? `${from}：${text}` : text),
+                ts: 0,
+            };
+        })
+        .filter((m) => m.text);
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 
@@ -58,7 +83,7 @@ const cleanText = (raw: unknown): string => {
         .trim();
 };
 
-export default function OfflinePhoneWechat({ charId, charName, userName }: Props) {
+export default function OfflinePhoneWechat({ charId, charName, userName, extraChats, extraGroups }: Props) {
     const [loading, setLoading] = useState(true);
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -119,8 +144,37 @@ export default function OfflinePhoneWechat({ charId, charName, userName }: Props
                     });
                 }
 
+                // ③ 他独有的群 / ④ 他和别人的私聊：副 API 生成的内容（标了 generated）
+                for (const chat of extraGroups || []) {
+                    const messages = toPhoneMessages(chat, charName);
+                    if (!messages.length) continue;
+                    list.push({
+                        id: `gen-group-${chat.name}`,
+                        title: chat.name,
+                        subtitle: chat.relation || messages[messages.length - 1].text,
+                        ts: 0,
+                        messages,
+                        kind: 'group',
+                        generated: true,
+                    });
+                }
+                for (const chat of extraChats || []) {
+                    const messages = toPhoneMessages(chat, charName);
+                    if (!messages.length) continue;
+                    list.push({
+                        id: `gen-chat-${chat.name}`,
+                        title: chat.name,
+                        subtitle: chat.relation || messages[messages.length - 1].text,
+                        ts: 0,
+                        messages,
+                        kind: 'p2p',
+                        generated: true,
+                    });
+                }
+
                 if (!cancelled) {
-                    list.sort((a, b) => b.ts - a.ts);
+                    // 真实的排前面（有时间的才有 ts），生成的排后面
+                    list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
                     setConversations(list);
                 }
             } finally {
@@ -129,12 +183,21 @@ export default function OfflinePhoneWechat({ charId, charName, userName }: Props
         };
         load();
         return () => { cancelled = true; };
-    }, [charId, userName]);
+    }, [charId, userName, extraChats, extraGroups]);
 
     const active = useMemo(
         () => conversations.find((c) => c.id === activeId) || null,
         [conversations, activeId],
     );
+
+    // 长会话只渲染最近一段，往上滑再加载，避免一次塞几千条
+    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+    useEffect(() => { setVisibleCount(PAGE_SIZE); }, [activeId]);
+    const visibleMessages = useMemo(
+        () => (active ? active.messages.slice(Math.max(0, active.messages.length - visibleCount)) : []),
+        [active, visibleCount],
+    );
+    const hasEarlier = !!active && active.messages.length > visibleMessages.length;
 
     if (loading) {
         return <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-400">正在读取…</div>;
@@ -183,7 +246,20 @@ export default function OfflinePhoneWechat({ charId, charName, userName }: Props
                 {active.kind === 'p2p' && <ChatCircleDots className="w-3.5 h-3.5 text-slate-400" weight="fill" />}
             </div>
             <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-2">
-                {active.messages.map((m) => (
+                {hasEarlier && (
+                    <div className="flex justify-center pb-1">
+                        <button
+                            onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                            className="px-2.5 py-1 rounded-full bg-white/80 text-[10px] text-slate-500 active:bg-white"
+                        >
+                            查看更早的消息
+                        </button>
+                    </div>
+                )}
+                {active.generated && (
+                    <div className="text-center text-[9px] text-slate-400">这段是生成的内容</div>
+                )}
+                {visibleMessages.map((m) => (
                     <div key={m.id} className={`flex ${m.side === 'right' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 text-[11px] leading-[1.5] whitespace-pre-wrap break-words ${m.side === 'right' ? 'bg-[#95ec69] text-slate-800' : 'bg-white text-slate-700'}`}>
                             {m.text}

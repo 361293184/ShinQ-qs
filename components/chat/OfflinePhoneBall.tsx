@@ -127,8 +127,8 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen }: Props) {
     return (
         <button
             type="button"
-            aria-label={holder === 'char' ? '他的手机（点击打开）' : holder === 'none' ? '你的手机不在手上' : '你的手机（点击打开）'}
-            title={holder === 'char' ? '他的手机' : holder === 'none' ? '你的手机在他那里' : '你的手机'}
+            aria-label={holder === 'char' ? '他的手机（点击打开）' : holder === 'none' ? '手机不在你手边' : '你的手机（点击打开）'}
+            title={holder === 'char' ? '他的手机' : holder === 'none' ? '手机不在你手边' : '你的手机'}
             onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 const origin = latest.current || defaultPosition();

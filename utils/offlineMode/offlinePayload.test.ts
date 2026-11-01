@@ -153,12 +153,14 @@ describe('出场人物块（NPC 写进旁白）', () => {
 });
 
 describe('手机道具（状态标记 + 现场状态注入）', () => {
-    it('主块里写明三态与标记规则，且强调不是每轮都输出', () => {
+    it('主块里写明三态与标记规则，且标准是「能不能看」而不是「在谁手上」', () => {
         const text = buildOfflineMainBlock({ char, userName: '条条', cfg: {} });
         expect(text).toContain('📱 手机这件道具');
         expect(text).toContain('[[手机:他]]');
         expect(text).toContain('[[手机:空]]');
-        expect(text).toContain('只在真的易手时输出');
+        // 放在桌上 / 搁在手边也算「能看」，不能只在到手时才输出
+        expect(text).toContain('放在你面前的桌上');
+        expect(text).toContain('状态发生变化时');
     });
 
     it('末尾提醒只在手机不在自己手里时附加状态（护住缓存）', () => {

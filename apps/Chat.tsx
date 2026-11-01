@@ -5229,7 +5229,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         onOpen={() => {
                             // 手上是空的就打不开：手机在他手里，你看不了自己的手机
                             if (phoneHolder === 'none') {
-                                addToast('你的手机在他那里', 'info');
+                                addToast('手机不在你手边', 'info');
                                 return;
                             }
                             setPhonePanelOpen(true);
@@ -5241,6 +5241,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         charId={char.id}
                         charName={char.name}
                         userName={userProfile?.name || '你'}
+                        char={char}
+                        user={userProfile}
+                        subApi={apiConfig?.subBaseUrl && apiConfig?.subApiKey && apiConfig?.subModel
+                            ? { baseUrl: apiConfig.subBaseUrl, apiKey: apiConfig.subApiKey, model: apiConfig.subModel }
+                            : undefined}
                         charTimeZone={resolveCharTimeZone(char)}
                         onClose={() => setPhonePanelOpen(false)}
                     />

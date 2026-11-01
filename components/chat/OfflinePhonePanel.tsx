@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ArrowLeft, BookOpen, ChatCircleDots, Images, MagnifyingGlass,
+    ArrowLeft, ArrowsClockwise, BookOpen, ChatCircleDots, Images, MagnifyingGlass,
     MusicNotes, NotePencil, Notebook, Wallet, WifiHigh, BatteryFull,
 } from '@phosphor-icons/react';
 import { nowInTimeZone } from '../../utils/timezone';
 import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
 import OfflinePhoneWechat from './OfflinePhoneWechat';
+import OfflinePhoneAppList from './OfflinePhoneAppList';
+import { generatePhoneContent, readPhoneContent, clearPhoneContent, type PhoneContent } from '../../utils/offlineMode/phoneContent';
+import type { SubApiConfig } from '../../utils/fanwaiGenerator';
 
 /**
  * 线下模式 · 悬浮手机弹窗（方向 A 的外壳）。
@@ -59,15 +62,74 @@ interface Props {
     charId: string;
     charName: string;
     userName: string;
+    /** 副 API：手机内容一次性生成用它，主 API 只负责聊天 */
+    subApi?: SubApiConfig;
+    /** 生成时需要的角色主体（拿人设做底色） */
+    char?: any;
+    user?: any;
     /** 角色时区 id，用于状态栏时间（resolveCharTimeZone 的结果） */
     charTimeZone?: string;
     onClose: () => void;
 }
 
+/** App → 生成内容里的字段（"你的手机"那几个不在这张表里：它们是你自己的数据，不是生成的） */
+const CONTENT_KEY: Partial<Record<AppId, keyof PhoneContent>> = {
+    gallery: 'gallery',
+    memo: 'memo',
+    diary: 'diary',
+    alipay: 'alipay',
+    read: 'read',
+    browser: 'browser',
+    music: 'music',
+};
+
 const pad = (n: number) => n.toString().padStart(2, '0');
 
-export default function OfflinePhonePanel({ open, holder, charId, charName, userName, charTimeZone, onClose }: Props) {
+export default function OfflinePhonePanel({
+    open, holder, charId, charName, userName, subApi, char, user, charTimeZone, onClose,
+}: Props) {
     const [activeApp, setActiveApp] = useState<AppId | null>(null);
+    // 手机内容：一次性生成 + 缓存，打开他的手机时如果没有就生成一次
+    const [content, setContent] = useState<PhoneContent | null>(null);
+    const [generating, setGenerating] = useState(false);
+    const [genError, setGenError] = useState<string>('');
+
+    useEffect(() => {
+        if (!open || holder !== 'char' || !charId) return;
+        const cached = readPhoneContent(charId);
+        if (cached) { setContent(cached); return; }
+        if (!char || !user) return;
+        let cancelled = false;
+        setGenerating(true);
+        setGenError('');
+        generatePhoneContent(char, user, subApi || ({} as SubApiConfig))
+            .then((result) => {
+                if (cancelled) return;
+                if (result.ok && result.content) setContent(result.content);
+                else setGenError(
+                    result.reason === 'no_sub_api'
+                        ? '没有配置副 API，手机内容生成不了（设置 → 其他 API）'
+                        : '生成失败了，点右上角重新生成',
+                );
+            })
+            .finally(() => { if (!cancelled) setGenerating(false); });
+        return () => { cancelled = true; };
+    }, [open, holder, charId, char, user, subApi]);
+
+    const regenerate = () => {
+        if (!char || !user || generating) return;
+        clearPhoneContent(charId);
+        setContent(null);
+        setActiveApp(null);
+        setGenerating(true);
+        setGenError('');
+        generatePhoneContent(char, user, subApi || ({} as SubApiConfig))
+            .then((result) => {
+                if (result.ok && result.content) setContent(result.content);
+                else setGenError(result.reason === 'no_sub_api' ? '没有配置副 API' : '生成失败了，稍后再试');
+            })
+            .finally(() => setGenerating(false));
+    };
     const [clock, setClock] = useState(() => {
         const d = nowInTimeZone(charTimeZone);
         return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -112,6 +174,16 @@ export default function OfflinePhonePanel({ open, holder, charId, charName, user
                             <span className="truncate max-w-[86px]">{ownerLabel}</span>
                             <WifiHigh className="w-3 h-3" weight="bold" />
                             <BatteryFull className="w-4 h-4" weight="fill" />
+                            {/* 文档 §4.2：右上角循环箭头 = 重新生成入口，默认不自动重复生成 */}
+                            {holder === 'char' && (
+                                <button
+                                    onClick={regenerate}
+                                    title="重新生成手机内容"
+                                    className={`ml-0.5 w-5 h-5 rounded-full flex items-center justify-center active:bg-slate-200 ${generating ? 'animate-spin' : ''}`}
+                                >
+                                    <ArrowsClockwise className="w-3.5 h-3.5" weight="bold" />
+                                </button>
+                            )}
                         </span>
                     </div>
 
@@ -145,10 +217,40 @@ export default function OfflinePhonePanel({ open, holder, charId, charName, user
                                     </button>
                                     <span className="text-[13px] font-bold text-slate-700">{current.label}</span>
                                 </div>
-                                {/* 微信：①② 类（和我的私聊 + 同步群）是真实同步，直接读主聊天数据 */}
-                                {current.id === 'wechat' && holder === 'char' ? (
+                                {/*
+                                  他的手机：微信 ①② 类读真实聊天，③④ 类用生成内容；
+                                  其余 App 的内容全部来自一次性生成（副 API）。
+                                */}
+                                {holder === 'char' && current.id === 'wechat' ? (
                                     <div className="flex-1 relative overflow-hidden">
-                                        <OfflinePhoneWechat charId={charId} charName={charName} userName={userName} />
+                                        <OfflinePhoneWechat
+                                            charId={charId}
+                                            charName={charName}
+                                            userName={userName}
+                                            extraChats={content?.wechatChats}
+                                            extraGroups={content?.wechatGroups}
+                                        />
+                                    </div>
+                                ) : holder === 'char' && CONTENT_KEY[current.id] ? (
+                                    <div className="flex-1 relative overflow-hidden">
+                                        {content ? (
+                                            <OfflinePhoneAppList
+                                                kind={current.id === 'gallery' ? 'gallery' : 'list'}
+                                                entries={(content[CONTENT_KEY[current.id]!] as any) || []}
+                                                emptyHint={`${current.label}里没有内容`}
+                                            />
+                                        ) : (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
+                                                <div className="text-[11px] text-slate-400">
+                                                    {generating ? '正在生成他的手机…（首次需要十几秒）' : (genError || '内容还没生成')}
+                                                </div>
+                                                {!generating && (
+                                                    <button onClick={regenerate} className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] active:scale-95">
+                                                        重新生成
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
