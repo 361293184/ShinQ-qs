@@ -2,21 +2,20 @@
  * 小说共读 v9.2.7 — SullyOS 适配版
  * 从 CSY OS 插件 novel-reader-code.js 移植，React/TS 重写核心逻辑。
  *
- * 数据全部存 localStorage（SullyOS 无 Sully.storage，直接用 localStorage），
- * key 沿用原插件前缀 "nrcache_" 以兼容用户已有数据。
+ * 小数据（进度/生词/皮肤/字号/学习模式/面板位置）存 localStorage，key 沿用原插件
+ * 前缀 "nrcache_" 以兼容用户已有数据；书架全文（几 MB）存 IndexedDB 的
+ * novel_reader_books —— 塞 localStorage 会撞 5MB 配额且写入静默失败，书会直接丢。
  *
  * 功能：书架 / txt·epub 导入 / Gutenberg 公版书搜索 / 翻译(长按选中) /
  *       生词本 / 学习模式 / 皮肤 / 字号 / AI 共读上下文。
  */
 
+import { DB } from './db';
+import type { NovelReaderBook } from '../types';
+
 /* ========== 类型 ========== */
-export interface Book {
-  id: string;
-  title: string;
-  source: 'local' | 'online';
-  passages: string[];
-  createdAt: number;
-}
+/** 书架里的一本书（形状定义在 types.ts，备份导出/导入共用同一份）。 */
+export type Book = NovelReaderBook;
 
 export interface VocabEntry {
   src: string;
@@ -90,14 +89,60 @@ function safeRemove(k: string): void {
 }
 
 /* ========== 状态读写 ========== */
-export function loadBooks(): Book[] {
+/** 旧版整架书的 localStorage 键（v75 起仅用于迁移，见 loadBooks）。 */
+function readLegacyBooks(): Book[] {
+  const raw = safeGet(BK_BOOKS);
+  if (!raw) return [];
   try {
-    const d = safeGet(BK_BOOKS);
-    if (d) { const p = JSON.parse(d); if (Array.isArray(p)) return p; }
-  } catch {}
-  return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((b: any) => b && typeof b.id === 'string' && Array.isArray(b.passages));
+  } catch {
+    return [];
+  }
 }
-export function saveBooks(books: Book[]): void { safeSet(BK_BOOKS, books); }
+
+/**
+ * 读整架书。顺带把旧版 localStorage 里的书架搬进 IDB（只补 IDB 里没有的 id），
+ * 全部搬成功才删旧键 —— 绝不「先删再写」，中途失败下次打开会重试。
+ */
+export async function loadBooks(): Promise<Book[]> {
+  let list: Book[];
+  try {
+    list = await DB.getAllNovelReaderBooks();
+  } catch (error) {
+    console.warn('[novelReader] 书架读取失败，退回旧版 localStorage 数据', error);
+    return readLegacyBooks();
+  }
+
+  const legacy = readLegacyBooks();
+  if (legacy.length > 0) {
+    const have = new Set(list.map(b => b.id));
+    const missing = legacy.filter(b => !have.has(b.id));
+    let allOk = true;
+    for (const book of missing) {
+      try {
+        await DB.saveNovelReaderBook(book);
+        list.push(book);
+      } catch (error) {
+        allOk = false;
+        console.warn('[novelReader] 旧书架迁移失败，保留原数据待下次重试', error);
+      }
+    }
+    if (allOk) safeRemove(BK_BOOKS);
+  }
+
+  return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+/** 存一本（导入/下载后立刻落盘）。失败会抛出，由调用方提示用户。 */
+export async function saveBook(book: Book): Promise<void> {
+  await DB.saveNovelReaderBook(book);
+}
+
+export async function deleteBook(id: string): Promise<void> {
+  await DB.deleteNovelReaderBook(id);
+}
 
 export function loadCurrentBookId(): string | null {
   const v = safeGet(BK_CURRENT);
@@ -122,7 +167,7 @@ export function saveTheme(t: 'day' | 'night'): void { safeSet(BK_THEME, t); }
 
 export function loadSkin(): string {
   const s = safeGet(BK_SKIN);
-  return SKINS.some(k => k.id === s) ? s : 'default';
+  return s && SKINS.some(k => k.id === s) ? s : 'default';
 }
 export function saveSkin(s: string): void { safeSet(BK_SKIN, s); }
 

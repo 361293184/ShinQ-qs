@@ -1268,6 +1268,20 @@ export interface NovelBook {
     lastActiveAt: number;
 }
 
+/**
+ * 私聊「小说共读」书架里的一本书（只读导入的 txt/epub 或 Gutenberg 公版书）。
+ * 与 NovelBook（创作 App 的书）完全不同：这里没有角色/分段讨论，只有整本原文按段落切开。
+ * v75 起存 IndexedDB 的 novel_reader_books；此前塞 localStorage，几 MB 的 txt 会撞
+ * 5MB 配额且写入被静默吞掉，关掉阅读器书就没了。
+ */
+export interface NovelReaderBook {
+    id: string;
+    title: string;
+    source: 'local' | 'online';
+    passages: string[];
+    createdAt: number;
+}
+
 // =====================================================================
 // --- 番外（拾光 App）类型 ---
 // 私聊「番外」入口打开全屏生成页，用副 API 生成小说式番外，收藏到「拾光」。
@@ -4235,6 +4249,7 @@ export interface FullBackupData {
     roomCustomAssets?: { id?: string; name: string; image: string; defaultScale: number; description?: string; visibility?: 'public' | 'character'; assignedCharIds?: string[] }[]; 
     
     novels?: NovelBook[];
+    novelReaderBooks?: NovelReaderBook[]; // 私聊「小说共读」书架（IDB 表 novel_reader_books）
     fanwaiStories?: FanwaiStory[];      // 番外收藏（拾光 App）
     collectedLetters?: LetterRecord[];  // 来信收藏（拾光 App）
     /**

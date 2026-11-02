@@ -529,8 +529,10 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             : novelReader.learnMode === 1
                 ? '（学习模式：被动复习——聊天中自然地使用生词本里的词，不刻意提问）'
                 : '（学习模式：主动测验——聊天中主动用生词本里的词向用户提问，检验掌握）';
-        const vocabBlock = novelReader.recentVocab.length > 0
-            ? `\n最近生词：${novelReader.recentVocab.slice(0, 15).map(v => `${v.src}(${v.trans})`).join('、')}`
+        // 学习模式=关 时不注入生词表：否则角色照样会拿生词本提问，与用户选的「关」矛盾
+        const recentVocab = novelReader.recentVocab || [];
+        const vocabBlock = novelReader.learnMode !== 0 && recentVocab.length > 0
+            ? `\n最近生词：${recentVocab.slice(0, 15).map(v => `${v.src}(${v.trans})`).join('、')}`
             : '';
         volatileTail += `\n\n[小说共读] 你正在和用户一起读《${novelReader.bookTitle}》，当前内容：\n${passage}${learnDesc}${vocabBlock}\n（和用户自然地讨论这一段；不要复述整个段落。）`;
     }

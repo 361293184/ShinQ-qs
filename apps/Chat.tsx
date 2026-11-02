@@ -267,6 +267,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const historyWindowRangeRef = useRef<ChatHistoryWindowRange | null>(null);
     // 小说共读上下文（当前段落 + 学习模式），注入 AI 请求
     const novelCtxRef = useRef<{ bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null>(null);
+    // 必须是稳定引用：阅读器面板「卸载时上报 null」的 effect 依赖它，
+    // 每次渲染都换新箭头函数会把刚上报的上下文立刻清掉。
+    const handleNovelContextChange = useCallback((ctx: { bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: any[] } | null) => {
+        novelCtxRef.current = ctx;
+    }, []);
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -5410,8 +5415,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 <div className="fixed inset-0 z-[60] pointer-events-none">
                     <NovelReaderPanel
                         charName={char.name}
-                        onClose={() => setNovelReaderOpen(false)}
-                        onContextChange={(ctx) => { novelCtxRef.current = ctx; }}
+                        onClose={() => { novelCtxRef.current = null; setNovelReaderOpen(false); }}
+                        onContextChange={handleNovelContextChange}
                     />
                 </div>
             )}

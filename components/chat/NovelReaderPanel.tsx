@@ -13,7 +13,7 @@ import {
   TextAa, Translate, Copy, PencilSimple, GraduationCap, ChatCircleDots,
 } from '@phosphor-icons/react';
 import {
-  loadBooks, saveBooks, loadCurrentBookId, saveCurrentBookId,
+  loadBooks, saveBook, deleteBook, loadCurrentBookId, saveCurrentBookId,
   loadProgress, saveProgress, loadTheme, saveTheme,
   loadSkin, saveSkin, loadFontSize, saveFontSize,
   loadVocab, saveVocab, loadLearnMode, saveLearnMode,
@@ -29,13 +29,15 @@ const MIN_W = 280, MIN_H = 200;
 interface NovelReaderPanelProps {
   charName: string;
   onClose: () => void;
-  onContextChange: (ctx: { bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: VocabEntry[] }) => void;
+  /** 传 null 表示「没有在读的书」——父组件必须据此清掉共读上下文。 */
+  onContextChange: (ctx: { bookTitle: string; passage: string; learnMode: 0 | 1 | 2; recentVocab: VocabEntry[] } | null) => void;
 }
 
 type View = 'shelf' | 'reader' | 'vocab' | 'search';
 
 const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, onContextChange }) => {
-  const [books, setBooks] = useState<NovelBook[]>(() => loadBooks());
+  const [books, setBooks] = useState<NovelBook[]>([]);
+  const [booksReady, setBooksReady] = useState(false);
   const [currentBookId, setCurrentBookId] = useState<string | null>(() => loadCurrentBookId());
   const [progress, setProgress] = useState<Record<string, number>>(() => loadProgress());
   const [theme, setTheme] = useState<'day' | 'night'>(() => loadTheme());
@@ -72,8 +74,19 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   const curBook = useMemo(() => books.find(b => b.id === currentBookId) || null, [books, currentBookId]);
   const idx = curBook ? Math.min(progress[curBook.id] || 0, Math.max(curBook.passages.length - 1, 0)) : 0;
 
-  // 持久化
-  useEffect(() => saveBooks(books), [books]);
+  // 书架读 IDB 是异步的：导入/删除时逐本落盘，不是整架重写
+  useEffect(() => {
+    let alive = true;
+    loadBooks()
+      .then(list => { if (alive) { setBooks(list); setBooksReady(true); } })
+      .catch(error => {
+        console.warn('[novelReader] 书架加载失败', error);
+        if (alive) setBooksReady(true);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  // 持久化（书架之外的小数据，见 utils/novelReader.ts 顶部说明）
   useEffect(() => saveCurrentBookId(currentBookId), [currentBookId]);
   useEffect(() => saveProgress(progress), [progress]);
   useEffect(() => saveTheme(theme), [theme]);
@@ -83,13 +96,20 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   useEffect(() => saveLearnMode(learnMode), [learnMode]);
   useEffect(() => saveGeom(geom), [geom]);
 
-  // AI 共读上下文上报（当前段落 + 最近生词 + 学习模式）
+  // AI 共读上下文上报（当前段落 + 最近生词 + 学习模式）。
+  // 没有在读的书时必须上报 null：否则父组件的 ref 会一直留着上一本书，
+  // 关掉阅读器后角色还在「和你一起读」。
   useEffect(() => {
-    if (!curBook) return;
+    if (!curBook) { onContextChange(null); return; }
     const passage = curBook.passages[idx] || '';
-    const recentVocab = vocab.slice(0, 15);
+    // 生词优先取当前这本书的，不够 15 个再用其他书的补
+    const sameBook = vocab.filter(v => v.bookId === curBook.id);
+    const recentVocab = (sameBook.length > 0 ? sameBook : vocab).slice(0, 15);
     onContextChange({ bookTitle: curBook.title, passage, learnMode, recentVocab });
   }, [curBook, idx, vocab, learnMode, onContextChange]);
+
+  // 面板卸载（关掉阅读器 / 切走角色）时清掉上下文
+  useEffect(() => () => onContextChange(null), [onContextChange]);
 
   const isNight = theme === 'night';
   const panelBg = isNight ? '#1e2430' : '#ffffff';
@@ -168,6 +188,16 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
     try { (e.currentTarget as any).releasePointerCapture?.(e.pointerId); } catch {}
   };
 
+  /* ---- 落盘：失败必须让用户知道，不再静默丢书 ---- */
+  const persistBook = async (book: NovelBook): Promise<void> => {
+    try {
+      await saveBook(book);
+    } catch (error) {
+      console.warn('[novelReader] 保存书失败', error);
+      alert('这本没能存进本地书库（浏览器空间不足或被禁用）。现在可以看，但关掉后会丢——先删几本旧书再重新导入。');
+    }
+  };
+
   /* ---- 导入 txt/epub ---- */
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -181,6 +211,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
     }
     const title = file.name.replace(/\.(txt|epub)$/i, '');
     const book: NovelBook = { id: genId('b'), title, source: 'local', passages: splitPassages(text), createdAt: Date.now() };
+    await persistBook(book);
     setBooks(prev => [book, ...prev]);
     setCurrentBookId(book.id);
     setView('reader');
@@ -233,6 +264,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
     try {
       const { title, text } = await downloadGutendexBook(hit);
       const book: NovelBook = { id: genId('b'), title, source: 'online', passages: splitPassages(text), createdAt: Date.now() };
+      await persistBook(book);
       setBooks(prev => [book, ...prev]);
       setCurrentBookId(book.id);
       setView('reader');
@@ -317,7 +349,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
         {view === 'shelf' && (
           <ShelfView
             books={books}
-            theme={theme}
+            ready={booksReady}
             panelBg={panelBg}
             panelFg={panelFg}
             subFg={subFg}
@@ -327,6 +359,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
             onRemove={(id) => {
               setBooks(prev => prev.filter(b => b.id !== id));
               if (currentBookId === id) { setCurrentBookId(null); setView('shelf'); }
+              deleteBook(id).catch(error => console.warn('[novelReader] 删除书失败', error));
             }}
             onVocab={() => setView('vocab')}
             onSearch={() => { setView('search'); setSearchHits([]); }}
@@ -428,7 +461,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
 
 /* ========== 书架视图 ========== */
 function ShelfView(props: {
-  books: NovelBook[]; panelBg: string; panelFg: string; subFg: string; border: string;
+  books: NovelBook[]; ready: boolean; panelBg: string; panelFg: string; subFg: string; border: string;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void; onOpen: (id: string) => void; onRemove: (id: string) => void;
   onVocab: () => void; onSearch: () => void;
 }) {
@@ -451,7 +484,7 @@ function ShelfView(props: {
       {books.length === 0 ? (
         <div className="text-center py-10" style={{ color: subFg }}>
           <BookOpenText size={40} weight="thin" className="mx-auto mb-2 opacity-40" />
-          <p className="text-xs">书架空空如也</p>
+          <p className="text-xs">{props.ready ? '书架空空如也' : '正在读取书架…'}</p>
           <p className="text-[10px] mt-1">导入一本小说，或在线搜索公版名著</p>
         </div>
       ) : (
@@ -478,7 +511,7 @@ function ShelfView(props: {
 
 /* ========== 阅读器视图 ========== */
 function ReaderView(props: {
-  book: NovelBook; idx: number; theme: 'day' | 'night'; skin: typeof SKINS[number]; fontSize: number;
+  book: NovelBook; idx: number; theme: 'day' | 'night'; skin: { bg: string; fg: string }; fontSize: number;
   panelBg: string; panelFg: string; subFg: string; onSelect: () => void;
   onPrev: () => void; onNext: () => void;
 }) {

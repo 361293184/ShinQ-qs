@@ -51,12 +51,15 @@ export interface LocalStateEntry {
 export const LOCAL_STATE_ENTRIES: LocalStateEntry[] = [
     // ─────────── 用户内容类（丢失不可恢复，优先保） ───────────
     {
-        // 权威定义：utils/novelReader.ts:48 `LS_PREFIX = 'nrcache_'`（已 export）
-        // 覆盖 nr_books(书架全文) / nr_current / nr_progress / nr_theme / nr_skin /
-        // nr_fontsize / nr_vocab(生词本) / nr_learn / nr_geom
+        // 权威定义：utils/novelReader.ts `LS_PREFIX = 'nrcache_'`（已 export）
+        // 覆盖 nr_current / nr_progress / nr_theme / nr_skin / nr_fontsize /
+        // nr_vocab(生词本) / nr_learn / nr_geom。
+        // 书架全文 v75 起改存 IndexedDB 的 novel_reader_books（随备份字段
+        // novelReaderBooks 走 store 通道）；旧备份里的 nr_books 仍会被收集，
+        // 导入后由 loadBooks 迁移进 IDB。
         key: 'nrcache_',
         prefix: true,
-        label: '私聊小说共读（书架/进度/生词本/皮肤等）',
+        label: '私聊小说共读（进度/生词本/皮肤等）',
         content: true,
     },
     {
