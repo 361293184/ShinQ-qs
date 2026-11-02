@@ -3,14 +3,14 @@
  * 从 CSY OS 插件 novel-reader-code.js 移植，React/TS 重写核心逻辑。
  *
  * 小数据（进度/生词/皮肤/字号/学习模式/面板位置）存 localStorage，key 沿用原插件
- * 前缀 "nrcache_" 以兼容用户已有数据；书架全文（几 MB）存 IndexedDB 的
- * novel_reader_books —— 塞 localStorage 会撞 5MB 配额且写入静默失败，书会直接丢。
+ * 前缀 "nrcache_" 以兼容用户已有数据；书架全文（几 MB）存**独立的** IndexedDB
+ * SullyOS_NovelShelf —— 塞 localStorage 会撞 5MB 配额且写入静默失败，书会直接丢；
+ * 放在主库 AetherOS_Data 里则会被「版本号已被占用 → 建表不触发」坑到，见下方说明。
  *
  * 功能：书架 / txt·epub 导入 / Gutenberg 公版书搜索 / 翻译(长按选中) /
  *       生词本 / 学习模式 / 皮肤 / 字号 / AI 共读上下文。
  */
 
-import { DB } from './db';
 import type { NovelReaderBook } from '../types';
 
 /* ========== 类型 ========== */
@@ -89,7 +89,7 @@ function safeRemove(k: string): void {
 }
 
 /* ========== 状态读写 ========== */
-/** 旧版整架书的 localStorage 键（v75 起仅用于迁移，见 loadBooks）。 */
+/** 旧版整架书的 localStorage 键（仅用于迁移，见 loadBooks）。 */
 function readLegacyBooks(): Book[] {
   const raw = safeGet(BK_BOOKS);
   if (!raw) return [];
@@ -102,31 +102,144 @@ function readLegacyBooks(): Book[] {
   }
 }
 
+/* ========== 书架库（独立 IndexedDB） ==========
+ * 刻意不复用主库 AetherOS_Data：主库每加一张表都要升全局唯一的 DB_VERSION，而浏览器里
+ * 若已存在同号/更高号的库，upgradeneeded 根本不会触发 → 新表永远建不出来，于是
+ * 「存了但读不回来」（读侧还会静默返回空书架）。独立小库每次都是从 0 升到 1，不受主库
+ * 版本状态、主库连接被其它标签页占用等影响。
+ */
+const SHELF_DB_NAME = 'SullyOS_NovelShelf';
+const SHELF_STORE = 'books';
+const SHELF_DB_VERSION = 1;
+
+/** 最近一次书架读写的结果：面板直接把失败原因显示出来，用户不看控制台也能看见。 */
+export interface ShelfStatus { ok: boolean; message: string; at: number; }
+let shelfStatus: ShelfStatus = { ok: true, message: '', at: 0 };
+export function getShelfStatus(): ShelfStatus { return shelfStatus; }
+function noteShelf(ok: boolean, message = ''): void {
+  shelfStatus = { ok, message, at: Date.now() };
+  if (!ok) console.warn('[novelReader] 书架存储异常：', message);
+}
+
+/** 把 DOMException 翻成用户能看懂的一句话。 */
+function describeError(error: unknown): string {
+  const e = error as any;
+  const name = e?.name || '';
+  if (name === 'QuotaExceededError') return '浏览器存储空间已满';
+  if (name === 'SecurityError' || name === 'InvalidStateError') return '浏览器禁止了本地存储（隐私模式？）';
+  if (name === 'VersionError') return '书库版本冲突';
+  return e?.message ? `${name ? name + ': ' : ''}${e.message}` : String(error);
+}
+
+let shelfDbPromise: Promise<IDBDatabase> | null = null;
+
+function openShelfDb(): Promise<IDBDatabase> {
+  if (shelfDbPromise) return shelfDbPromise;
+  const opening = new Promise<IDBDatabase>((resolve, reject) => {
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open(SHELF_DB_NAME, SHELF_DB_VERSION);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SHELF_STORE)) db.createObjectStore(SHELF_STORE, { keyPath: 'id' });
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // 另一个标签页要升级/删库时主动让位，别把连接卡死
+      db.onversionchange = () => {
+        db.close();
+        if (shelfDbPromise === wrapped) shelfDbPromise = null;
+      };
+      db.onclose = () => { if (shelfDbPromise === wrapped) shelfDbPromise = null; };
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error || new Error('书库打开失败'));
+    request.onblocked = () => reject(new Error('书库被其它标签页占用'));
+  });
+  // 失败不缓存，让下一次操作能重试
+  const wrapped = opening.catch(error => {
+    if (shelfDbPromise === wrapped) shelfDbPromise = null;
+    throw error;
+  });
+  shelfDbPromise = wrapped;
+  return wrapped;
+}
+
+function runShelfRead(): Promise<Book[]> {
+  return openShelfDb().then(db => new Promise<Book[]>((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, 'readonly');
+    const req = tx.objectStore(SHELF_STORE).getAll();
+    req.onsuccess = () => resolve((req.result || []) as Book[]);
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+/** 早期版本曾把书放进主库 AetherOS_Data 的 novel_reader_books 表，读出来搬迁用。 */
+const LEGACY_MAIN_DB = 'AetherOS_Data';
+const LEGACY_MAIN_STORE = 'novel_reader_books';
+
+function readLegacyMainDbBooks(): Promise<Book[]> {
+  return new Promise(resolve => {
+    let request: IDBOpenDBRequest;
+    try {
+      // 不带版本号 = 连到现有库，绝不触发升级；主库不可用时静默放弃
+      request = indexedDB.open(LEGACY_MAIN_DB);
+    } catch {
+      resolve([]);
+      return;
+    }
+    request.onerror = () => resolve([]);
+    request.onblocked = () => resolve([]);
+    request.onsuccess = () => {
+      const db = request.result;
+      const done = (rows: Book[]) => { try { db.close(); } catch {} resolve(rows); };
+      try {
+        if (!db.objectStoreNames.contains(LEGACY_MAIN_STORE)) { done([]); return; }
+        const tx = db.transaction(LEGACY_MAIN_STORE, 'readonly');
+        const req = tx.objectStore(LEGACY_MAIN_STORE).getAll();
+        req.onsuccess = () => done((req.result || []) as Book[]);
+        req.onerror = () => done([]);
+      } catch {
+        done([]);
+      }
+    };
+  });
+}
+
 /**
- * 读整架书。顺带把旧版 localStorage 里的书架搬进 IDB（只补 IDB 里没有的 id），
- * 全部搬成功才删旧键 —— 绝不「先删再写」，中途失败下次打开会重试。
+ * 读整架书。顺带把历史数据搬进书库：
+ *   1) 更早的 localStorage 版（nrcache_nr_books）
+ *   2) 曾短暂放进主库的 novel_reader_books 表
+ * 只补库里没有的 id，全部搬成功才删旧键 —— 绝不「先删再写」。
  */
 export async function loadBooks(): Promise<Book[]> {
-  let list: Book[];
+  let list: Book[] = [];
   try {
-    list = await DB.getAllNovelReaderBooks();
+    list = await runShelfRead();
+    noteShelf(true);
   } catch (error) {
-    console.warn('[novelReader] 书架读取失败，退回旧版 localStorage 数据', error);
-    return readLegacyBooks();
+    noteShelf(false, `书架读取失败：${describeError(error)}`);
+    return readLegacyBooks(); // 库打不开时至少别让老数据看起来凭空消失
   }
 
-  const legacy = readLegacyBooks();
-  if (legacy.length > 0) {
-    const have = new Set(list.map(b => b.id));
-    const missing = legacy.filter(b => !have.has(b.id));
+  const have = new Set(list.map(b => b.id));
+  const incoming = readLegacyBooks();
+  // 书库为空时才去翻主库里的历史表（正常情况下不碰主库，也不多开一次连接）
+  if (list.length === 0) incoming.push(...await readLegacyMainDbBooks());
+  const missing = incoming.filter(b => !have.has(b.id));
+
+  if (missing.length > 0) {
     let allOk = true;
     for (const book of missing) {
       try {
-        await DB.saveNovelReaderBook(book);
+        await saveBook(book);
         list.push(book);
-      } catch (error) {
+      } catch {
         allOk = false;
-        console.warn('[novelReader] 旧书架迁移失败，保留原数据待下次重试', error);
       }
     }
     if (allOk) safeRemove(BK_BOOKS);
@@ -135,13 +248,63 @@ export async function loadBooks(): Promise<Book[]> {
   return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
-/** 存一本（导入/下载后立刻落盘）。失败会抛出，由调用方提示用户。 */
+/** 存一本（导入/下载后立刻落盘）。失败会抛出，同时把原因记进 getShelfStatus()。 */
 export async function saveBook(book: Book): Promise<void> {
-  await DB.saveNovelReaderBook(book);
+  try {
+    const db = await openShelfDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(SHELF_STORE, 'readwrite');
+      tx.objectStore(SHELF_STORE).put(book);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('写入被中止'));
+    });
+    noteShelf(true);
+  } catch (error) {
+    noteShelf(false, `书库写入失败：${describeError(error)}`);
+    throw error;
+  }
 }
 
 export async function deleteBook(id: string): Promise<void> {
-  await DB.deleteNovelReaderBook(id);
+  try {
+    const db = await openShelfDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(SHELF_STORE, 'readwrite');
+      tx.objectStore(SHELF_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('删除被中止'));
+    });
+    noteShelf(true);
+  } catch (error) {
+    noteShelf(false, `书库删除失败：${describeError(error)}`);
+    throw error;
+  }
+}
+
+/** 备份导出用：读不到就退回旧版 localStorage（至少不丢老数据）。 */
+export async function exportShelfBooks(): Promise<Book[]> {
+  try {
+    return await runShelfRead();
+  } catch {
+    return readLegacyBooks();
+  }
+}
+
+/** 备份导入用：整架覆盖（undefined/null 表示这份备份没有书架，保持本地不动）。 */
+export async function importShelfBooks(books: Book[] | undefined | null): Promise<void> {
+  if (books === undefined || books === null) return;
+  const db = await openShelfDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, 'readwrite');
+    const store = tx.objectStore(SHELF_STORE);
+    store.clear();
+    books.forEach(book => { if (book && book.id) store.put(book); });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('导入被中止'));
+  });
 }
 
 export function loadCurrentBookId(): string | null {

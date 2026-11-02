@@ -25,9 +25,9 @@ import {
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRLibraryCategory, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
-    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, FanwaiStory, LetterRecord,
-    NovelReaderBook
+    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, FanwaiStory, LetterRecord
 } from '../types';
+import { exportShelfBooks, importShelfBooks } from './novelReader';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
 import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
@@ -54,8 +54,12 @@ const DB_NAME = 'AetherOS_Data';
 // v75：小说共读书架 novel_reader_books —— 整本原文按段落存 IDB。此前整架书塞在
 //      localStorage 的 nrcache_nr_books 里，一本几 MB 的 txt 直接撞 5MB 配额，写入被
 //      静默吞掉，于是「导入完关掉阅读器书就没了」。旧数据在 utils/novelReader.ts 里迁移。
+// 注意：小说共读**没有**建在这张主库里，而是走独立小库 SullyOS_NovelShelf……
+//      主库的 DB_VERSION 是全局单值，浏览器里已存在同号/更高号的库时 upgradeneeded
+//      不会触发，新表永远建不出来（读侧静默返回空 = 书又"丢了"）。独立库每次从 0 升 1。
+//      备份通过 exportShelfBooks / importShelfBooks 走 novelReaderBooks 字段。
 // 本文件的建表/建索引全部是幂等的 if(!contains)，已升到 74 的库打开时会再补一遍缺的部分。
-const DB_VERSION = 75;
+const DB_VERSION = 74;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -79,8 +83,7 @@ const STORE_SOCIAL_POSTS = 'social_posts';
 const STORE_COURSES = 'courses';
 const STORE_GAMES = 'games';
 const STORE_WORLDBOOKS = 'worldbooks'; 
-const STORE_NOVELS = 'novels';
-const STORE_NOVEL_READER_BOOKS = 'novel_reader_books'; // v75: 私聊「小说共读」书架（整本原文，见 types.ts NovelReaderBook） 
+const STORE_NOVELS = 'novels'; 
 const STORE_FANWAI_STORIES = 'fanwai_stories'; // 番外收藏（拾光 App）
 const STORE_COLLECTED_LETTERS = 'collected_letters'; // 来信收藏（拾光 App）
 const STORE_BANK_TX = 'bank_transactions';
@@ -428,7 +431,6 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_GAMES, { keyPath: 'id' }); 
       createStore(STORE_WORLDBOOKS, { keyPath: 'id' }); 
       createStore(STORE_NOVELS, { keyPath: 'id' });
-      createStore(STORE_NOVEL_READER_BOOKS, { keyPath: 'id' }); // v75: 小说共读书架
       createStore(STORE_FANWAI_STORIES, { keyPath: 'id' }); // v72: 番外收藏（拾光 App）
       createStore(STORE_COLLECTED_LETTERS, { keyPath: 'id' }); // v73: 来信收藏（拾光 App）
 
@@ -3689,42 +3691,6 @@ export const DB = {
       transaction.objectStore(STORE_SONGS).delete(id);
   },
 
-  // --- Novel Reader Books (聊天「小说共读」书架) ---
-  // 单本读写：一本书就是几 MB 的 passages 数组，整架重写既慢又容易在中途失败。
-  getAllNovelReaderBooks: async (): Promise<NovelReaderBook[]> => {
-      const db = await openDB();
-      if (!db.objectStoreNames.contains(STORE_NOVEL_READER_BOOKS)) return [];
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_NOVEL_READER_BOOKS, 'readonly');
-          const request = transaction.objectStore(STORE_NOVEL_READER_BOOKS).getAll();
-          request.onsuccess = () => resolve(request.result || []);
-          request.onerror = () => reject(request.error);
-      });
-  },
-
-  saveNovelReaderBook: async (book: NovelReaderBook): Promise<void> => {
-      const db = await openDB();
-      // 同 saveSong：等事务落盘并把失败抛出去，配额不足时让调用方报错，不再静默丢书。
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_NOVEL_READER_BOOKS, 'readwrite');
-          transaction.objectStore(STORE_NOVEL_READER_BOOKS).put(book);
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error('saveNovelReaderBook transaction aborted'));
-      });
-  },
-
-  deleteNovelReaderBook: async (id: string): Promise<void> => {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_NOVEL_READER_BOOKS, 'readwrite');
-          transaction.objectStore(STORE_NOVEL_READER_BOOKS).delete(id);
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error('deleteNovelReaderBook transaction aborted'));
-      });
-  },
-
   // --- Guidebook (攻略本) ---
   getAllGuidebookSessions: async (): Promise<GuidebookSession[]> => {
       const db = await openDB();
@@ -3902,7 +3868,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, fanwaiStories, collectedLetters, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings, novelReaderBooks] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, fanwaiStories, collectedLetters, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3958,7 +3924,6 @@ export const DB = {
           getAllFromStore(STORE_LIFE_RECORDS),
           getAllFromStore(STORE_MED_PLANS),
           getAllFromStore(STORE_LIFE_SETTINGS),
-          getAllFromStore(STORE_NOVEL_READER_BOOKS),
       ]);
 
       // Personal backups retain the whole profile, including Chibi/3D slots.
@@ -3970,7 +3935,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, novelReaderBooks, fanwaiStories, collectedLetters,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, novelReaderBooks: await exportShelfBooks(), fanwaiStories, collectedLetters,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -4041,7 +4006,7 @@ export const DB = {
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
-          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_NOVEL_READER_BOOKS, STORE_FANWAI_STORIES, STORE_COLLECTED_LETTERS, STORE_SONGS,
+          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_FANWAI_STORIES, STORE_COLLECTED_LETTERS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
           STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
           STORE_QUIZZES,
@@ -4462,7 +4427,8 @@ export const DB = {
           data.novels = undefined as any;
       }, data.novels?.length || 0);
       await runSection('小说共读', data.novelReaderBooks !== undefined, async () => {
-          await clearAndAdd(STORE_NOVEL_READER_BOOKS, data.novelReaderBooks, '小说共读', false);
+          // 书架在主库之外（SullyOS_NovelShelf），整架覆盖；undefined 表示这份备份没有书架
+          await importShelfBooks(data.novelReaderBooks);
           data.novelReaderBooks = undefined as any;
       }, data.novelReaderBooks?.length || 0);
       await runSection('番外收藏（拾光）', data.fanwaiStories !== undefined, async () => {

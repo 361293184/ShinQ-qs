@@ -13,7 +13,7 @@ import {
   TextAa, Translate, Copy, PencilSimple, GraduationCap, ChatCircleDots,
 } from '@phosphor-icons/react';
 import {
-  loadBooks, saveBook, deleteBook, loadCurrentBookId, saveCurrentBookId,
+  loadBooks, saveBook, deleteBook, getShelfStatus, loadCurrentBookId, saveCurrentBookId,
   loadProgress, saveProgress, loadTheme, saveTheme,
   loadSkin, saveSkin, loadFontSize, saveFontSize,
   loadVocab, saveVocab, loadLearnMode, saveLearnMode,
@@ -38,6 +38,8 @@ type View = 'shelf' | 'reader' | 'vocab' | 'search';
 const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, onContextChange }) => {
   const [books, setBooks] = useState<NovelBook[]>([]);
   const [booksReady, setBooksReady] = useState(false);
+  // 书架存储失败时把原因直接显示在面板里（用户不看控制台，弹窗一关就没了）
+  const [shelfError, setShelfError] = useState('');
   const [currentBookId, setCurrentBookId] = useState<string | null>(() => loadCurrentBookId());
   const [progress, setProgress] = useState<Record<string, number>>(() => loadProgress());
   const [theme, setTheme] = useState<'day' | 'night'>(() => loadTheme());
@@ -75,13 +77,35 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   const idx = curBook ? Math.min(progress[curBook.id] || 0, Math.max(curBook.passages.length - 1, 0)) : 0;
 
   // 书架读 IDB 是异步的：导入/删除时逐本落盘，不是整架重写
+  const applyShelfStatus = () => {
+    const status = getShelfStatus();
+    setShelfError(status.ok ? '' : status.message);
+  };
+
+  const reloadShelf = () => {
+    setBooksReady(false);
+    loadBooks()
+      .then(list => { setBooks(list); setBooksReady(true); applyShelfStatus(); })
+      .catch(error => {
+        console.warn('[novelReader] 书架加载失败', error);
+        setBooksReady(true);
+        setShelfError(String(error));
+      });
+  };
+
   useEffect(() => {
     let alive = true;
     loadBooks()
-      .then(list => { if (alive) { setBooks(list); setBooksReady(true); } })
+      .then(list => {
+        if (!alive) return;
+        setBooks(list);
+        setBooksReady(true);
+        const status = getShelfStatus();
+        setShelfError(status.ok ? '' : status.message);
+      })
       .catch(error => {
         console.warn('[novelReader] 书架加载失败', error);
-        if (alive) setBooksReady(true);
+        if (alive) { setBooksReady(true); setShelfError(String(error)); }
       });
     return () => { alive = false; };
   }, []);
@@ -192,9 +216,11 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
   const persistBook = async (book: NovelBook): Promise<void> => {
     try {
       await saveBook(book);
+      applyShelfStatus();
     } catch (error) {
       console.warn('[novelReader] 保存书失败', error);
-      alert('这本没能存进本地书库（浏览器空间不足或被禁用）。现在可以看，但关掉后会丢——先删几本旧书再重新导入。');
+      applyShelfStatus();
+      alert(`这本没能存进本地书库（${getShelfStatus().message || '未知原因'}）。现在可以看，但关掉后会丢。`);
     }
   };
 
@@ -322,6 +348,27 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
         <button onClick={onClose} style={iconBtn} title="关闭"><X size={16} /></button>
       </div>
 
+      {/* 存储异常横幅：把真实原因显示出来，用户点「重试」可重读书库 */}
+      {shelfError && (
+        <div
+          className="flex items-center gap-1.5 px-2 py-1 shrink-0 text-[10px]"
+          style={{
+            background: isNight ? 'rgba(239,68,68,0.2)' : '#fef2f2',
+            color: isNight ? '#fca5a5' : '#b91c1c',
+            borderBottom: `1px solid ${border}`,
+          }}
+        >
+          <span className="flex-1 break-all">书架存储异常：{shelfError}</span>
+          <button
+            onClick={reloadShelf}
+            className="px-1.5 py-0.5 rounded"
+            style={{ background: 'transparent', border: '1px solid currentColor', color: 'inherit', cursor: 'pointer' }}
+          >
+            重试
+          </button>
+        </div>
+      )}
+
       {/* 皮肤选择条：纯色圆圈，去掉文字标签，hover 时通过 title 显示皮肤名，更简约 */}
       {skinBar && (
         <div className="flex items-center gap-2 px-2 py-1.5 shrink-0" style={{ background: barBg, borderBottom: `1px solid ${border}` }}>
@@ -350,6 +397,7 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
           <ShelfView
             books={books}
             ready={booksReady}
+            progress={progress}
             panelBg={panelBg}
             panelFg={panelFg}
             subFg={subFg}
@@ -359,7 +407,12 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
             onRemove={(id) => {
               setBooks(prev => prev.filter(b => b.id !== id));
               if (currentBookId === id) { setCurrentBookId(null); setView('shelf'); }
-              deleteBook(id).catch(error => console.warn('[novelReader] 删除书失败', error));
+              deleteBook(id)
+                .then(applyShelfStatus)
+                .catch(error => {
+                  console.warn('[novelReader] 删除书失败', error);
+                  applyShelfStatus();
+                });
             }}
             onVocab={() => setView('vocab')}
             onSearch={() => { setView('search'); setSearchHits([]); }}
@@ -461,7 +514,8 @@ const NovelReaderPanel: React.FC<NovelReaderPanelProps> = ({ charName, onClose, 
 
 /* ========== 书架视图 ========== */
 function ShelfView(props: {
-  books: NovelBook[]; ready: boolean; panelBg: string; panelFg: string; subFg: string; border: string;
+  books: NovelBook[]; ready: boolean; progress: Record<string, number>;
+  panelBg: string; panelFg: string; subFg: string; border: string;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void; onOpen: (id: string) => void; onRemove: (id: string) => void;
   onVocab: () => void; onSearch: () => void;
 }) {
@@ -497,13 +551,19 @@ function ShelfView(props: {
               <div className="text-xs font-bold truncate" style={{ color: panelFg }}>{b.title}</div>
               <div className="text-[10px]" style={{ color: subFg }}>
                 {b.passages.length} 段 · {b.source === 'online' ? '🌐 在线' : '📄 本地'}
-                {props.books.length > 0 && <span className="ml-1 text-[10px]">· {Math.round(((props.books[0].passages.length > 0 ? 0 : 0)))}</span>}
+                {(props.progress[b.id] || 0) > 0 && ` · 读到第 ${Math.min((props.progress[b.id] || 0) + 1, b.passages.length)} 段`}
               </div>
             </div>
             <button onClick={() => props.onOpen(b.id)} className="px-2.5 py-1 rounded-md text-[10px] font-bold" style={{ background: '#f59e0b', color: '#fff' }}>阅读</button>
             <button onClick={() => props.onRemove(b.id)} style={{ color: subFg, padding: 4, background: 'transparent', border: 'none', cursor: 'pointer' }} title="删除"><Trash size={14} /></button>
           </div>
         ))
+      )}
+
+      {books.length > 0 && (
+        <div className="text-[10px] text-center pt-1" style={{ color: subFg }}>
+          共 {books.length} 本 · 已存入本机书库（关掉面板或刷新都还在）
+        </div>
       )}
     </div>
   );
