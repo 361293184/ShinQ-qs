@@ -26,7 +26,7 @@ import { renderConversationEngagementGuidance } from './memoryPalace/conversatio
 import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
 import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { normalizeTranslationLangLabel } from './translationLang';
-import { buildOfflineMainBlock, withOfflineTailReminder } from './offlineMode/offlinePrompts';
+import { buildOfflineMainBlock, buildOfflinePhoneHolderNote, withOfflineTailReminder } from './offlineMode/offlinePrompts';
 import { readPhoneHolder } from './offlineMode/phoneHolder';
 import { buildChatOutputStylePrompt } from './chatOutputStylePrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
@@ -107,6 +107,8 @@ export interface BuildChatPayloadInput {
     thinkingChain?: { enabled: boolean; customPrompt?: string };
     /** 私聊线下模式配置：开启时注入 buildOfflineMainBlock（旁白/台词格式 + 文风 + 人称 + 篇幅） */
     offlineConfig?: OfflineConfig;
+    /** 副 API：线下模式「他手机里的内容」没生成过时默认生成一次（每角色一份，失败不影响聊天） */
+    subApiConfig?: { baseUrl?: string; apiKey?: string; model?: string } | null;
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
     mcdMiniSnap?: McdMiniAppSnapshot;
@@ -616,26 +618,48 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 线下模式的末尾 Reminder：必须是模型开口前读到的最后一条 system。
     // 线下主块拼在第一条 system（历史之前），对模型的约束力弱于贴着生成点的易变尾段，
     // 所以格式要在这里再钉一次，否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去。
-    // 手机此刻在谁手里：只在「不是自己拿着」时才提，稳定前缀不动、缓存不伤
+    // 手机此刻在谁手里。现场有两台手机，所以文案里一律用名字指代两台手机各自的归属，
+    // 不用「你/他」——单一人称在两台手机之间会指反（模型以为拿的是自己的，界面显示的是另一台）。
+    const uname = userProfile?.name || '用户';
     const phoneHolder = offlineActive ? readPhoneHolder(char.id) : 'me';
-    let phoneHolderNote = phoneHolder === 'char'
-        ? '他的手机在你手里'
-        : phoneHolder === 'none'
-            ? '你的手机在他手里，你手上是空的'
-            : undefined;
-    // 你的手机在他手里 = 默认他已经翻过（§5.26 A）。被授权范围内的内容要成为他的已知事实，
-    // 否则会出现「他提起相册里的照片、自己却不知道」的矛盾；关掉的项不注入，他对应地看不到。
-    if (offlineActive && phoneHolder === 'none') {
+    let phoneHolderNote: string | undefined;
+    if (offlineActive) {
+        phoneHolderNote = buildOfflinePhoneHolderNote(phoneHolder, char.name, uname);
+        // 他自己手机里的内容：默认全看过（那是他本人的记忆，不做 App 级"看没看过"的记录）。
+        // 没生成过就默认生成一次（每角色一份、只等 15s），生成不出来时明确要求"别编"。
         try {
-            const { buildUserPhoneDigest } = await import('./offlineMode/userPhoneDigest');
-            const digest = await buildUserPhoneDigest(char.id, char.name, (userProfile?.name || '用户'));
-            if (digest) phoneHolderNote = `${phoneHolderNote}。${digest}`;
+            const { ensureCharPhoneContent } = await import('./offlineMode/charPhoneDigest');
+            const charDigest = await ensureCharPhoneContent({
+                char,
+                user: userProfile,
+                subApi: input.subApiConfig,
+                timeoutMs: 15000,
+            });
+            phoneHolderNote = charDigest
+                ? `${phoneHolderNote}\n${charDigest}`
+                : `${phoneHolderNote}\n【${char.name}的手机内容这一轮还没展开：不要编具体内容（哪条聊天、哪张照片、多少钱）。被问到时用"手机拿过来我看下""等我翻翻"这类反应带过去，下一轮再说。】`;
         } catch (error) {
-            console.error('[offline-phone] 注入"他看过什么"失败', error);
+            console.error('[offline-phone] 注入角色自己手机内容失败', error);
         }
-        input.signal?.throwIfAborted();
+        // 对方手机在他手里 = 默认他已经全看过（§5.26 A）：授权范围内的内容要成为他的已知事实，
+        // 否则会出现「他提起相册里的照片、自己却不知道」的矛盾；没授权的项不注入，对应地看不到。
+        if (phoneHolder === 'none') {
+            try {
+                const { buildUserPhoneDigest } = await import('./offlineMode/userPhoneDigest');
+                const digest = await buildUserPhoneDigest(char.id, char.name, uname);
+                if (digest) phoneHolderNote = `${phoneHolderNote}\n${digest}`;
+            } catch (error) {
+                console.error('[offline-phone] 注入"翻过对方手机"失败', error);
+            }
+            input.signal?.throwIfAborted();
+        }
     }
-    fullMessages = withOfflineTailReminder(fullMessages, offlineActive, phoneHolderNote);
+    fullMessages = withOfflineTailReminder(
+        fullMessages,
+        offlineActive,
+        phoneHolderNote,
+        offlineActive ? { charName: char.name, userName: uname } : undefined,
+    );
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;
     if (isSystemMessageMergeEnabled()) {

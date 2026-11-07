@@ -66,7 +66,7 @@ export async function buildUserPhoneDigest(
         // 口径和手机界面一致：只算最近 100 条，别让他"记得"几千条之外的细节
         const own = takeRecentMessages((await DB.getMessagesByCharId(charId)).filter((m) => m.role !== 'system'));
         const ownCount = own.length;
-        lines.push(`你们俩的 ${ownCount} 条对话（全部）`);
+        lines.push(`和${charName}的对话共 ${ownCount} 条（全部可见）`);
 
         // ② 你和其他角色的私聊（默认关，最敏感）
         if (perms.others) {
@@ -80,11 +80,11 @@ export async function buildUserPhoneDigest(
                 const last = messages.slice(-1)[0];
                 if (!last) continue;
                 const who = last.role === 'user' ? userName : other.name;
-                parts.push(`和「${other.name}」的对话（最近一条 ${who}：${clip(String(last.content || ''), 28)}）`);
+                parts.push(`和「${other.name}」的私聊，最近一条（${who}）：${clip(String(last.content || ''), 28)}`);
             }
             if (parts.length) lines.push(...parts);
         } else {
-            lines.push('相册之外，你和别人的对话他打不开（他只知道有这么一块，看不到内容）');
+            lines.push(`${userName}和其他人的私聊没授权（只知道有这么一块，看不到内容）`);
         }
 
         // ③ 群聊
@@ -111,7 +111,7 @@ export async function buildUserPhoneDigest(
                     lines.push(`相册里一张照片${img.savedDate ? `（${img.savedDate}）` : ''}：${clip(String(img.review), 40)}`);
                 });
             } else if (images.length) {
-                lines.push(`相册里的 ${images.length} 张照片（他只看到图，没有文字说明）`);
+                lines.push(`相册里的 ${images.length} 张照片（只有图，没有文字说明）`);
             }
         }
 
@@ -125,8 +125,9 @@ export async function buildUserPhoneDigest(
         return cached?.text || null;
     }
 
+    // 一律用名字指代：现场有两台手机，「你/他」在系统提示里会指反（需求方定案：不统一视角）
     const text = lines.length
-        ? `按你自己的权限设置，他能看到的是 —— ${lines.join('；')}。他已经翻过了，可以提起，也可以一句都不提；怎么提由他决定，别替他预设台词。`
+        ? `${charName}翻过${userName}的手机（默认全看过）。按${userName}的授权范围，${charName}知道的是 —— ${lines.join('；')}。这些是${charName}已经知道的事：可以提起，也可以一句都不提；怎么提由${charName}决定，别替${userName}预设台词。`
         : '';
 
     cache.set(charId, { at: Date.now(), text });

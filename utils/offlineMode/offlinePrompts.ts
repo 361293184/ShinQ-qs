@@ -1,6 +1,7 @@
 import type { CharacterProfile, OfflineConfig } from '../../types';
 import { DATE_STYLE_PRESETS } from '../datePrompts';
 import { DEFAULT_OFFLINE_CONFIG, resolveNpcEnabled } from './offlineSettings';
+import type { PhoneHolder } from './phoneHolder';
 
 /**
  * 线下模式 prompt 构建（私聊 ChatApp 内注入）。
@@ -140,30 +141,52 @@ export const buildOfflineNpcBlock = (
  * 标记会在落库前被剥掉，不污染聊天流。
  */
 export const buildOfflinePhonePropBlock = (charName: string, userName: string): string => {
+    const cname = charName || '角色';
     const uname = userName || '对方';
     return `### 📱 手机这件道具
-场景里有一部真实的手机，可以在你和${uname}之间易手。这是现场的道具，不是聊天界面。
+现场有两台真实的手机：${cname}的一台、${uname}的一台，都可以在两人之间易手。这是现场的道具，不是聊天界面。
 （下面的标记和 图片-、<语音> 一样是**给系统的指令**，不是写给人看的话；系统会自己剥掉，用户看不到。）
 
-**判断标准不是"手机在谁手心里"，而是"你现在能不能拿到/看到"**：
-- 他的手机递到你手上、放在你面前的桌上、搁在你手边——只要他不再收着、你伸手就够得到，你就能看它。
-- 你把手机递给他、他顺手拿走、他收进兜里——那台手机你就看不了。
+**标记只回答一件事：${uname}手上现在拿着哪台手机**（两台手机各自在哪，用这一个问题就说清了）：
+- [[手机:我]] = ${uname}手上是${uname}自己的手机，两人各拿各的（默认状态；从下面两种变回来时也要输出）
+- [[手机:他]] = ${uname}手上是${cname}的手机（${cname}把自己的手机给了${uname}、放在${uname}面前桌上、搁在${uname}手边，都算）
+- [[手机:空]] = ${uname}手上什么都没有（${uname}的手机被${cname}拿走/收着了）
 
-**只有"能不能看"的状态发生变化时**，才在**回复的最后一行**输出一条标记（单独一行，格式一字不差）。
-漏了这条标记，界面上的手机就会停在旧状态 —— 所以这是硬要求，不是可选装饰：
-- [[手机:他]] = 他的手机现在你能看（递给你 / 放在桌上 / 搁在你手边，都算）
-- [[手机:空]] = 你现在什么都看不了（你的手机不在你身边，他的手机也没让你碰）
-- [[手机:我]] = 你自己的手机在你身边（默认状态；从"空"或"他的"变回来时也要输出）
+**只有真的易手时**，才在**回复的最后一行**输出一条标记（单独一行，格式一字不差）。
+漏了这条标记，界面上的手机就会停在旧状态 —— 所以这是硬要求，不是可选装饰。
 
-注意：他人在旁边、但手机搁在桌上，这属于"你能看"，要输出 [[手机:他]]；不要因为"手机没到我手里"就不输出。
+注意：手机搁在桌上也算易手——${cname}的手机放在桌上，就输出 [[手机:他]]；${uname}的手机搁在${cname}手边，就输出 [[手机:空]]。不要因为"没塞进手里"就不输出。
 
 规则：
 1. 标记不进对话、不要解释、不要写"（手机状态）"之类，系统会自己剥掉。
 2. **只在真的易手时输出，不要每轮都带**。没有易手就不输出，保持沉默。
-3. 易手不一定伴随一句话——被他顺手拿走、你递过去什么都没说，都成立；不要为了输出标记硬写台词。
-4. 你必须知道自己手机里有什么（相册、聊天、备忘录、账单…），被问起时不能一脸茫然。
-5. 反过来也一样：手机到了对方手里，就默认对方已经看过里面的内容了。
-6. 你可以拒绝把手机给对方——拒绝本身就是剧情；状态没变就不要输出标记。`;
+3. 易手不一定伴随一句话——${uname}顺手拿走、${cname}递过去什么都没说，都成立；不要为了输出标记硬写台词。
+4. ${cname}必须知道自己手机里有什么（相册、聊天、备忘录、账单…），被问起时不能一脸茫然。
+5. 手机一旦到了谁手里，就默认那个人已经全看过里面的内容：${cname}的手机到了${uname}手上，${uname}就知道里面的东西；${uname}的手机到了${cname}手上，${cname}也就知道里面的东西。被问起时如实说，不要说"我没看""我不知道"。
+6. ${cname}可以拒绝把手机给${uname}——拒绝本身就是剧情；状态没变就不要输出标记。`;
+};
+
+/**
+ * 此刻两台手机各自在哪（拼在末尾 Reminder 里）。
+ *
+ * 为什么不用「你/他」：线下现场有两台手机，单一人称指代会在两台手机之间打架
+ * （「他的手机在你手里」到底是谁的手机、在谁手上，模型和玩家会得出相反结论）。
+ * 所以一律用名字说清两台手机各自的归属，谁都不用猜。
+ */
+export const buildOfflinePhoneHolderNote = (
+    holder: PhoneHolder,
+    charName: string,
+    userName: string,
+): string => {
+    const cn = charName || '他';
+    const un = userName || '对方';
+    if (holder === 'char') {
+        return `${cn}的手机在${un}手里，${un}随时能翻开看；${un}的手机还在${un}自己那儿。`;
+    }
+    if (holder === 'none') {
+        return `${un}的手机在${cn}手里（${un}自己手上是空的）；${cn}的手机在${cn}自己这儿。`;
+    }
+    return `${cn}的手机在${cn}自己手里，${un}的手机在${un}自己手里（各自拿着自己的）。`;
 };
 
 /**
@@ -215,8 +238,17 @@ export const buildOfflineMainBlock = (input: {
  * 所以格式必须在这里再钉一次——否则会被「少铺垫」「只写你自己的话」这类尾部提示压过去，
  * 表现为「有时候有旁白有时候没有」。双语 / HTML / MCP 都有自己的末尾 Reminder，线下这块是补的缺口。
  */
-export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。
-若这一轮"你能看到哪台手机"变了（他把手机递给你、放你面前的桌上、你递给他、他顺手拿走、他还给你），必须在回复里**单独一行**输出 [[手机:他]] 或 [[手机:空]] 或 [[手机:我]]，否则界面上的手机状态不会跟着变。没有变化就不要输出。]`;
+export const OFFLINE_TAIL_REMINDER = `[Reminder: 线下模式继续生效——你们此刻在同一个地方、同一个时刻见面，不是隔着手机聊天。每条回复都要「旁白 + 台词」交替出现：旁白直接写、不加引号；说出口的话必须整行用英文双引号包住，且引号是该行行首第一个字符。只输出台词或只输出旁白都算格式错误。]`;
+
+/**
+ * 尾段里的手机易手提醒（用名字指代两台手机）。
+ * 单独抽出来是因为 OFFLINE_TAIL_REMINDER 是常量、在这里才知道两个人叫什么。
+ */
+export const buildOfflinePhoneMarkerReminder = (charName: string, userName: string): string => {
+    const cname = charName || '角色';
+    const uname = userName || '对方';
+    return `若这一轮两台手机易手了（${cname}把手机递给${uname}或放在${uname}手边、${uname}的手机到了${cname}手上、${uname}把手机收回去），必须在回复里**单独一行**输出标记——${uname}手上拿着${cname}的手机 → [[手机:他]]；${uname}的手机在${cname}手上、${uname}手上是空的 → [[手机:空]]；各自拿着自己的 → [[手机:我]]。否则界面上的手机状态不会跟着变。没有变化就不要输出。`;
+};
 
 /**
  * 把末尾提醒挂到最后一条 system 之后（历史之后、模型开口之前）。
@@ -227,10 +259,15 @@ export const withOfflineTailReminder = <T extends { role: string; content: any }
     active: boolean,
     /** 追加的现场状态（例如「他的手机在你手里」）。放在尾段，不污染开头的稳定前缀、不伤缓存。 */
     extraNote?: string,
-): Array<T | { role: string; content: string }> =>
-    active
-        ? [...messages, { role: 'system', content: extraNote ? `${OFFLINE_TAIL_REMINDER}\n[手机：${extraNote}]` : OFFLINE_TAIL_REMINDER }]
-        : messages;
+    /** 两个当事人的名字：传了就按名字写手机易手提醒（现场有两台手机，代词会指反）。 */
+    names?: { charName?: string; userName?: string },
+): Array<T | { role: string; content: string }> => {
+    if (!active) return messages;
+    const parts = [OFFLINE_TAIL_REMINDER];
+    if (names) parts.push(buildOfflinePhoneMarkerReminder(names.charName || '', names.userName || ''));
+    if (extraNote) parts.push(`[手机：${extraNote}]`);
+    return [...messages, { role: 'system', content: parts.join('\n') }];
+};
 
 /** 进入线下的时间锚点：凌晨 / 清晨 / 上午 / 中午 / 下午 / 傍晚 / 夜里 / 深夜 + HH:MM */
 export const describeOfflineClock = (date: Date = new Date()): string => {

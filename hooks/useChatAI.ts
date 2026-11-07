@@ -946,6 +946,10 @@ export const useChatAI = ({
                 luckinChat: luckinChatOn ? luckinChatRef?.current : undefined,
                 novelReader: novelReaderRef?.current || null,
                 offlineConfig: (char as any).offlineConfig,
+                // 线下模式「他手机里的内容」没生成过时默认生成一次（每角色一份）
+                subApiConfig: apiConfig?.subBaseUrl && apiConfig?.subApiKey && apiConfig?.subModel
+                    ? { baseUrl: apiConfig.subBaseUrl, apiKey: apiConfig.subApiKey, model: apiConfig.subModel }
+                    : undefined,
                 timelyByWorker: instantChatRoute,
                 recallEntryPoint: 'chat_app',
                 onPreparationStage:event=>{if(event.status==='end')perfStages['payload.'+event.stage]=event.ms;},

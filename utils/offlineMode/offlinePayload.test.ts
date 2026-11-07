@@ -4,6 +4,7 @@ import {
     OFFLINE_TAIL_REMINDER,
     buildOfflineDividerContent,
     buildOfflineMainBlock,
+    buildOfflinePhoneHolderNote,
     describeOfflineClock,
     withOfflineTailReminder,
 } from './offlinePrompts';
@@ -153,14 +154,33 @@ describe('出场人物块（NPC 写进旁白）', () => {
 });
 
 describe('手机道具（状态标记 + 现场状态注入）', () => {
-    it('主块里写明三态与标记规则，且标准是「能不能看」而不是「在谁手上」', () => {
+    it('主块里三态的口径和前端 phoneHolder 一致：看的是「对方手上拿着哪台手机」', () => {
         const text = buildOfflineMainBlock({ char, userName: '条条', cfg: {} });
         expect(text).toContain('📱 手机这件道具');
         expect(text).toContain('[[手机:他]]');
         expect(text).toContain('[[手机:空]]');
-        // 放在桌上 / 搁在手边也算「能看」，不能只在到手时才输出
-        expect(text).toContain('放在你面前的桌上');
-        expect(text).toContain('状态发生变化时');
+        expect(text).toContain('[[手机:我]]');
+        // [[手机:他]] = 角色把手机给出去，用户手上拿着角色的手机（前端 'char'）
+        expect(text).toContain('条条手上是阿一的手机');
+        // [[手机:空]] = 用户的手机被角色拿走，用户手上空着（前端 'none'）
+        expect(text).toContain('条条手上什么都没有');
+        // 放在桌上 / 搁在手边也算易手，不能只在塞进手里时才输出
+        expect(text).toContain('放在条条面前桌上');
+        expect(text).toContain('真的易手时');
+    });
+
+    it('尾段的手机易手提醒用名字指代两台手机', () => {
+        const out = withOfflineTailReminder(
+            [{ role: 'system', content: 'system' }],
+            true,
+            undefined,
+            { charName: '阿一', userName: '条条' },
+        );
+        const tail = String((out[out.length - 1] as any).content);
+        expect(tail).toContain('条条手上拿着阿一的手机 → [[手机:他]]');
+        expect(tail).toContain('条条的手机在阿一手上、条条手上是空的 → [[手机:空]]');
+        // 不再用「你/他」指代两台手机
+        expect(tail).not.toContain('你的手机');
     });
 
     it('末尾提醒只在手机不在自己手里时附加状态（护住缓存）', () => {
@@ -168,6 +188,26 @@ describe('手机道具（状态标记 + 现场状态注入）', () => {
         const withNote = withOfflineTailReminder(base, true, '他的手机在你手里');
         expect(withNote[withNote.length - 1].content).toContain('[手机：他的手机在你手里]');
         expect(withOfflineTailReminder(base, true)[1].content).not.toContain('[手机：');
+    });
+
+    it('现场手机归属用名字说清两台手机，不用「你/他」单指', () => {
+        const charName = '阿一';
+        const userName = '条条';
+
+        const both = buildOfflinePhoneHolderNote('me', charName, userName);
+        expect(both).toContain('阿一的手机在阿一自己手里');
+        expect(both).toContain('条条的手机在条条自己手里');
+
+        // 他的手机在对方手上：角色的手机在用户手里
+        const hisInHerHand = buildOfflinePhoneHolderNote('char', charName, userName);
+        expect(hisInHerHand).toContain('阿一的手机在条条手里');
+        expect(hisInHerHand).not.toContain('你的手机');
+        expect(hisInHerHand).not.toContain('他的手机');
+
+        // 空手：用户的手机在角色手里
+        const herInHisHand = buildOfflinePhoneHolderNote('none', charName, userName);
+        expect(herInHisHand).toContain('条条的手机在阿一手里');
+        expect(herInHisHand).toContain('阿一的手机在阿一自己这儿');
     });
 
     it('标记解析：中英文都认，没标记不覆盖、且从正文剥净', () => {

@@ -442,6 +442,23 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             if (charId === char.id) setPhoneHolder(holder);
         });
     }, [char?.id]);
+    // 线下模式：进会话就把「他手机里的内容」后台生成一次（副 API，每角色一份）。
+    // 不预取的话，玩家第一次聊到手机细节时角色只能现编；生成完写进缓存，下一轮起注入摘要。
+    const phonePrefetched = useRef('');
+    useEffect(() => {
+        if (!char?.id || (char as any).offlineConfig?.enabled !== true) return;
+        if (phonePrefetched.current === char.id) return;
+        const sub = apiConfig?.subBaseUrl && apiConfig?.subApiKey && apiConfig?.subModel
+            ? { baseUrl: apiConfig.subBaseUrl, apiKey: apiConfig.subApiKey, model: apiConfig.subModel }
+            : null;
+        if (!sub) return;
+        phonePrefetched.current = char.id;
+        void import('../utils/offlineMode/charPhoneDigest')
+            .then(({ ensureCharPhoneContent }) => ensureCharPhoneContent({
+                char, user: userProfile, subApi: sub, timeoutMs: 0,
+            }))
+            .catch((error) => console.warn('[offline-phone] 预取手机内容失败', error));
+    }, [char, userProfile, apiConfig]);
     // 手机道具兜底解析：本地管线在 applyAssistantPostProcessing 里已经解析过一次，
     // 但**云端 / worker 落库的回复走的是 OSContext 自己的 DB.saveMessage**，完全绕过后处理。
     // 所以在这里从消息流里再兜一遍——不管是哪条路径写进来的，界面看到消息就一定解析得到。
