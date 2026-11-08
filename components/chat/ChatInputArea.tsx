@@ -65,8 +65,6 @@ interface ChatInputAreaProps {
     // Reroll Support
     onReroll: () => void;
     canReroll: boolean;
-    // Proactive messaging
-    isProactiveActive?: boolean;
     // 麦当劳 MCP
     mcdConfigured?: boolean;   // 设置里 token 已填且启用
     mcdActivated?: boolean;    // 当前会话已发"麦请求"
@@ -103,7 +101,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     onPanelAction, onImageSelect, isSummarizing,
     categories = [], activeCategory = 'default',
     onReroll, canReroll,
-    isProactiveActive,
     mcdConfigured = false,
     mcdActivated = false,
     luckinConfigured = false,
@@ -544,14 +541,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 <CalendarBlank className="w-6 h-6" weight="bold" />
             </div>)}
             <span className="text-xs font-bold">日程/情绪</span>
-        </button>,
-        <button key="proactive" onClick={() => onPanelAction('proactive')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
-            {acnh ? <AcnhActionTile kind="proactive" /> : (
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isProactiveActive ? (isDiscordStyle ? 'bg-violet-500/15 text-violet-300 border-violet-400/30' : 'bg-violet-50 text-violet-500 border-violet-200') : (isDiscordStyle ? 'bg-slate-800 text-slate-400 border-white/10' : 'bg-slate-50 text-slate-400 border-slate-100')}`}>
-                <ChatCircleDots className="w-6 h-6" weight="bold" />
-            </div>)}
-            <span className="text-xs font-bold">主动消息</span>
-            {isProactiveActive && <span className={`absolute top-0 right-1 w-2.5 h-2.5 rounded-full border-2 ${isDiscordStyle ? 'bg-violet-400 border-slate-900' : 'bg-violet-500 border-white'}`} />}
         </button>,
         <button key="active-msg-2" onClick={() => onPanelAction('active-msg-2')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
             {acnh ? <AcnhActionTile kind="proactive" /> : (
@@ -1088,16 +1077,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                           </div>
 
                           <div className="p-4 grid grid-cols-4 gap-5">
-                            {/* 主动消息（激活态用小红点提示） */}
-                            <button onClick={() => onPanelAction('proactive')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
-                                {acnh ? <AcnhActionTile kind="proactive" /> : (
-                                <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
-                                    <ChatCircleDots className="w-6 h-6" weight="bold" />
-                                </div>)}
-                                <span className="text-xs font-bold">主动消息</span>
-                                {isProactiveActive && <span className={`absolute top-0 right-1 w-2.5 h-2.5 rounded-full border-2 ${isDiscordStyle ? 'bg-violet-400 border-slate-900' : 'bg-violet-500 border-white'}`} />}
-                            </button>
-
                             {/* 主动消息 2.0：云端 worker 定时任务 */}
                             <button onClick={() => onPanelAction('active-msg-2')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 {acnh ? <AcnhActionTile kind="proactive" /> : (

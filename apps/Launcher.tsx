@@ -1518,7 +1518,6 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
           onSwitchCharacter={(id) => setScheduleCharId(id)}
           schedule={scheduleData}
           activeCharacter={scheduleChar}
-          contentColor={contentColor}
       />
 
     </div>

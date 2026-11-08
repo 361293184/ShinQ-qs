@@ -93,7 +93,6 @@ import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
 import MemoryContextSelfCheck from '../components/chat/MemoryContextSelfCheck';
 import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
-import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
@@ -130,11 +129,10 @@ import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteb
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
 import { normalizeTranslationLangLabel, isTranslationLangPreset } from '../utils/translationLang';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
-import { trackEvent, noteMessageSent, presetOrCustom } from '../utils/analytics';
+import { trackEvent, noteMessageSent } from '../utils/analytics';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll } from '../utils/amsgStateSync';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
-import { formatHours } from '../utils/format';
 import { resolveSARModuleSpeechSource } from '../utils/vrWorld/sarModuleRuntime';
 import {
     VOICE_FAVORITES_CHANGED_EVENT,
@@ -185,10 +183,9 @@ const INSTANT_VOICE_SCAN_WINDOW_MS = 30_000;
 
 export interface HomePhoneChatProps {characterId:string;getContext:()=>string;onBack:()=>void}
 const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
-    const { activeApp, characters, activeCharacterId: osActiveCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, proactiveComposingChars, openDateWithChar, addFanwaiStory, addCollectedLetter, collectedLetters, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
+    const { activeApp, characters, activeCharacterId: osActiveCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, openDateWithChar, addFanwaiStory, addCollectedLetter, collectedLetters, chatDeepLinkCharId, consumeChatDeepLink } = useOS();
     const activeCharacterId=homePhone?.characterId??osActiveCharacterId;
     const osTheme = useMemo(()=>homePhone?homePhoneAppearance(baseOsTheme):resolveDecorationTheme(baseOsTheme,characters.find(c=>c.id===activeCharacterId)||characters[0]),[baseOsTheme,characters,activeCharacterId,!!homePhone]);
-    const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
     // 记忆宫殿高水位（用于清空聊天时的安全检查）
@@ -394,7 +391,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [editContent, setEditContent] = useState('');
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
-    const [showProactiveModal, setShowProactiveModal] = useState(false);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
@@ -596,7 +592,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }, [activeCharacterId]);
 
     // --- Initialize Hook ---
-    const { isTyping, streamingBubbles, streamingThinking, streamingHandoverIds, inboxStatus, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
+    const { isTyping, streamingBubbles, streamingThinking, streamingHandoverIds, inboxStatus, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI } = useChatAI({
         char,
         homePhoneContext:homePhone?.getContext,
         userProfile,
@@ -1937,8 +1933,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         // 选表情、选分类之类的动作不上报。
         if ([
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
-            'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
-            'html-mode-toggle', 'html-mode-settings', 'thinking-settings',
+            'meetup', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
+            'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'favorites', 'collaboration',
             'offline-toggle', 'offline-settings',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
@@ -1966,7 +1962,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'category-options': setSelectedCategory(payload); setModalType('category-options'); break;
             case 'delete-category-req': setSelectedCategory(payload); setModalType('delete-category'); break;
             case 'meetup': if (char) { setShowPanel('none'); openDateWithChar(char.id); } break;
-            case 'proactive': setShowProactiveModal(true); break;
             case 'active-msg-2': setShowActiveMsg2Modal(true); break;
             case 'emotion': setModalType('schedule'); break; // 情绪已并入日程，打开同一 modal
             case 'schedule': setModalType('schedule'); break;
@@ -4275,9 +4270,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         active: (activeApp === AppID.Chat || !!homePhone) && !!char,
         blocked: isInputFocused || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
             || selectionMode || isSummarizing || collaborationOpen || memoryRepairOpen || favoritesOpen
-            || showProactiveModal || showActiveMsg2Modal || showThinkingChainModal
+            || showActiveMsg2Modal || showThinkingChainModal
             || mcdAppOpen || luckinAppOpen || showForwardModal,
-        generating: isTyping || instantChatPending || isProactiveComposing,
+        generating: isTyping || instantChatPending,
         onGenerate: handleManualTrigger,
     });
     // 「正在回复」条的预览：图片/表情只显示占位符，别把 blobref 令牌印在输入框上方
@@ -4941,10 +4936,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             visibleCountRef.current = nextVisibleCount;
                             setVisibleCount(nextVisibleCount);
                             await reloadMessages(nextVisibleCount);
-                        }} className="px-4 py-2 bg-white/85 rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">加载历史消息 ({collapsedCount})</button>
+                        }} className="px-4 py-2 bg-white/60 rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">加载历史消息 ({collapsedCount})</button>
                     </div>
                 )}
-
                 {renderedMessages.map((m, i) => {
                     const prevMessage = i > 0 ? renderedMessages[i - 1] : null;
                     const nextMessage = i < renderedMessages.length - 1 ? renderedMessages[i + 1] : null;
@@ -5033,7 +5027,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         </div>
                     );
                 })}
-
                 {/* 渠道确实发送 reasoning 增量时，先用正式心象卡实时展示；落库后同帧交给正式消息。 */}
                 {streamingThinking && !selectionMode && (
                     <div className="group flex items-end justify-start relative px-3 mb-1.5 animate-fade-in">
@@ -5089,7 +5082,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     </>
                 )}
                 {/* instantChatPending：这一轮在云端跑，本机可以关页面，指示灯靠落盘记录活着。 */}
-                {(isTyping || instantChatPending || recallStatus || searchStatus || diaryStatus || isProactiveComposing) && !selectionMode && (
+                {(isTyping || instantChatPending || recallStatus || searchStatus || diaryStatus) && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-6 animate-fade-in">
                         <TokenImg value={char.avatar} className={chatPendingAvatarClass} alt="" />
                         <div className="bg-white px-4 py-3 rounded-2xl shadow-sm">
@@ -5097,11 +5090,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                                 <div role="status" className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                                     <span className="h-3 w-3 shrink-0 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" aria-hidden="true" />
                                     {inboxStatus}
-                                </div>
-                            ) : isProactiveComposing && !isTyping && !recallStatus && !searchStatus && !diaryStatus ? (
-                                <div className="flex items-center gap-2 text-xs text-teal-600 font-medium">
-                                    <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                    {char.name} 在给你写消息…
                                 </div>
                             ) : searchStatus ? (
                                 <div className="flex items-center gap-2 text-xs text-emerald-500 font-medium">
@@ -5214,7 +5202,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     activeCategory={activeCategory}
                     onReroll={handleReroll}
                     canReroll={canReroll}
-                    isProactiveActive={isProactiveActive}
                     mcdConfigured={mcdConfiguredFlag}
                     mcdActivated={mcdActivated}
                     luckinConfigured={luckinConfiguredFlag}
@@ -5281,40 +5268,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         onClose={() => setPhonePanelOpen(false)}
                     />
                 </>
-            )}
-
-            {/* Proactive Settings Modal */}
-            {char && (
-                <ProactiveSettingsModal
-                    isOpen={showProactiveModal}
-                    onClose={() => setShowProactiveModal(false)}
-                    char={char}
-                    isProactiveActive={isProactiveActive}
-                    onSave={(config) => {
-                        updateCharacter(char.id, { proactiveConfig: config });
-                        if (config.enabled) {
-                            startProactiveChat(config.intervalMinutes);
-                            // 界面只给 7 个档，但这个值是从持久化状态读回来的——导入的备份、
-                            // 老版本写进去的都可能是任意整数。收敛到写死的档位，其余归 custom。
-                            trackEvent('启动主动消息', {
-                                intervalMinutes: presetOrCustom(
-                                    String(config.intervalMinutes),
-                                    ['30', '60', '120', '240', '480', '720', '1440'],
-                                    '没设',
-                                ),
-                            });
-                            addToast(`已启动主动消息，每 ${config.intervalMinutes >= 60 ? (config.intervalMinutes / 60) + ' 小时' : config.intervalMinutes + ' 分钟'}发送一次`, 'success');
-                        } else {
-                            stopProactiveChat();
-                            addToast('已关闭主动消息', 'info');
-                        }
-                    }}
-                    onStop={() => {
-                        stopProactiveChat();
-                        updateCharacter(char.id, { proactiveConfig: { ...char.proactiveConfig!, enabled: false } });
-                        addToast('已停止主动消息', 'info');
-                    }}
-                />
             )}
 
             {/* 主动消息 2.0（云端 worker 定时任务）Settings Modal */}

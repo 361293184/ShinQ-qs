@@ -92,6 +92,8 @@ export interface ScheduleCardAppearance {
   accentColor?: string;
   /** 仅允许 .sully-schedule-* 作用域的进阶美化。 */
   customCss?: string;
+  /** 非原版配色时，桌面小组件仍用毛玻璃透出壁纸、沿用桌面字色，只保留配色里的强调色。 */
+  desktopGlass?: boolean;
 }
 
 export type JournalAppearancePresetId =
@@ -3337,12 +3339,6 @@ export interface CharacterProfile {
   // Cross-session guidebook insights: what char has discovered about user across games
   guidebookInsights?: string[];
 
-  // 主动消息配置
-  proactiveConfig?: {
-    enabled: boolean;
-    intervalMinutes: number; // 30, 60, 120, 240, etc.
-  };
-
   // 情绪Buff系统
   activeMsg2Config?: ActiveMsg2CharacterConfig;
   activeBuffs?: CharacterBuff[];
@@ -3480,7 +3476,6 @@ export interface CharacterProfile {
 
   /**
    * 虚拟世界「彼方」的个人状态：是否自主登入、登入间隔、各本小说的独立书签等。
-   * 独立于 proactiveConfig（主动发消息），互不挤占触发。
    */
   vrState?: VRWorldCharState;
 }
