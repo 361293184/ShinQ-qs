@@ -2,7 +2,7 @@
 
 // worker/amsg/src/instantInput.ts
 var INSTANT_INPUT_NAMESPACE = "amsg:instant-input";
-var INSTANT_INPUT_TTL_DAYS = 30;
+var INSTANT_INPUT_TTL_DAYS = 7;
 var parseInstantInputRef = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const ref = value;
@@ -1492,7 +1492,7 @@ function pickStaleStoppedReplyKeys(rows, nowMs = Date.now(), protectKey) {
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// ../../../Users/tntobsidian/Documents/GitHub/SullyOS/node_modules/.pnpm/@rei-standard+amsg-server@3.1.0_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -1511,7 +1511,7 @@ var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
 var TASK_DELIVERY_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count";
 var TASK_DETAIL_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at";
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0/node_modules/@rei-standard/amsg-shared/dist/index.mjs
+// ../../../Users/tntobsidian/Documents/GitHub/SullyOS/node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0/node_modules/@rei-standard/amsg-shared/dist/index.mjs
 var TEXT_ENCODER = new TextEncoder();
 var TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 function toUint8(buf) {
@@ -2704,7 +2704,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-EIM3PKFY.mjs
+// ../../../Users/tntobsidian/Documents/GitHub/SullyOS/node_modules/.pnpm/@rei-standard+amsg-server@3.1.0_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-A4LPROFY.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -3559,6 +3559,11 @@ function sanitizeErrorSummary(reason) {
   const safe = redactCredentials(flattened);
   return safe.length > ERROR_SUMMARY_MAX_CHARS ? `${safe.slice(0, ERROR_SUMMARY_MAX_CHARS - 3)}\u2026` : safe;
 }
+var D1_LIMIT_CODES = [
+  [/Exceeded maximum DB size/i, "D1_STORAGE_FULL"],
+  [/daily row read limit/i, "D1_DAILY_READ_LIMIT"],
+  [/daily row write limit/i, "D1_DAILY_WRITE_LIMIT"]
+];
 function summarizeErrorCause(error, stage) {
   const raw = error && typeof error === "object" ? (
     /** @type {any} */
@@ -3573,6 +3578,9 @@ function summarizeErrorCause(error, stage) {
   };
   if (typeof raw.code === "string" && raw.code) {
     cause.code = sanitizeErrorSummary(raw.code).slice(0, 100);
+  } else {
+    const limit = D1_LIMIT_CODES.find(([pattern]) => pattern.test(rawMessage));
+    if (limit) cause.code = limit[1];
   }
   return cause;
 }
@@ -6306,9 +6314,19 @@ async function deriveSerializeGroup(userKey, rawKey) {
   return bytesToBase64Url(await hmacSha256(utf8(userKey), utf8(rawKey)));
 }
 async function runScheduledTick(ctx) {
-  const tasks = await ctx.db.getPendingTasks(50);
-  const summary = await deliverTasks(ctx, tasks);
-  await ctx.db.cleanupOldTasks(7);
+  try {
+    const tasks = await ctx.db.getPendingTasks(50);
+    return await deliverTasks(ctx, tasks);
+  } finally {
+    await runTickCleanup(ctx);
+  }
+}
+async function runTickCleanup(ctx) {
+  try {
+    await ctx.db.cleanupOldTasks(7);
+  } catch (error) {
+    console.warn("[amsg-server] cleanupOldTasks \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
+  }
   if (typeof ctx.db.cleanupOutbox === "function") {
     try {
       await ctx.db.cleanupOutbox({
@@ -6320,7 +6338,6 @@ async function runScheduledTick(ctx) {
     }
   }
   await cleanupExpiredClientState(ctx);
-  return summary;
 }
 async function cleanupExpiredClientState(ctx) {
   if (typeof ctx.db.cleanupClientState !== "function") return;
@@ -9790,7 +9807,7 @@ function createClientStateNamespacesHandler(ctx) {
   }
   return { GET };
 }
-var SERVER_VERSION = true ? "3.1.0-next.1" : "0.0.0-dev";
+var SERVER_VERSION = true ? "3.1.0" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -11572,158 +11589,8 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
   return { fetch: fetch2, scheduled, runTask: runTask2, getSchemaVersion: getSchemaVersion2, ensureSchema: ensureSchema2 };
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.11/node_modules/@rei-standard/amsg-shared/dist/index.mjs
-var TEXT_ENCODER2 = new TextEncoder();
-var TEXT_DECODER2 = new TextDecoder("utf-8", { fatal: false });
-function utf83(str) {
-  return TEXT_ENCODER2.encode(String(str));
-}
-var LLM_MESSAGES_ERROR2 = Object.freeze({
-  MESSAGES_NOT_ARRAY: "MESSAGES_NOT_ARRAY",
-  MESSAGE_NOT_OBJECT: "MESSAGE_NOT_OBJECT",
-  INVALID_ROLE: "INVALID_ROLE",
-  TOOL_CALL_MALFORMED: "TOOL_CALL_MALFORMED",
-  TOOL_CONTENT_INVALID: "TOOL_CONTENT_INVALID",
-  TOOL_CALL_ID_MISSING: "TOOL_CALL_ID_MISSING",
-  CONTENT_EMPTY_STRING: "CONTENT_EMPTY_STRING",
-  CONTENT_EMPTY_ARRAY: "CONTENT_EMPTY_ARRAY",
-  CONTENT_INVALID_TYPE: "CONTENT_INVALID_TYPE"
-});
-var UPSTREAM_ERROR_BODY_MAX_BYTES2 = 16 * 1024;
-var CREDENTIAL_LIKE_TOKEN2 = /\b[A-Za-z]{2,6}-[A-Za-z0-9_-]{16,}/g;
-var LONG_OPAQUE_RUN2 = /[A-Za-z0-9+/_.-]{48,}/g;
-var MODEL_ID_LIKE2 = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]{1,12})+$/;
-var MODEL_ID_MAX_CHARS2 = 64;
-var CREDENTIAL_PREFIX_SEGMENTS2 = /* @__PURE__ */ new Set([
-  "sk",
-  "pk",
-  "ak",
-  "api",
-  "apikey",
-  "key",
-  "token",
-  "secret",
-  "auth",
-  "bearer",
-  "session",
-  "sess",
-  "pat",
-  "xai",
-  "gsk"
-]);
-var UUID_SHAPE2 = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/;
-function alternationCount2(segment) {
-  return (segment.match(/[a-z]+|[0-9]+/g) || []).length;
-}
-var MOE_SIZE_SEGMENT2 = /^\d+x\d+b$/;
-var HEX_SEGMENT2 = /^[0-9a-f]+$/;
-var HEX_RUN_MAX_CHARS2 = 15;
-function looksLikeModelId2(token) {
-  if (token.length > MODEL_ID_MAX_CHARS2) return false;
-  if (!MODEL_ID_LIKE2.test(token)) return false;
-  if (UUID_SHAPE2.test(token)) return false;
-  const segments = token.split(/[.-]/);
-  if (CREDENTIAL_PREFIX_SEGMENTS2.has(segments[0])) return false;
-  let hexRunChars = 0;
-  for (const segment of segments) {
-    if (HEX_SEGMENT2.test(segment)) {
-      hexRunChars += segment.length;
-      if (hexRunChars > HEX_RUN_MAX_CHARS2) return false;
-    } else {
-      hexRunChars = 0;
-    }
-  }
-  return segments.every(
-    (segment) => alternationCount2(segment) < 3 || MOE_SIZE_SEGMENT2.test(segment)
-  );
-}
-function redactCredentials2(text2) {
-  let s = text2;
-  s = s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
-  s = s.replace(CREDENTIAL_LIKE_TOKEN2, (token) => looksLikeModelId2(token) ? token : "[redacted]");
-  s = s.replace(LONG_OPAQUE_RUN2, (run) => {
-    const token = run.replace(/^[._+/-]+/, "").replace(/[._+/-]+$/, "");
-    return looksLikeModelId2(token) ? run : "[redacted]";
-  });
-  return s;
-}
-var KEY_INFO_PREFIX2 = utf83("WebPush: info\0");
-var CEK_INFO2 = utf83("Content-Encoding: aes128gcm\0");
-var NONCE_INFO2 = utf83("Content-Encoding: nonce\0");
-var VAPID_TOKEN_LIFETIME2 = 12 * 3600;
-var REI_SW_EVENT2 = Object.freeze({
-  CONTENT_RECEIVED: "rei-amsg-content-received",
-  REASONING_RECEIVED: "rei-amsg-reasoning-received",
-  TOOL_REQUEST_RECEIVED: "rei-amsg-tool-request-received",
-  ERROR_RECEIVED: "rei-amsg-error-received",
-  /** 宿主自定义的一条结果（`messageKind: 'result'`），不是聊天内容。 */
-  RESULT_RECEIVED: "rei-amsg-result-received",
-  MULTIPART_EXPIRED: "rei-amsg-multipart-expired",
-  UNKNOWN_RECEIVED: "rei-amsg-unknown-received"
-});
-var MULTIPART_FAILURE_REASON2 = Object.freeze({
-  /** TTL 到期仍未收齐，或收到的分片本身已经过期。 */
-  TTL_EXPIRED: "ttl-expired",
-  /** 分片信封不合规：version / encoding 对不上、index 越界、chunk 不是合法 base64url。 */
-  INVALID_CHUNK: "invalid-chunk",
-  /** 同一个 id 的分片报了不一样的 total / encoding，已收的部分拼不回去。 */
-  CHUNK_CONFLICT: "chunk-conflict",
-  /** 累计字节数超过 maxTotalBytes。 */
-  SIZE_LIMIT_EXCEEDED: "size-limit-exceeded",
-  /** 收齐了但拼不回原 payload（缺片、超限、JSON 解不开）。 */
-  RESTORE_FAILED: "restore-failed",
-  /** 分片仓库（IndexedDB）读写失败。 */
-  STORAGE_FAILED: "storage-failed",
-  /** 接收端把 multipart 关了（`multipart.enabled === false`），分片没法重组。 */
-  DISABLED: "disabled"
-});
-var REI_SW_MESSAGE_TYPE2 = Object.freeze({
-  ENQUEUE_REQUEST: "REI_ENQUEUE_REQUEST",
-  DELIVER: "REI_AMSG_DELIVER",
-  FLUSH_QUEUE: "REI_FLUSH_QUEUE",
-  /**
-   * 入队的点对点回执：谁发的 ENQUEUE_REQUEST 就回给谁一条，一次一条。
-   * 没转 MessagePort 过来时会落到全局的 `navigator.serviceWorker` message
-   * 监听器上。
-   */
-  QUEUE_RESULT: "REI_QUEUE_RESULT",
-  /**
-   * 队列请求被永久拒绝、即将从队列里删掉时广播给所有窗口的一条。
-   *
-   * 跟 QUEUE_RESULT 分开是因为两者的收信人不是一回事：这条是广播，可能来自后台
-   * `sync` 冲刷、说的也可能是另一条八竿子打不着的旧请求。共用一个 type 的话，
-   * 页面等自己那条入队回执时会先收到这一条、当成自己的结果处理。
-   */
-  QUEUE_DROPPED: "REI_QUEUE_DROPPED"
-});
-var REI_AMSG_DELIVER_MESSAGE_TYPE2 = REI_SW_MESSAGE_TYPE2.DELIVER;
-var MESSAGE_KIND2 = Object.freeze({
-  CONTENT: "content",
-  REASONING: "reasoning",
-  TOOL_REQUEST: "tool_request",
-  ERROR: "error",
-  RESULT: "result"
-});
-var MESSAGE_TYPE2 = Object.freeze({
-  INSTANT: "instant",
-  FIXED: "fixed",
-  PROMPTED: "prompted",
-  AUTO: "auto"
-});
-var PUSH_SOURCE2 = Object.freeze({
-  INSTANT: "instant",
-  SCHEDULED: "scheduled"
-});
-var REASONING_CHUNK_ENCODER2 = new TextEncoder();
-var REASONING_CHUNK_DECODER2 = new TextDecoder("utf-8", { fatal: true });
-var REASONING_TAG_RE_G2 = /<(think|thinking|thought)>[\s\S]*?<\/\1>/gi;
-function stripReasoningTags2(content) {
-  if (typeof content !== "string" || !content.includes("<")) return content;
-  return content.replace(REASONING_TAG_RE_G2, "").trim();
-}
-
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-10-29";
+var AMSG_BUNDLE_VERSION = "2026-11-04";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -11777,7 +11644,7 @@ var readBodyError = (body, hasChoices) => {
     const topLevel = body.message ?? body.msg;
     if (typeof topLevel === "string") text2 = topLevel;
   }
-  return text2 ? clip(redactCredentials2(text2), BODY_ERROR_MAX_CHARS) : null;
+  return text2 ? clip(redactCredentials(text2), BODY_ERROR_MAX_CHARS) : null;
 };
 var describeLlmResponseShape = (llmResponse, llmOutputText) => {
   const body = asRecord(llmResponse);
@@ -11798,7 +11665,7 @@ var describeLlmResponseShape = (llmResponse, llmOutputText) => {
     contentType,
     contentChars,
     ...Array.isArray(content) ? { contentParts: content.length } : {},
-    visibleChars: stripReasoningTags2(llmOutputText || "").trim().length,
+    visibleChars: stripReasoningTags(llmOutputText || "").trim().length,
     reasoningChars: readReasoning(message).length,
     toolCalls: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
     usage: usage ? {
@@ -11813,23 +11680,23 @@ var excerptLlmResponse = (llmResponse) => {
   const body = asRecord(llmResponse);
   const hasChoices = Array.isArray(body?.choices) && body.choices.length > 0;
   if (!hasChoices) {
-    return { body: clip(redactCredentials2(safeStringify(llmResponse)), BODY_EXCERPT_CHARS) };
+    return { body: clip(redactCredentials(safeStringify(llmResponse)), BODY_EXCERPT_CHARS) };
   }
   const { message } = readFirstMessage(body);
   const excerpt = {};
   const content = message?.content;
   if (typeof content === "string") {
-    if (content) excerpt.content = clip(redactCredentials2(content), CONTENT_EXCERPT_CHARS);
+    if (content) excerpt.content = clip(redactCredentials(content), CONTENT_EXCERPT_CHARS);
   } else if (content != null) {
-    excerpt.content = clip(redactCredentials2(safeStringify(content)), CONTENT_EXCERPT_CHARS);
+    excerpt.content = clip(redactCredentials(safeStringify(content)), CONTENT_EXCERPT_CHARS);
   }
   const reasoning = readReasoning(message);
   if (reasoning) {
     const tail = reasoning.length > REASONING_TAIL_CHARS ? `\u2026${reasoning.slice(-REASONING_TAIL_CHARS)}` : reasoning;
-    excerpt.reasoningTail = redactCredentials2(tail);
+    excerpt.reasoningTail = redactCredentials(tail);
   }
   if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
-    excerpt.toolCalls = clip(redactCredentials2(safeStringify(message.tool_calls)), CONTENT_EXCERPT_CHARS);
+    excerpt.toolCalls = clip(redactCredentials(safeStringify(message.tool_calls)), CONTENT_EXCERPT_CHARS);
   }
   return excerpt;
 };
@@ -13647,6 +13514,27 @@ var handleInstantChat = async (args) => {
   });
 };
 
+// utils/amsgSelfUpdateState.ts
+var findCfTokenRejection = (text2) => /\d+: invalid (access|api) token/i.exec(text2)?.[0] ?? null;
+var cfTokenRejectedMessage = (detail, hasAccountId) => `Cloudflare \u4E0D\u8BA4\u8FD9\u679A CF_API_TOKEN\uFF08${detail}\uFF09\uFF0C\u591A\u534A\u5DF2\u7ECF\u8FC7\u671F\u6216\u88AB\u5220\u4E86\u3002\u53BB Cloudflare \u65B0\u5EFA\u4E00\u679A\uFF08\u53EA\u52FE Workers Scripts \u2192 Edit\uFF09\uFF0C\u66FF\u6362 Worker \u91CC\u7684 CF_API_TOKEN\u3002` + (hasAccountId ? "" : "\u5982\u679C\u5B83\u662F cfat_ \u5F00\u5934\u7684\u8D26\u53F7\u4EE4\u724C\uFF0C\u6362\u6210\u666E\u901A API Token\uFF0C\u6216\u8005\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID\u3002");
+var OUTCOMES = /* @__PURE__ */ new Set(["updated", "up_to_date", "failed"]);
+var SOURCES = /* @__PURE__ */ new Set(["cron", "client", "manual"]);
+var parseAmsgSelfUpdateState = (raw) => {
+  const value = raw;
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.lastCheckAt !== "string" || Number.isNaN(Date.parse(value.lastCheckAt))) return null;
+  if (typeof value.lastOutcome !== "string" || !OUTCOMES.has(value.lastOutcome)) return null;
+  const error = value.lastError;
+  return {
+    lastCheckAt: value.lastCheckAt,
+    lastSource: typeof value.lastSource === "string" && SOURCES.has(value.lastSource) ? value.lastSource : "cron",
+    lastOutcome: value.lastOutcome,
+    bundleHash: typeof value.bundleHash === "string" && value.bundleHash ? value.bundleHash : null,
+    lastUpdatedAt: typeof value.lastUpdatedAt === "string" ? value.lastUpdatedAt : null,
+    lastError: error && typeof error === "object" && typeof error.code === "string" ? { code: error.code, message: typeof error.message === "string" ? error.message : "" } : null
+  };
+};
+
 // worker/amsg/src/selfUpdate.ts
 var CF_API = "https://api.cloudflare.com/client/v4";
 var BUNDLE_URL = "https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js";
@@ -13720,18 +13608,20 @@ async function locateScript(env, token, scriptName) {
   if (configured) {
     const settings = await cf(token, settingsPath(configured));
     if (!settings.ok) {
+      const rejected = findCfTokenRejection(settings.detail);
       return {
         ok: false,
-        message: `\u5728 CF_ACCOUNT_ID \u6307\u5B9A\u7684\u8D26\u53F7\u91CC\u8BFB\u4E0D\u5230\u8FD9\u4E2A Worker \u7684\u914D\u7F6E\uFF08${settings.detail}\uFF09\u3002`
+        message: rejected ? cfTokenRejectedMessage(rejected, true) : `\u5728 CF_ACCOUNT_ID \u6307\u5B9A\u7684\u8D26\u53F7\u91CC\u8BFB\u4E0D\u5230\u8FD9\u4E2A Worker \u7684\u914D\u7F6E\uFF08${settings.detail}\uFF09\u3002`
       };
     }
     return { ok: true, accountId: configured, settings: settings.result };
   }
   const listed = await cf(token, "/accounts");
   if (!listed.ok) {
+    const rejected = findCfTokenRejection(listed.detail);
     return {
       ok: false,
-      message: `\u95EE\u4E0D\u5230\u8D26\u53F7\u5217\u8868\uFF08${listed.detail}\uFF09\u3002\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID \u53D8\u91CF\u5373\u53EF\u8DF3\u8FC7\u8FD9\u4E00\u6B65\u3002`
+      message: rejected ? cfTokenRejectedMessage(rejected, false) : `\u95EE\u4E0D\u5230\u8D26\u53F7\u5217\u8868\uFF08${listed.detail}\uFF09\u3002\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID \u53D8\u91CF\u5373\u53EF\u8DF3\u8FC7\u8FD9\u4E00\u6B65\u3002`
     };
   }
   const accounts = Array.isArray(listed.result) ? listed.result : [];
@@ -13897,25 +13787,6 @@ async function handleSelfUpdate(request, env) {
   if (!fetched.ok) return fail("BUNDLE_INVALID", fetched.message);
   return performSelfUpdate(env, gate.token, scriptName, fetched.bundle);
 }
-
-// utils/amsgSelfUpdateState.ts
-var OUTCOMES = /* @__PURE__ */ new Set(["updated", "up_to_date", "failed"]);
-var SOURCES = /* @__PURE__ */ new Set(["cron", "client", "manual"]);
-var parseAmsgSelfUpdateState = (raw) => {
-  const value = raw;
-  if (!value || typeof value !== "object") return null;
-  if (typeof value.lastCheckAt !== "string" || Number.isNaN(Date.parse(value.lastCheckAt))) return null;
-  if (typeof value.lastOutcome !== "string" || !OUTCOMES.has(value.lastOutcome)) return null;
-  const error = value.lastError;
-  return {
-    lastCheckAt: value.lastCheckAt,
-    lastSource: typeof value.lastSource === "string" && SOURCES.has(value.lastSource) ? value.lastSource : "cron",
-    lastOutcome: value.lastOutcome,
-    bundleHash: typeof value.bundleHash === "string" && value.bundleHash ? value.bundleHash : null,
-    lastUpdatedAt: typeof value.lastUpdatedAt === "string" ? value.lastUpdatedAt : null,
-    lastError: error && typeof error === "object" && typeof error.code === "string" ? { code: error.code, message: typeof error.message === "string" ? error.message : "" } : null
-  };
-};
 
 // utils/amsgTickReport.ts
 var TICK_STALL_MS = 5 * 6e4;
@@ -16937,12 +16808,12 @@ function extractFriendFeedReplyTags(raw, namespace = "FRIEND_FEED_REPLY") {
   return { text: text2 + raw.slice(cursor), actions };
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.9/node_modules/@rei-standard/amsg-instant/dist/index.mjs
+// ../../../Users/tntobsidian/Documents/GitHub/SullyOS/node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0/node_modules/@rei-standard/amsg-instant/dist/index.mjs
 var WEB_PUSH_MAX_BODY_BYTES2 = 4096;
 var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2 = 16 + 4 + 1 + 65 + 1 + 16;
 var MAX_PUSH_PAYLOAD_BYTES2 = WEB_PUSH_MAX_BODY_BYTES2 - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2;
 var PROBE_BYTE_ENCODER = new TextEncoder();
-var LONGEST_MESSAGE_KIND = Object.values(MESSAGE_KIND2).reduce((longest, kind) => kind.length > longest.length ? kind : longest, "");
+var LONGEST_MESSAGE_KIND = Object.values(MESSAGE_KIND).reduce((longest, kind) => kind.length > longest.length ? kind : longest, "");
 var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
 function segmentTextWithProtectedBlocks(text2, options) {
   if (!text2) return [];
@@ -18263,15 +18134,65 @@ function buildScheduleChangeResult(args) {
   };
 }
 
+// utils/amsgThirdPartyPush.ts
+var WXPUSHER_SIMPLE_PUSH_URL = "https://wxpusher.zjiecode.com/api/send/message/simple-push";
+function parseThirdPartyPushEndpoint(endpoint) {
+  const raw = (endpoint || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("wxpusher:")) {
+    const token2 = raw.slice("wxpusher:".length).trim();
+    if (!token2) return null;
+    return {
+      provider: "wxpusher",
+      token: token2,
+      serverOrigin: "https://wxpusher.zjiecode.com"
+    };
+  }
+  const match = raw.match(/^(bark|meow):(https?:\/\/.+)\/([^/?#]+)\/?$/i);
+  if (!match) return null;
+  const provider = match[1].toLowerCase();
+  const serverOrigin = match[2].replace(/\/+$/, "");
+  let token = "";
+  try {
+    token = decodeURIComponent(match[3]).trim();
+  } catch {
+    token = match[3].trim();
+  }
+  if (!token) return null;
+  return {
+    provider,
+    token,
+    serverOrigin
+  };
+}
+function buildThirdPartyClickUrl(baseUrl, charId) {
+  const raw = (baseUrl || "").trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) return void 0;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      return void 0;
+    }
+    const trimmedCharId = (charId || "").trim();
+    if (trimmedCharId) {
+      parsed.searchParams.set("openApp", "chat");
+      parsed.searchParams.set("activeMsgCharId", trimmedCharId);
+    }
+    return parsed.toString();
+  } catch {
+    return void 0;
+  }
+}
+
 // worker/amsg/src/nativeFcm.ts
 var accessTokenCache = null;
-var utf84 = new TextEncoder();
+var utf83 = new TextEncoder();
 var bytesToB64u = (bytes) => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
-var textToB64u = (value) => bytesToB64u(utf84.encode(value));
+var textToB64u = (value) => bytesToB64u(utf83.encode(value));
 var pemToPkcs8 = (raw) => {
   const base64 = raw.replace(/\\n/g, "\n").replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
   if (!base64) throw new Error("FCM_SERVICE_ACCOUNT_PRIVATE_KEY \u4E0D\u662F\u6709\u6548\u7684 PKCS#8 PEM");
@@ -18308,7 +18229,7 @@ var fetchFcmAccessToken = async (env) => {
     false,
     ["sign"]
   );
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, utf84.encode(unsigned));
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, utf83.encode(unsigned));
   const assertion = `${unsigned}.${bytesToB64u(new Uint8Array(signature))}`;
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -18361,7 +18282,7 @@ var buildFcmMessage = (token, rawPayload) => {
       }
     }
   };
-  const bytes = utf84.encode(JSON.stringify(result)).byteLength;
+  const bytes = utf83.encode(JSON.stringify(result)).byteLength;
   if (bytes > 4e3) throw new Error(`FCM_PAYLOAD_TOO_LARGE: ${bytes} bytes\uFF08\u5B89\u5168\u4E0A\u9650 4000\uFF09`);
   return result;
 };
@@ -18383,10 +18304,128 @@ var sendFcmNotification = async (env, token, payload) => {
     throw new Error(`FCM_SEND_FAILED (${response.status}): ${detail.slice(0, 500)}`);
   }
 };
+var isSilentPushPayload = (payload) => {
+  const show = payload.notification?.show;
+  if (show === "never" || show === false) return true;
+  const kind = payload.messageKind;
+  if (kind === "reasoning" || kind === "tool-request") return true;
+  return false;
+};
+var buildThirdPartyPushRequest = (parsed, subscription, rawPayload) => {
+  let payload = {};
+  try {
+    payload = JSON.parse(rawPayload);
+  } catch {
+    payload = { body: rawPayload };
+  }
+  if (isSilentPushPayload(payload)) {
+    return null;
+  }
+  const title = String(
+    payload.notification?.title ?? payload.title ?? payload.contactName ?? payload.metadata?.charName ?? "\u4E3B\u52A8\u6D88\u606F"
+  ).trim() || "\u4E3B\u52A8\u6D88\u606F";
+  const actualBody = String(
+    payload.notification?.body ?? payload.message ?? payload.body ?? ""
+  ).trim();
+  const body = actualBody || "\u6709\u4E00\u6761\u65B0\u6D88\u606F";
+  const charId = String(payload.charId ?? payload.metadata?.charId ?? "").trim() || void 0;
+  const rawAvatarUrl = String(
+    payload.avatarUrl ?? payload.notification?.icon ?? payload.metadata?.avatarUrl ?? ""
+  ).trim();
+  const avatarUrl = /^https?:\/\//i.test(rawAvatarUrl) ? rawAvatarUrl : void 0;
+  const clickUrl = buildThirdPartyClickUrl(
+    typeof subscription?.clickUrl === "string" ? subscription.clickUrl : void 0,
+    charId
+  );
+  if (parsed.provider === "wxpusher") {
+    const summary = `${title}\uFF1A${body}`.slice(0, 96);
+    const content = `${title}
+
+${body}`;
+    return {
+      url: WXPUSHER_SIMPLE_PUSH_URL,
+      body: {
+        spt: parsed.token,
+        summary,
+        content,
+        contentType: 1,
+        ...clickUrl ? { url: clickUrl } : {}
+      }
+    };
+  }
+  if (parsed.provider === "bark") {
+    return {
+      url: `${parsed.serverOrigin}/push`,
+      body: {
+        device_key: parsed.token,
+        title,
+        body,
+        group: charId ? `amsg-${charId}` : "sullyos",
+        ...avatarUrl ? { icon: avatarUrl } : {},
+        ...clickUrl ? { url: clickUrl } : {}
+      }
+    };
+  }
+  return {
+    url: `${parsed.serverOrigin}/${encodeURIComponent(parsed.token)}`,
+    body: {
+      title,
+      msg: body,
+      ...clickUrl ? { url: clickUrl } : {}
+    }
+  };
+};
+var sendThirdPartyNotification = async (parsed, subscription, rawPayload) => {
+  const req = buildThirdPartyPushRequest(parsed, subscription, rawPayload);
+  if (!req) {
+    return { skipped: true, reason: "silent-payload" };
+  }
+  const response = await fetch(req.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify(req.body)
+  });
+  const text2 = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = text2 ? JSON.parse(text2) : null;
+  } catch {
+    json = null;
+  }
+  if (parsed.provider === "wxpusher") {
+    const code = typeof json?.code === "number" ? json.code : void 0;
+    const ok2 = response.ok && (code === void 0 || code === 1e3) && json?.success !== false;
+    if (!ok2) {
+      const msg = String(json?.msg || text2 || `HTTP ${response.status}`).slice(0, 300);
+      throw new Error(`WXPUSHER_SEND_FAILED (${code ?? response.status}): ${msg}`);
+    }
+    return { ok: true, provider: "wxpusher" };
+  }
+  if (parsed.provider === "bark") {
+    const code = typeof json?.code === "number" ? json.code : void 0;
+    const ok2 = response.ok && (code === void 0 || code === 200);
+    if (!ok2) {
+      const msg = String(json?.message || text2 || `HTTP ${response.status}`).slice(0, 300);
+      throw new Error(`BARK_SEND_FAILED (${code ?? response.status}): ${msg}`);
+    }
+    return { ok: true, provider: "bark" };
+  }
+  const ok = response.ok && json?.status !== 500 && json?.status !== 400;
+  if (!ok) {
+    const msg = String(json?.message || json?.msg || text2 || `HTTP ${response.status}`).slice(0, 300);
+    throw new Error(`MEOW_SEND_FAILED (${response.status}): ${msg}`);
+  }
+  return { ok: true, provider: "meow" };
+};
 var createHybridPushTransport = (env, webPush) => ({
   async sendNotification(subscription, payload) {
-    const token = fcmTokenFromEndpoint(subscription?.endpoint);
+    const endpoint = subscription?.endpoint;
+    const token = fcmTokenFromEndpoint(endpoint);
     if (token) return sendFcmNotification(env, token, payload);
+    const thirdParty = parseThirdPartyPushEndpoint(typeof endpoint === "string" ? endpoint : null);
+    if (thirdParty) return sendThirdPartyNotification(thirdParty, subscription, payload);
     return webPush.sendNotification(subscription, payload);
   }
 });
@@ -19590,7 +19629,7 @@ ${userHoliday}` });
       }
       return handler.llmOutput({ ctx, state: kindFire.state });
     }
-    const content = stripReasoningTags2(ctx.llmOutputText || "").trim();
+    const content = stripReasoningTags(ctx.llmOutputText || "").trim();
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
     if (taskId == null) {
       console.warn("[amsg:agentic] ctx \u4E0A\u6CA1\u6709 taskId\uFF0C\u9001\u8FBE\u5F52\u5C5E\u4F1A\u5931\u6548", ctx.sessionId);
@@ -19919,8 +19958,13 @@ var buildWorkerConfig = (env) => {
     privateKey: env.VAPID_PRIVATE_KEY
   };
   const nativeFcmReady = isFcmConfigured(env);
-  const effectiveVapid = nativeFcmReady && (!vapid.publicKey?.trim() || !vapid.privateKey?.trim()) ? { email: vapid.email, publicKey: "native-fcm", privateKey: "native-fcm" } : vapid;
-  const webpush = createHybridPushTransport(env, createWebCryptoWebPush(effectiveVapid));
+  const hasRealVapid = Boolean(vapid.publicKey?.trim() && vapid.privateKey?.trim());
+  const effectiveVapid = hasRealVapid ? vapid : {
+    email: vapid.email,
+    publicKey: nativeFcmReady ? "native-fcm" : "third-party-push",
+    privateKey: nativeFcmReady ? "native-fcm" : "third-party-push"
+  };
+  const webpush = createHybridPushTransport(env, createWebCryptoWebPush(vapid));
   configureInstantErrorPush(env.DB && env.AMSG_MASTER_KEY ? { webpush, db: env.DB, masterKey: env.AMSG_MASTER_KEY } : null);
   configureSkipDiagnostics({ rawExcerpt: isDebugFlagOn(env.AMSG_DEBUG_LLM_RAW) });
   return {
@@ -20223,6 +20267,7 @@ var src_default = {
           // 正常，而门牌永远不更新。报的是**这份代码有没有**，不是版本号：自更新永远由
           // 旧代码执行，版本号对上了不代表新逻辑真的在跑。
           backgroundJobs: true,
+          thirdPartyPush: true,
           workerVersion: AMSG_BUNDLE_VERSION,
           // 自动更新：有没有这个能力（配没配 CF_API_TOKEN，不回值）+ 最近一次检查的结果。
           // 读的是诊断表，D1 没绑上时读不到就是 null，不影响上面那些照常回答。
@@ -20382,6 +20427,77 @@ var src_default = {
         });
       }
       return handleInstantChat({ request, env, upstream, json: jsonWithCors });
+    }
+    if (pathname.endsWith("/test-push")) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (method !== "POST") {
+        return jsonWithCors(405, {
+          success: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "/test-push \u53EA\u63A5\u53D7 POST" }
+        });
+      }
+      const token = env.AMSG_SERVER_TOKEN?.trim() ?? "";
+      const clientToken = request.headers.get("X-Client-Token") ?? "";
+      if (token && (!clientToken || !await constantTimeEqual2(clientToken, token))) {
+        return jsonWithCors(401, {
+          success: false,
+          error: { code: "INVALID_CLIENT_TOKEN", message: "\u5171\u4EAB\u5BC6\u94A5\u65E0\u6548\u6216\u7F3A\u5931" }
+        });
+      }
+      try {
+        const reqUserId = request.headers.get("X-User-Id")?.trim() || "";
+        const db = env.DB;
+        const row = reqUserId ? await db.prepare("SELECT user_id, subscription FROM push_subscriptions WHERE user_id = ? LIMIT 1").bind(reqUserId).first() : await db.prepare("SELECT user_id, subscription FROM push_subscriptions LIMIT 1").first();
+        const stored = row?.subscription;
+        const userId = row?.user_id;
+        if (typeof stored !== "string" || !stored || typeof userId !== "string" || !userId) {
+          return jsonWithCors(404, {
+            success: false,
+            error: { code: "SUBSCRIPTION_NOT_FOUND", message: "\u4E91\u7AEF\u8FD8\u6CA1\u6709\u767B\u8BB0\u63A8\u9001\u8BA2\u9605\uFF0C\u8BF7\u5148\u4FDD\u5B58\u6216\u767B\u8BB0\u63A8\u9001\u914D\u7F6E\u3002" }
+          });
+        }
+        let subscription;
+        try {
+          const userKey = await deriveUserEncryptionKey(userId, env.AMSG_MASTER_KEY.trim());
+          subscription = JSON.parse(await decryptFromStorage(stored, userKey));
+        } catch {
+          subscription = JSON.parse(stored);
+        }
+        const payload = {
+          messageKind: "test-push",
+          messageType: "instant",
+          messageId: `test_${Date.now()}`,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          contactName: "SullyOS \u63A8\u9001\u6D4B\u8BD5",
+          message: "\u5982\u679C\u4F60\u5728\u624B\u673A\u901A\u77E5\u680F\u770B\u5230\u8FD9\u6761\u6D88\u606F\uFF0C\u8BF4\u660E\u4E3B\u52A8\u6D88\u606F\u63A8\u9001\u901A\u9053\u5DF2\u7ECF\u63A5\u901A\uFF01",
+          notification: {
+            title: "SullyOS \u63A8\u9001\u6D4B\u8BD5",
+            body: "\u5982\u679C\u4F60\u5728\u624B\u673A\u901A\u77E5\u680F\u770B\u5230\u8FD9\u6761\u6D88\u606F\uFF0C\u8BF4\u660E\u4E3B\u52A8\u6D88\u606F\u63A8\u9001\u901A\u9053\u5DF2\u7ECF\u63A5\u901A\uFF01",
+            show: "always",
+            tag: "sullyos-test-push",
+            renotify: true
+          }
+        };
+        const cfg = buildWorkerConfig(env);
+        await cfg.webpush.sendNotification(subscription, JSON.stringify(payload));
+        return jsonWithCors(200, {
+          success: true,
+          data: { sent: true }
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonWithCors(502, {
+          success: false,
+          error: { code: "TEST_PUSH_FAILED", message }
+        });
+      }
+    }
+    if (pathname.endsWith("/vapid-public-key") && (!env.VAPID_PUBLIC_KEY?.trim() || !env.VAPID_PRIVATE_KEY?.trim())) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return jsonWithCors(503, {
+        success: false,
+        error: { code: "VAPID_NOT_CONFIGURED", message: "Worker \u672A\u914D\u7F6E VAPID \u5BC6\u94A5\u5BF9\uFF0C\u6D4F\u89C8\u5668 Web Push \u4E0D\u53EF\u7528\uFF08\u53EF\u4F7F\u7528\u7B2C\u4E09\u65B9\u63A8\u9001 App\uFF09\u3002" }
+      });
     }
     return upstream.fetch(request, env);
   },

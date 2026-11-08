@@ -1,5 +1,6 @@
 import { handleLocalBack } from '../utils/localBackHandlers';
 import { exportShelfBooks } from '../utils/novelReader';
+import { updateVirtualTimeIfChanged } from '../utils/blurPolicy';
 import {isHomeAssetDisposal} from '../utils/homeAssetCancellation';
 import { processHomeMemoryAfterSave } from '../utils/homeMemoryPostHook';
 import { homeSharedRecipients } from '../utils/homeSharedEvents';
@@ -950,10 +951,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const [virtualTime, setVirtualTime] = useState<VirtualTime>(getRealTime());
   
-  // Real-time Clock Sync
+  // Real-time Clock Sync（仅当分钟或星期变化时更新状态引用，避免每秒触发无关子树重绘）
   useEffect(() => {
       const timer = setInterval(() => {
-          setVirtualTime(getRealTime());
+          setVirtualTime(prev => updateVirtualTimeIfChanged(prev, getRealTime()));
       }, 1000);
       return () => clearInterval(timer);
   }, []);
