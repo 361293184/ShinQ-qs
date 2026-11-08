@@ -35,6 +35,7 @@ import { getDailyScheduleForChar } from './dailySchedule';
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
 import { voiceLanguagePromptLabel } from './voiceLanguage';
+import { normalizeVoiceTags } from './sanitize';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -1061,7 +1062,7 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
         // 状态也会隐藏 date/call/story 消息，而 API 历史仍会携带它们。
         // fire_pack 不烤：打包时确实刚挂电话，但那条主动消息可能是第二天凌晨才发出去的，
         // 角色照着这句接一句「刚才电话里说的那个……」就穿帮了。
-        const returningFromMode = !forFirePack
+        const returningFromMode = !forFirePack && promptOptions?.appRules === undefined
             ? (promptOptions?.returningFromMode || detectChatModeTransition(currentMsgs))
             : null;
         if (returningFromMode) {
@@ -1218,7 +1219,8 @@ ${voiceActingGuide()}`;
                     if(options?.useVisionDescriptions || !images.length)return {role:m.role,content:text+(images.length?'\n配图描述暂不可用，请不要猜测。':'')};
                     return {role:m.role,content:[{type:'text',text},...images.map((url:string)=>({type:'image_url',image_url:{url}}))]};
                 }
-                let content: any = m.content;
+                // 历史里的坏语音格式按规范写法呈现：模型照着上文学格式，旧错不能一路示范下去
+                let content: any = m.role === 'assistant' && typeof m.content === 'string' ? normalizeVoiceTags(m.content) : m.content;
                 const timeStr = timeAwarenessOn && hasReliableMessageTimestamp(m) ? `[${ChatPrompts.formatDate(m.timestamp, charTz)}]` : '';
                 const sourceTag = (() => {
                     const source = m.metadata?.source;

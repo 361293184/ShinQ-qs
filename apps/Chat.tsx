@@ -94,6 +94,8 @@ import TokenImg from '../components/os/TokenImg';
 import MemoryContextSelfCheck from '../components/chat/MemoryContextSelfCheck';
 import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
+import AwayMessageSettingsModal from '../components/chat/AwayMessageSettingsModal';
+import { cancelCloudAwayTasks } from '../utils/awayMessage';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import OfflineSettingsModal from '../components/chat/OfflineSettingsModal';
 import OfflineInputBall from '../components/chat/OfflineInputBall';
@@ -393,6 +395,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
+    const [showAwayMessageModal, setShowAwayMessageModal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
     // Archive Prompts State
@@ -1933,7 +1936,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         // 选表情、选分类之类的动作不上报。
         if ([
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
-            'meetup', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
+            'meetup', 'active-msg-2', 'away-message', 'schedule', 'mcd-request', 'luckin-request',
             'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'favorites', 'collaboration',
             'offline-toggle', 'offline-settings',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
@@ -1963,6 +1966,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'delete-category-req': setSelectedCategory(payload); setModalType('delete-category'); break;
             case 'meetup': if (char) { setShowPanel('none'); openDateWithChar(char.id); } break;
             case 'active-msg-2': setShowActiveMsg2Modal(true); break;
+            case 'away-message': setShowAwayMessageModal(true); break;
             case 'emotion': setModalType('schedule'); break; // 情绪已并入日程，打开同一 modal
             case 'schedule': setModalType('schedule'); break;
             case 'mcd-not-configured':
@@ -4271,7 +4275,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         active: (activeApp === AppID.Chat || !!homePhone) && !!char,
         blocked: isInputFocused || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
             || selectionMode || isSummarizing || collaborationOpen || memoryRepairOpen || favoritesOpen
-            || showActiveMsg2Modal || showThinkingChainModal
+            || showActiveMsg2Modal || showAwayMessageModal || showThinkingChainModal
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending,
         onGenerate: handleManualTrigger,
@@ -5173,6 +5177,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
                 <ChatInputArea
                     compactHome={!!homePhone}
+                    awayMessageOn={!!char?.awayMessage?.enabled}
                     input={input} setInput={handleInputChange}
                     isTyping={isTyping || instantChatPending} selectionMode={selectionMode}
                     showPanel={showPanel} setShowPanel={setShowPanel}
@@ -5304,6 +5309,22 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             meta.lng = lng;
                         }
                         handleSendText(name, 'location_card', meta);
+                    }}
+                />
+            )}
+
+            {char && (
+                <AwayMessageSettingsModal
+                    isOpen={showAwayMessageModal}
+                    onClose={() => setShowAwayMessageModal(false)}
+                    char={char}
+                    onSave={(next) => {
+                        const prev = char.awayMessage;
+                        updateCharacter(char.id, { awayMessage: next });
+                        // 关掉或改了等待时长：云端那条按旧设置排的作废，对方下次开口时按新设置重建。
+                        if (prev?.enabled && (!next.enabled || prev.delayMinutes !== next.delayMinutes)) {
+                            void cancelCloudAwayTasks(char, updateCharacter);
+                        }
                     }}
                 />
             )}

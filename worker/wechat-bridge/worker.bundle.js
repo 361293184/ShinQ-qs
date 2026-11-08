@@ -237,7 +237,7 @@ async function sendText(baseUrl, botToken, toUserId, contextToken, text) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-EIM3PKFY.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@3_f2a08373d30841ce79e2e19c7fb88ed9/node_modules/@rei-standard/amsg-server/dist/chunk-WFKLHUUE.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var D1_MAX_ROW_BYTES = 2e6;
 var STORAGE_HEX_OVERHEAD_BYTES = 66;
@@ -294,6 +294,7 @@ var SQLITE_TABLE_SQL = `
     message_type TEXT NOT NULL CHECK (message_type IN ('fixed', 'prompted', 'auto', 'instant')),
     next_send_at TEXT NOT NULL,
     lease_until TEXT,
+    lease_token TEXT,
     retry_after TEXT,
     serialize_group TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
@@ -710,6 +711,7 @@ var UNREADABLE_RETRY_MS = 15 * 6e4;
 
 // utils/amsgLimits.ts
 var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
+var SELF_SCHEDULE_HARD_GAP_MS = 3 * 6e4;
 
 // utils/amsgFirePack.ts
 var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";

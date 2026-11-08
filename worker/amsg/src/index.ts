@@ -50,7 +50,7 @@ import { AMSG_BUNDLE_VERSION } from '../../../utils/amsgBundleVersion';
 // 往里加任何浏览器依赖都会连累这个 bundle）。这里只产出事实，红绿灯和文案归前端。
 import type { AmsgPushGoneFailure } from '../../../utils/amsgDiagnostics';
 import type { UserProfile } from '../../../types';
-import { AMSG_JOB_NAMESPACE, AMSG_JOB_TTL_DAYS } from '../../../utils/amsgTaskKinds';
+import { AMSG_JOB_NAMESPACE, AMSG_JOB_TTL_DAYS, classifyTaskRow } from '../../../utils/amsgTaskKinds';
 import {
   FIRE_KIND_HANDLERS,
   getKindFireStash,
@@ -122,6 +122,8 @@ import {
   parseFireScheduleArgs,
   resolveFireTargetTask,
   buildTaskInstruction,
+  AMSG_AWAY_DELAY_META,
+  AMSG_AWAY_MESSAGE_META,
 } from '../../../utils/amsgFireSchedule';
 import {
   AMSG_CHAT_PRESENCE_KEY,
@@ -157,6 +159,7 @@ import {
   type McpSessionState,
 } from '../../../utils/mcpFireCore';
 import { dispatchAgenticTool, type AgenticToolChar, type AgenticToolCtx } from '../../../utils/agenticTools';
+import { buildReplyScopeRule } from '../../../utils/replyScope';
 import {
   buildDuplicateToolMessage,
   buildToolResultMessage,
@@ -332,6 +335,8 @@ type ScheduleTask = (options: {
   firstSendTime: string;
   recurrenceType?: string;
   messageType?: string;
+  /** 不传就继承当前任务的。 */
+  messageSubtype?: string;
   metadata?: Record<string, unknown>;
   taskInput?: Record<string, unknown>;
   uuid?: string;
@@ -554,6 +559,10 @@ const getFireStash = (scratch: Record<string, unknown> | undefined): FireStash |
  * 取整一分钟的话，下一跳来的时候还差几秒没到期，白白多等一整跳。
  */
 const REPLY_IN_FLIGHT_DEFER_MS = 45_000;
+/** 离开后消息到点时离真正该来的时刻差不到这么多就照发（cron 一分钟一跳）。 */
+const AWAY_DUE_TOLERANCE_MS = 60_000;
+/** 上游 defer 的上限是 24 小时。 */
+const AWAY_MAX_DEFER_MS = 24 * 60 * 60_000;
 
 /** 两个时间戳取较新的那个；两个都没有为 null。 */
 const laterOf = (a: number | null, b: number | null): number | null =>
@@ -1948,6 +1957,8 @@ export const amsgHooks = {
     const taskPolicy = typeof taskMeta.amsgExpirePolicy === 'string'
       ? taskMeta.amsgExpirePolicy : undefined;
     const selfScheduled = taskMeta.amsgSelfScheduled === true;
+    // 离开后消息：到点必发、计入连发上限，对方又开过口就原地推迟（见 docs/away-message.md）。
+    const away = taskMeta[AMSG_AWAY_MESSAGE_META] === true;
     const recurring = ctx.task.recurrenceType === 'daily' || ctx.task.recurrenceType === 'weekly';
 
     // 副 API 凭据落地即取走：这一份 metadata 对象上游还要按引用往下传（onLLMOutput 的
@@ -2131,6 +2142,18 @@ export const amsgHooks = {
       });
     }
 
+    // 离开后消息按「对方最后一次开口 + 等待时长」触发。客户端只在排期差得多时才去改期，
+    // 差的那点在这里补：对方在等待时长内说过话，就推迟到该来的时候，不消费任务、不占重试。
+    if (!instant && away) {
+      const delayMs = Number(taskMeta[AMSG_AWAY_DELAY_META]) * 60_000;
+      const dueAt = lastUserMessageAt != null && delayMs > 0 ? lastUserMessageAt + delayMs : null;
+      const waitMs = dueAt == null ? 0 : dueAt - ctx.now.getTime();
+      if (waitMs > AWAY_DUE_TOLERANCE_MS) {
+        console.log('[amsg:defer]', { taskId: ctx.task.id, reason: 'away-not-due', dueAt });
+        return { defer: { afterMs: Math.min(waitMs, AWAY_MAX_DEFER_MS) } } as const;
+      }
+    }
+
     // 任务指令缺失（开发期旧格式任务）：不能用默认 auto 指令凑一个渲染——那会把
     // prompted 任务的方向偷换掉，发出去的内容和用户当初排的不是一回事。
     // 即时对话没有「本次任务」这回事，方向就是回用户刚说的那句话。
@@ -2215,7 +2238,8 @@ export const amsgHooks = {
     }
 
     const maxUnansweredSends = limits.maxUnansweredSends;
-    if (!instant && selfScheduled
+    // 离开后消息也归它管：它发出去就算一次「没回时找你」，后面角色自排的接着往上数。
+    if (!instant && (selfScheduled || away)
       && countUnansweredSends(selfLog) >= maxUnansweredSends) {
       console.log('[amsg:unanswered-limit-skip]', {
         taskId: ctx.task.id,
@@ -2285,9 +2309,7 @@ export const amsgHooks = {
         for (const row of page.tasks) {
           const meta = row.metadata ?? {};
           if ((row.charId ?? meta.charId) !== charId || row.status !== 'pending' || !row.uuid || !row.nextSendAt
-            || meta.amsgInstantChat === true || meta.amsgKind
-            // 2026-11-06.3 之前从即时对话排出的自排任务带着继承来的 'instant-chat'，靠自排标记认回来。
-            || (row.messageSubtype === 'instant-chat' && meta.amsgSelfScheduled !== true)) continue;
+            || classifyTaskRow(row) !== 'scheduled') continue;
           const old = known.get(row.uuid);
           live.push({
             ...old,
@@ -2439,7 +2461,7 @@ export const amsgHooks = {
     // 不然一边声明成 tools、一边教语法，模型会两种都写一遍。
     // 时间上下文让 send_at 的示例是「明天这个点」的裸墙钟，别再教模型写 offset。
     //
-    // 块尾接「用户给你定的规矩」：还能再排几条、最早排到几点、今天还剩几条。额度摆在它
+    // 块尾接「用户给你定的规矩」：连发、今天、任务名额各报「已用/上限」，外加最早排到几点。额度摆在它
     // 面前，比让它排了再被打回省一轮；真超了照样由排程工具打回。
     const limitsBrief = canSelfSchedule
       ? buildLimitsBrief({
@@ -2473,6 +2495,10 @@ export const amsgHooks = {
         ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })]
         : []),
     ];
+    // 带工具时说清「这次回复」从哪儿算起：即时对话是用户那条消息，定时触发是这份说明本身。
+    const replyScopeBlock = fireTools.length > 0 || mcpBlock || scheduleBlock
+      ? `\n${buildReplyScopeRule(instant ? 'user' : 'scheduled')}\n`
+      : '';
     // 非 MCP 的声明名单独留一份给 onLLMOutput 认领 native 调用用（见 FireStash.fireToolNames）。
     stash.fireToolNames = new Set(fireTools
       .map((t) => t?.function?.name)
@@ -2506,9 +2532,16 @@ export const amsgHooks = {
         blocks: [
           realtimeWorldBlock,
           renderSelfLogBlock(selfLog, ctx.now.getTime(), tz, maxUnansweredSends),
-          taskListBlock, mcpBlock, scheduleBlock,
+          taskListBlock, mcpBlock, scheduleBlock, replyScopeBlock,
         ],
       });
+      const chatMessages = pack.chat!.messages;
+      // 时效块（排程清单/额度/时钟等）插在本地「实时状态」段前面，与本地路径同位；
+      // 旧前端没给下标或下标越界时追加到末尾。
+      const insertAt = pack.chat!.timelyInsertAt;
+      const timelyAt = Number.isInteger(insertAt) && insertAt! >= 1 && insertAt! <= chatMessages.length
+        ? insertAt!
+        : chatMessages.length;
       const instantMessages = [
         // content 原样透传，一个字都不动：带图片的消息本地就是结构化分段
         // （`[{type:'text'},{type:'image_url'}]`），上游把这个数组整个丢进
@@ -2516,8 +2549,9 @@ export const amsgHooks = {
         // `messages: llmMessages`，不看 content 的类型）。这里但凡 String() 一下，
         // 模型收到的就是「[object Object]」而不是那张图。
         // 每条重新包一层对象只是不把 pack 上那份交出去，content 仍是同一个引用。
-        ...pack.chat!.messages.map((m) => ({ role: m.role, content: m.content })),
+        ...chatMessages.slice(0, timelyAt).map((m) => ({ role: m.role, content: m.content })),
         ...(timelyBlock ? [{ role: 'system' as const, content: timelyBlock }] : []),
+        ...chatMessages.slice(timelyAt).map((m) => ({ role: m.role, content: m.content })),
       ];
       if (userHoliday) {
         const profileMessage = instantMessages.find(m => m.role === 'system' && typeof m.content === 'string' && m.content.includes('### 互动对象 (User)\n'));
@@ -2579,7 +2613,8 @@ export const amsgHooks = {
       // 「此刻在做什么」里的钟点跟今日节日同一个开关：关掉时间感知的角色不该从日程块
       // 读到「23:00」——那正是这个开关要挡的东西。日程内容本身照给。
       includeClock: toolPack.timeAwarenessEnabled,
-    }), userHoliday) + mcpBlock + scheduleBlock;
+      mustSpeak: away,
+    }), userHoliday) + mcpBlock + scheduleBlock + replyScopeBlock;
     return {
       messages: [{ role: 'user' as const, content: prompt }],
       ...common,

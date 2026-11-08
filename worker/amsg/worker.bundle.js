@@ -352,7 +352,7 @@ function cleanCharacterWeatherCities(value) {
   return Object.fromEntries(Object.entries(value).filter(([id, city]) => id && typeof city === "string" && city.trim()).map(([id, city]) => [id, city.trim().slice(0, 100)]));
 }
 function weatherForCharacter(config, charId) {
-  const city = charId && Object.hasOwn(config.weatherCities || {}, charId) ? config.weatherCities?.[charId] : void 0;
+  const city = charId && Object.prototype.hasOwnProperty.call(config.weatherCities || {}, charId) ? config.weatherCities?.[charId] : void 0;
   return typeof city === "string" && city.trim() ? { ...config, weatherCity: city.trim().slice(0, 100) } : config;
 }
 
@@ -788,20 +788,46 @@ var buildLimitsBrief = (input) => {
   const { limits } = input;
   const lines = [];
   if (Number.isFinite(limits.maxUnansweredSends)) {
-    const left = Math.max(0, limits.maxUnansweredSends - input.committedSends);
-    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u7684\u65F6\u5019\uFF0C\u4F60\u6700\u591A\u8FDE\u7740\u4E3B\u52A8\u627E\u5BF9\u65B9 ${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09\uFF0C` + (left > 0 ? `\u73B0\u5728\u8FD8\u80FD\u518D\u6392 ${left} \u6B21\u3002` : "\u73B0\u5728\u4E00\u6B21\u90FD\u4E0D\u80FD\u518D\u6392\u4E86\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u3002"));
+    const used = Math.min(limits.maxUnansweredSends, Math.max(0, input.committedSends));
+    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u671F\u95F4\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${used}/${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09` + (used < limits.maxUnansweredSends ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u540E\u624D\u80FD\u518D\u6392\u3002"));
   }
   if (limits.minSendGapMs > 0) {
     lines.push(`- \u4E24\u6B21\u4E3B\u52A8\u627E\u5BF9\u65B9\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}` + (input.earliestText ? `\uFF0C\u8FD9\u6B21\u6700\u65E9\u6392\u5230 ${input.earliestText}\u3002` : "\u3002"));
   }
   if (input.dailyRemaining !== void 0 && Number.isFinite(limits.dailySendCap)) {
-    lines.push(input.dailyRemaining > 0 ? `- \u4ECA\u5929\u8FD8\u80FD\u518D\u4E3B\u52A8\u627E\u5BF9\u65B9 ${input.dailyRemaining} \u6B21\u3002` : "- \u4ECA\u5929\u4E3B\u52A8\u627E\u5BF9\u65B9\u7684\u6B21\u6570\u5DF2\u7ECF\u7528\u5B8C\u4E86\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002");
+    const remaining = Math.min(limits.dailySendCap, Math.max(0, input.dailyRemaining));
+    lines.push(`- \u4ECA\u5929\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${limits.dailySendCap - remaining}/${limits.dailySendCap} \u6B21` + (remaining > 0 ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002"));
   }
-  lines.push(`- \u540C\u65F6\u6700\u591A\u6302 ${limits.maxActiveTasks} \u4E2A\u6392\u7A0B\u4EFB\u52A1\uFF0C\u73B0\u5728\u6302\u7740 ${input.activeTasks} \u4E2A\u3002`);
+  lines.push(`- \u6392\u7A0B\u4EFB\u52A1\uFF1A\u6302\u7740 ${input.activeTasks}/${limits.maxActiveTasks} \u4E2A\u3002`);
   if (!limits.allowSelfRecurring) lines.push("- \u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF0C\u4E0D\u80FD\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u3002");
   if (!limits.allowSelfForce) lines.push("- \u6392\u7684\u6D88\u606F\u5230\u70B9\u78B0\u4E0A\u5BF9\u65B9\u6B63\u5728\u804A\u5929\u4F1A\u81EA\u52A8\u4F5C\u7F62\uFF08\u8F6C\u6210\u4F60\u5728\u804A\u5929\u91CC\u81EA\u7136\u5E26\u51FA\uFF09\uFF0C\u6CA1\u6709\u300C\u5230\u70B9\u5FC5\u53D1\u300D\u3002");
   return ["\u7528\u6237\u7ED9\u4F60\u5B9A\u7684\u89C4\u77E9\uFF08\u7CFB\u7EDF\u7167\u7740\u6267\u884C\uFF1A\u8D85\u51FA\u7684\u6392\u4E0D\u4E0A\uFF0C\u6392\u4E0A\u4E86\u5230\u70B9\u4E5F\u4E0D\u53D1\uFF09\uFF1A", ...lines].join("\n");
 };
+
+// utils/amsgTaskKinds.ts
+var AMSG_TASK_KIND_KEY = "amsgKind";
+var readTaskKind = (metadata) => {
+  const raw = metadata?.[AMSG_TASK_KIND_KEY];
+  return typeof raw === "string" && raw ? raw : null;
+};
+var AMSG_BACKGROUND_JOB_SUBTYPE = "job";
+var AMSG_INSTANT_CHAT_SUBTYPE = "instant-chat";
+var AMSG_INSTANT_CHAT_FLAG = "amsgInstantChat";
+var isInstantChatTask = (metadata) => !!metadata && metadata[AMSG_INSTANT_CHAT_FLAG] === true;
+var classifyTaskRow = (row) => {
+  const { metadata } = row;
+  if (metadata) {
+    if (isInstantChatTask(metadata)) return "instant-chat";
+    if (readTaskKind(metadata)) return "background-job";
+    if (metadata.amsgSelfScheduled === true) return "scheduled";
+  }
+  if (row.messageSubtype === AMSG_INSTANT_CHAT_SUBTYPE) return "instant-chat";
+  if (row.messageSubtype === AMSG_BACKGROUND_JOB_SUBTYPE) return "background-job";
+  return "scheduled";
+};
+var AMSG_JOB_NAMESPACE = "amsg:job";
+var AMSG_JOB_TTL_DAYS = 3;
+var AMSG_JOB_ID_KEY = "amsgJobId";
 
 // utils/amsgFirePack.ts
 var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
@@ -1055,6 +1081,8 @@ var renderFirePack = (pack, nowMs, taskInstruction, extras) => {
   const timeSinceUser = formatTimeSinceUser(diffMinutes);
   const awayHint = buildAwayHint(pack.targetName, timeSinceUser);
   let out = pack.template;
+  if (extras?.mustSpeak) out = out.split(`${BEFORE_SPEAK_LINES.join("\n")}
+`).join("");
   out = fillSlot(out, AMSG_SLOT_CURRENT_TIME, currentTime);
   out = fillSlot(out, AMSG_SLOT_USER_CLOCK, buildUserClockHint(nowMs, tz, { tzId: pack.userTzId }, pack.targetName));
   out = fillSlot(out, AMSG_SLOT_TIME_SINCE_USER, timeSinceUser);
@@ -1102,8 +1130,8 @@ var chatContentOk = (content) => {
 var chatFieldOk = (chat) => {
   if (chat === void 0) return true;
   if (!chat || typeof chat !== "object" || Array.isArray(chat)) return false;
-  const { messages, builtAt } = chat;
-  return typeof builtAt === "number" && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
+  const { messages, builtAt, timelyInsertAt } = chat;
+  return typeof builtAt === "number" && (timelyInsertAt === void 0 || Number.isInteger(timelyInsertAt)) && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
 };
 var parseFirePack = (value) => {
   try {
@@ -1511,7 +1539,7 @@ function pickStaleStoppedReplyKeys(rows, nowMs = Date.now(), protectKey) {
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3.2.0-next.2_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-R2CRPRKR.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@3_f2a08373d30841ce79e2e19c7fb88ed9/node_modules/@rei-standard/amsg-server/dist/chunk-R2CRPRKR.mjs
 var CLEANUP_BATCH_LIMIT = 100;
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
@@ -2769,7 +2797,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3.2.0-next.2_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-WFKLHUUE.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@3_f2a08373d30841ce79e2e19c7fb88ed9/node_modules/@rei-standard/amsg-server/dist/chunk-WFKLHUUE.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -12159,6 +12187,16 @@ function normalizeVoiceTags(t) {
   });
   result = repairPairedTag(result, /<\/?[语語]音[^>]*>/g, (tok) => /語/.test(tok) ? "\u8A9E\u97F3" : "\u8BED\u97F3", true);
   result = repairPairedTag(result, /<\/?字幕[^>]*>/g, () => "\u5B57\u5E55", false);
+  result = result.replace(/(<[语語]音[^>]*>)([\s\S]*?)(<\/[语語]音>)/g, (block, open, inner, close) => {
+    const subtitles = [];
+    const speech = inner.replace(/<字幕>([\s\S]*?)<\/字幕>/g, (_m, sub) => {
+      if (sub.trim()) subtitles.push(sub.trim());
+      return "";
+    });
+    if (subtitles.length === 0) return block;
+    return `${open}${speech.trim()}${close}
+<\u5B57\u5E55>${subtitles.join("\n")}</\u5B57\u5E55>`;
+  });
   return result;
 }
 var simpTransTag = (tag2) => tag2.replace(/譯/g, "\u8BD1");
@@ -13357,7 +13395,7 @@ var buildMcpFireBlock = (resolve, opts) => {
     howTo,
     "\u7EAA\u5F8B\uFF1A\u4E0D\u9700\u8981\u5C31\u522B\u786C\u8C03\uFF1B\u6CA1\u6536\u5230\u7CFB\u7EDF\u8FD4\u56DE\u524D\u4E0D\u8981\u58F0\u79F0\u5DE5\u5177\u6210\u529F\uFF0C\u4E5F\u4E0D\u8981\u7F16\u9020\u7ED3\u679C\uFF1B\u5DE5\u5177\u5931\u8D25\u5C31\u6362\u4E2A\u65B9\u5F0F\u6216\u5982\u5B9E\u5E26\u8FC7\uFF1B\u7ED3\u679C\u53EA\u6311\u76F8\u5173\u90E8\u5206\u7528\u89D2\u8272\u8BED\u6C14\u8F6C\u8FF0\uFF0C\u522B\u590D\u8BFB JSON\u3002",
     "\u591A\u6B65\u4EFB\u52A1\uFF1A\u5148\u505A\u5FC5\u8981\u68C0\u67E5\uFF0C\u968F\u540E\u7ACB\u523B\u8C03\u7528\u80FD\u63A8\u8FDB\u76EE\u6807\u7684\u52A8\u4F5C\u5DE5\u5177\uFF1B\u4E0D\u8981\u53CD\u590D\u8BFB\u53D6\u540C\u4E00\u4EFD\u8BF4\u660E\u6216\u72B6\u6001\u3002\u6267\u884C\u52A8\u4F5C\u540E\u53EF\u4EE5\u518D\u6B21\u68C0\u67E5\u65B0\u72B6\u6001\uFF0C\u5E76\u7EE7\u7EED\u5230\u76EE\u6807\u5B8C\u6210\u6216\u5DE5\u5177\u660E\u786E\u5931\u8D25\u3002",
-    `\u526F\u4F5C\u7528\u64CD\u4F5C\uFF1A${userName} \u672C\u8F6E\u5DF2\u7ECF\u660E\u786E\u8981\u6C42\u6267\u884C\u7684\u89C6\u4E3A\u5DF2\u786E\u8BA4\uFF1B\u6CA1\u6709\u660E\u786E\u8981\u6C42\u65F6\u624D\u5148\u786E\u8BA4\u3002`,
+    `\u526F\u4F5C\u7528\u64CD\u4F5C\uFF1A${userName} \u5728\u6700\u65B0\u6D88\u606F\u91CC\u5DF2\u7ECF\u660E\u786E\u8981\u6C42\u6267\u884C\u7684\u89C6\u4E3A\u5DF2\u786E\u8BA4\uFF1B\u6CA1\u6709\u660E\u786E\u8981\u6C42\u65F6\u624D\u5148\u786E\u8BA4\u3002`,
     "\u53EF\u7528\u5DE5\u5177\uFF1A",
     ...lines,
     "---"
@@ -13369,16 +13407,6 @@ var FIRE_GRACE_MS = 9e4;
 var DAY_MS2 = 24 * 36e5;
 var recurrencePeriodMs = (recurrenceType) => recurrenceType === "daily" ? DAY_MS2 : recurrenceType === "weekly" ? 7 * DAY_MS2 : null;
 
-// utils/amsgTaskKinds.ts
-var AMSG_TASK_KIND_KEY = "amsgKind";
-var readTaskKind = (metadata) => {
-  const raw = metadata?.[AMSG_TASK_KIND_KEY];
-  return typeof raw === "string" && raw ? raw : null;
-};
-var AMSG_JOB_NAMESPACE = "amsg:job";
-var AMSG_JOB_TTL_DAYS = 3;
-var AMSG_JOB_ID_KEY = "amsgJobId";
-
 // utils/amsg2Tasks.ts
 var shortTaskId = (taskUuid) => taskUuid.slice(0, 8);
 var describeRecurrence = (recurrence) => recurrence === "daily" ? "\u6BCF\u5929" : recurrence === "weekly" ? "\u6BCF\u5468" : "\u4E00\u6B21\u6027";
@@ -13386,6 +13414,7 @@ var AMSG2_SCHEDULE_SECRECY_NOTE = "\u4E0D\u8981\u5411\u7528\u6237\u590D\u8FF0\u6
 var AMSG2_SCHEDULE_NOT_YET_NOTE = "\u6392\u5728\u672A\u6765\u7684\u4E8B\u5230\u70B9\u81EA\u5DF1\u4F1A\u54CD\uFF0C\u4E0D\u7528\u4F60\u73B0\u5728\u63D0\u524D\u66FF\u5B83\u5F00\u53E3\u2014\u2014\u8FD8\u6CA1\u5230\u90A3\u4E2A\u65F6\u523B\u7684\u5C31\u8BA9\u5B83\u5B89\u9759\u5F85\u7740\uFF0C\u522B\u6BCF\u8F6E\u90FD\u62FF\u5B83\u8D77\u8BDD\u5934\u3001\u8FFD\u7740\u95EE\u8FDB\u5C55\u3002\u5BF9\u65B9\u81EA\u5DF1\u63D0\u8D77\uFF0C\u6216\u8005\u771F\u5230\u4E86\u90A3\u4E2A\u70B9\uFF0C\u624D\u662F\u8BF4\u5B83\u7684\u65F6\u5019\u3002";
 var describeExpirePolicy = (policy) => policy === "force" ? "\u5230\u70B9\u5FC5\u53D1" : "\u5230\u70B9\u770B\u60C5\u51B5";
 var describeTaskMode = (task) => {
+  if (task.away) return "\u79BB\u5F00\u540E\u6D88\u606F";
   if (task.mode === "fixed") return "\u56FA\u5B9A\u6D88\u606F";
   if (task.mode === "prompted") return `\u63D0\u793A\u65B9\u5411\u300C${task.promptHint || ""}\u300D`;
   return task.promptHint ? `\u81EA\u52A8\uFF08\u7075\u611F\uFF1A${task.promptHint}\uFF09` : "\u81EA\u52A8";
@@ -13582,6 +13611,8 @@ var buildTaskInstruction = (mode, promptHint) => {
     promptHint?.trim() ? `\u53EF\u9009\u7075\u611F\u8865\u5145\uFF1A${promptHint.trim()}` : "\u53EF\u9009\u7075\u611F\u8865\u5145\uFF1A\u65E0"
   ].join("\n");
 };
+var AMSG_AWAY_MESSAGE_META = "amsgAwayMessage";
+var AMSG_AWAY_DELAY_META = "amsgAwayDelayMinutes";
 var pad22 = (n) => n.toString().padStart(2, "0");
 var hasExplicitOffset = (s) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(s.trim());
 var wallClockIso = (ms, tz) => {
@@ -14107,7 +14138,7 @@ function buildScheduledPush(message, build, extraMeta, bannerBody) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-11-06.3";
+var AMSG_BUNDLE_VERSION = "2026-11-07.3";
 
 // worker/amsg/src/reproduction.ts
 async function writeDiagnosticStage(writeState, runId, event, fields = {}) {
@@ -15467,8 +15498,6 @@ var TIME_FRAMING_CONVERSATIONAL = "\u65F6\u95F4\u662F\u4F60\u6B64\u523B\u6240\u5
 
 // worker/amsg/src/instantChat.ts
 var INSTANT_TOTAL_TIMEOUT_MS = 6e5;
-var AMSG_INSTANT_CHAT_FLAG = "amsgInstantChat";
-var isInstantChatTask = (metadata) => !!metadata && metadata[AMSG_INSTANT_CHAT_FLAG] === true;
 var buildInstantTimelyBlock = (args) => {
   const blocks = args.blocks.filter((block) => block.trim());
   if (!args.timeAwarenessEnabled && blocks.length === 0) return "";
@@ -18327,6 +18356,12 @@ async function dispatchAgenticTool(toolName, args, ctx) {
   }
 }
 
+// utils/replyScope.ts
+var buildReplyScopeRule = (trigger) => {
+  const start = trigger === "user" ? "\u4ECE\u7528\u6237\u6700\u65B0\u53D1\u6765\u7684\u90A3\u6761\u6D88\u606F\u5F00\u59CB" : "\u4ECE\u4F60\u6536\u5230\u8FD9\u4EFD\u8BF4\u660E\u5F00\u59CB\uFF08\u4F60\u4E4B\u524D\u5B89\u6392\u7684\u4E3B\u52A8\u6D88\u606F\u5230\u70B9\u4E86\uFF09";
+  return `[\u8FD9\u6B21\u56DE\u590D\u7684\u8303\u56F4\uFF1A${start}\uFF0C\u5230\u4F60\u7ED9\u51FA\u4E00\u6761\u4E0D\u518D\u8C03\u7528\u5DE5\u5177\u7684\u6B63\u6587\u4E3A\u6B62\u3002\u8FD9\u671F\u95F4\u4F60\u6BCF\u8C03\u7528\u4E00\u6B21\u5DE5\u5177\u3001\u62FF\u5230\u4E00\u6B21\u7ED3\u679C\uFF0C\u90FD\u53EA\u662F\u8FD9\u6B21\u56DE\u590D\u91CC\u7684\u4E00\u6B65\uFF0C\u4E0D\u662F\u65B0\u7684\u4E00\u6B21\uFF1B\u4F60\u5728\u8FD9\u671F\u95F4\u5199\u4E0B\u7684\u8BDD\u90FD\u7B97\u8FD9\u6B21\u56DE\u590D\u7684\u4E00\u90E8\u5206\uFF0C\u540E\u9762\u4E0D\u5FC5\u91CD\u590D\u3002]`;
+};
+
 // utils/agenticToolFeedback.ts
 var toolCallFingerprint = (name, args) => {
   const normalize2 = (value) => {
@@ -18877,6 +18912,8 @@ var isFcmConfigured = (env) => Boolean(
 installAnthropicFetch(false);
 var getFireStash = (scratch) => scratch?.fire;
 var REPLY_IN_FLIGHT_DEFER_MS = 45e3;
+var AWAY_DUE_TOLERANCE_MS = 6e4;
+var AWAY_MAX_DEFER_MS = 24 * 60 * 6e4;
 var laterOf = (a, b) => a == null ? b : b == null ? a : Math.max(a, b);
 var buildToolCtx = (pack, config) => {
   const char = {
@@ -19639,6 +19676,7 @@ var amsgHooks = {
     const taskMeta = ctx.task.metadata ?? {};
     const taskPolicy = typeof taskMeta.amsgExpirePolicy === "string" ? taskMeta.amsgExpirePolicy : void 0;
     const selfScheduled = taskMeta.amsgSelfScheduled === true;
+    const away = taskMeta[AMSG_AWAY_MESSAGE_META] === true;
     const recurring = ctx.task.recurrenceType === "daily" || ctx.task.recurrenceType === "weekly";
     const emotionEvalSpec = takeEmotionEvalSpec(ctx.task.metadata);
     const taskKind = readTaskKind(taskMeta);
@@ -19748,6 +19786,15 @@ var amsgHooks = {
         presenceLastUserMessageAt
       });
     }
+    if (!instant && away) {
+      const delayMs = Number(taskMeta[AMSG_AWAY_DELAY_META]) * 6e4;
+      const dueAt = lastUserMessageAt != null && delayMs > 0 ? lastUserMessageAt + delayMs : null;
+      const waitMs = dueAt == null ? 0 : dueAt - ctx.now.getTime();
+      if (waitMs > AWAY_DUE_TOLERANCE_MS) {
+        console.log("[amsg:defer]", { taskId: ctx.task.id, reason: "away-not-due", dueAt });
+        return { defer: { afterMs: Math.min(waitMs, AWAY_MAX_DEFER_MS) } };
+      }
+    }
     if (!instant && typeof taskMeta.amsgTaskInstruction !== "string") {
       throw fail3("\u4EFB\u52A1 metadata \u7F3A amsgTaskInstruction\uFF08\u65E7\u683C\u5F0F\u4EFB\u52A1\uFF09");
     }
@@ -19798,7 +19845,7 @@ var amsgHooks = {
       return { skip: true };
     }
     const maxUnansweredSends = limits.maxUnansweredSends;
-    if (!instant && selfScheduled && countUnansweredSends(selfLog) >= maxUnansweredSends) {
+    if (!instant && (selfScheduled || away) && countUnansweredSends(selfLog) >= maxUnansweredSends) {
       console.log("[amsg:unanswered-limit-skip]", {
         taskId: ctx.task.id,
         charId,
@@ -19852,7 +19899,7 @@ var amsgHooks = {
         const page = await ctx.listTasks({ status: "pending", limit: 100, offset, includeMetadata: true });
         for (const row of page.tasks) {
           const meta = row.metadata ?? {};
-          if ((row.charId ?? meta.charId) !== charId || row.status !== "pending" || !row.uuid || !row.nextSendAt || meta.amsgInstantChat === true || meta.amsgKind || row.messageSubtype === "instant-chat" && meta.amsgSelfScheduled !== true) continue;
+          if ((row.charId ?? meta.charId) !== charId || row.status !== "pending" || !row.uuid || !row.nextSendAt || classifyTaskRow(row) !== "scheduled") continue;
           const old = known.get(row.uuid);
           live.push({
             ...old,
@@ -19980,6 +20027,9 @@ var amsgHooks = {
       ...canSelfSchedule && mcpNative ? [buildFireScheduleTool({ nowMs: ctx.now.getTime(), tz, abilities, context: instant ? "chat" : "fire" })] : [],
       ...canManageTasks && mcpNative ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })] : []
     ];
+    const replyScopeBlock = fireTools.length > 0 || mcpBlock || scheduleBlock ? `
+${buildReplyScopeRule(instant ? "user" : "scheduled")}
+` : "";
     stash.fireToolNames = new Set(fireTools.map((t) => t?.function?.name).filter((n) => typeof n === "string" && !n.startsWith(MCP_FIRE_NAME_PREFIX)));
     stash.allowedToolNames = /* @__PURE__ */ new Set([
       ...DATA_TOOL_NAMES,
@@ -20004,9 +20054,13 @@ var amsgHooks = {
           renderSelfLogBlock(selfLog, ctx.now.getTime(), tz, maxUnansweredSends),
           taskListBlock,
           mcpBlock,
-          scheduleBlock
+          scheduleBlock,
+          replyScopeBlock
         ]
       });
+      const chatMessages = pack.chat.messages;
+      const insertAt = pack.chat.timelyInsertAt;
+      const timelyAt = Number.isInteger(insertAt) && insertAt >= 1 && insertAt <= chatMessages.length ? insertAt : chatMessages.length;
       const instantMessages = [
         // content 原样透传，一个字都不动：带图片的消息本地就是结构化分段
         // （`[{type:'text'},{type:'image_url'}]`），上游把这个数组整个丢进
@@ -20014,8 +20068,9 @@ var amsgHooks = {
         // `messages: llmMessages`，不看 content 的类型）。这里但凡 String() 一下，
         // 模型收到的就是「[object Object]」而不是那张图。
         // 每条重新包一层对象只是不把 pack 上那份交出去，content 仍是同一个引用。
-        ...pack.chat.messages.map((m) => ({ role: m.role, content: m.content })),
-        ...timelyBlock ? [{ role: "system", content: timelyBlock }] : []
+        ...chatMessages.slice(0, timelyAt).map((m) => ({ role: m.role, content: m.content })),
+        ...timelyBlock ? [{ role: "system", content: timelyBlock }] : [],
+        ...chatMessages.slice(timelyAt).map((m) => ({ role: m.role, content: m.content }))
       ];
       if (userHoliday) {
         const profileMessage = instantMessages.find((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("### \u4E92\u52A8\u5BF9\u8C61 (User)\n"));
@@ -20060,8 +20115,9 @@ ${userHoliday}` });
       lastUserMessageAt,
       // 「此刻在做什么」里的钟点跟今日节日同一个开关：关掉时间感知的角色不该从日程块
       // 读到「23:00」——那正是这个开关要挡的东西。日程内容本身照给。
-      includeClock: toolPack.timeAwarenessEnabled
-    }), userHoliday) + mcpBlock + scheduleBlock;
+      includeClock: toolPack.timeAwarenessEnabled,
+      mustSpeak: away
+    }), userHoliday) + mcpBlock + scheduleBlock + replyScopeBlock;
     return {
       messages: [{ role: "user", content: prompt }],
       ...common

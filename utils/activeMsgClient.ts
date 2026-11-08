@@ -27,7 +27,7 @@ import { getLastRealUserMessageAt } from './amsg2ExpireGuard';
 import { AMSG_BUNDLE_VERSION } from './amsgBundleVersion';
 import { describeD1LimitCode } from './amsgD1Limits';
 import { explainCfTokenRejection, parseAmsgSelfUpdateState, type AmsgSelfUpdateReport } from './amsgSelfUpdateState';
-import { buildTaskInstruction, resolveSendAtMs } from './amsgFireSchedule';
+import { AMSG_AWAY_DELAY_META, AMSG_AWAY_MESSAGE_META, buildAwayTaskInstruction, buildTaskInstruction, resolveSendAtMs } from './amsgFireSchedule';
 import {
   getPendingTasks, isAmsg2EnabledForChar,
   parseRemoteTaskLastError, RemoteTaskLastError, type RemoteTaskProjection,
@@ -98,6 +98,7 @@ import {
 } from './amsgFirePack';
 import {
   AMSG_BACKGROUND_JOB_SUBTYPE,
+  classifyTaskRow,
   AMSG_JOB_ID_KEY,
   AMSG_JOB_NAMESPACE,
   AMSG_TASK_KIND_KEY,
@@ -2726,9 +2727,8 @@ export const ActiveMsgClient = {
    *
    * 逐条取消，单条失败记进 failed 继续跑完其余的：一条网络抖动不该让剩下的任务都留着。
    *
-   * 即时对话的行不在取消范围内（过滤口径与面板对账同一把尺 AMSG_INSTANT_CHAT_SUBTYPE，
-   * 见 amsg2Tasks 的 reconcileTasksWithRemote）：那不是定时任务，是用户此刻正等着的一轮
-   * 聊天。角色的 2.0 开关管的是定时主动消息，连它一起掐掉的话 worker 那一跳永远不会跑，
+   * 即时对话的行不在取消范围内（按 classifyTaskRow 分，跟面板对账同一个函数）：那不是
+   * 定时任务，是用户此刻正等着的一轮聊天。角色的 2.0 开关管的是定时主动消息，连它一起掐掉的话 worker 那一跳永远不会跑，
    * 用户等到的是一句「云端已处理这条消息，但回复没能取回」，还得自己把话重发一遍。
    * 退回本地清单的那条路天然不含即时对话（本地任务记录里从来没有它）。
    */
@@ -2739,7 +2739,7 @@ export const ActiveMsgClient = {
     let targets: string[];
     try {
       targets = (await this.listRemoteTasksForChar(charId))
-        .filter((task) => task.messageSubtype !== AMSG_INSTANT_CHAT_SUBTYPE)
+        .filter((task) => classifyTaskRow(task) !== 'instant-chat')
         .map((task) => task.uuid);
     } catch {
       targets = localTaskUuids;
@@ -2766,6 +2766,8 @@ export const ActiveMsgClient = {
       expirePolicy?: ActiveMsg2ExpirePolicy;
       /** 角色自己排的（工具桥传 true）。带上 metadata 标记，连发上限的到点兜底闸只拦它。 */
       selfScheduled?: boolean;
+      /** 离开后消息（见 docs/away-message.md）：不占任务名额，指令换成「对方离开了这么久」那份。 */
+      away?: { delayMinutes: number };
     };
     /** 编辑/续期时传旧任务 uuid：先取消它再新建（不传 = 纯新建）。 */
     replaceTaskUuid?: string;
@@ -2789,7 +2791,8 @@ export const ActiveMsgClient = {
     const maxActiveTasks = resolveAmsgLimits(config).maxActiveTasks;
     const pendingOthers = getPendingTasks(config, Date.now())
       .filter((t) => t.taskUuid !== replaceTaskUuid);
-    if (pendingOthers.length >= maxActiveTasks) {
+    // 离开后消息是用户开的系统任务，不跟角色抢名额；名额满时它也不能建不出来。
+    if (!task.away && pendingOthers.length >= maxActiveTasks) {
       throw new Error(`该角色已经排好了 ${maxActiveTasks} 次主动消息，到上限了（上限在「主动频率」里调），请先取消或合并已有的。`);
     }
 
@@ -2837,6 +2840,7 @@ export const ActiveMsgClient = {
         amsgExpirePolicy: resolveExpirePolicy(task.mode, task.expirePolicy),
         // 自排标记：到点兜底闸只拦带它的任务（用户面板排的不带、不受连发上限管）。
         ...(task.selfScheduled ? { amsgSelfScheduled: true } : {}),
+        ...(task.away ? { [AMSG_AWAY_MESSAGE_META]: true, [AMSG_AWAY_DELAY_META]: task.away.delayMinutes } : {}),
       },
     };
 
@@ -2853,7 +2857,9 @@ export const ActiveMsgClient = {
       const activeApi = resolveApiConfig(char, config, apiConfig);
       await requireAnthropicWorker([normalizeChatApiUrl(activeApi.baseUrl, activeApi.apiType)]);
       // 「本次任务」指令随任务 metadata 走，worker 到点拿它填 fire_pack 的指令槽。
-      payload.metadata.amsgTaskInstruction = buildTaskInstruction(task.mode, task.promptHint);
+      payload.metadata.amsgTaskInstruction = task.away
+        ? buildAwayTaskInstruction(task.away.delayMinutes)
+        : buildTaskInstruction(task.mode, task.promptHint);
       // 服务端要求「completePrompt 或 messages」二选一，且 messages 必须非空、
       // content 必须非空字符串，所以这里给一条占位。到点真正发给 LLM 的 messages 由
       // worker 的 onBeforeFire 返回值覆盖（库用 { ...payload, messages } 调 LLM），
@@ -3163,6 +3169,8 @@ export const ActiveMsgClient = {
     char: CharacterProfile;
     /** 本地生成会 POST 给 /chat/completions 的那串 fullMessages，原样带上去。 */
     chatMessages: Array<{ role: string; content: unknown }>;
+    /** 本地「实时状态」段在 chatMessages 里的下标，worker 时效块插在它前面（见 AmsgFirePackChat）。 */
+    timelyInsertAt?: number;
     /**
      * 这一轮该用的聊天凭据——**必须是本地生成那一轮会用的同一份**（effectiveApi）。
      */
@@ -3219,7 +3227,11 @@ export const ActiveMsgClient = {
       ...(await buildFirePack(char, userProfile, groups, realtimeConfig, undefined, { templateStub })),
       // 先还原图片令牌再算体积预算——反过来会让一份「看着没超」的包在云端胀成几 MB，
       // 而 worker 那边根本解不开令牌（见 resolveChatMessagesForUpload）。
-      chat: { messages: toFirePackChatMessages(await resolveChatMessagesForUpload(chatMessages)), builtAt: now },
+      chat: {
+        messages: toFirePackChatMessages(await resolveChatMessagesForUpload(chatMessages)),
+        builtAt: now,
+        ...(params.timelyInsertAt !== undefined && params.timelyInsertAt >= 0 ? { timelyInsertAt: params.timelyInsertAt } : {}),
+      },
     };
 
     const clientTaskId = crypto.randomUUID();
@@ -3274,7 +3286,7 @@ export const ActiveMsgClient = {
       messageType: 'auto',
       // 上游只把它当自由文本标签原样带进推送，不据此分支；本地拿它把即时对话的行跟
       // 定时任务的行分开——不然一条失败的即时对话行会被面板对账当成排程任务补进清单。
-      // 常量与面板对账的过滤端共用（amsgFirePack 的 AMSG_INSTANT_CHAT_SUBTYPE）。
+      // 列表投影里只认这个标签，分类见 amsgTaskKinds 的 classifyTaskRow。
       messageSubtype: AMSG_INSTANT_CHAT_SUBTYPE,
       // 落库即到期（不带 firstSendTime）：用户已经把话说完了，现在就该答。
       // 排未来时刻的话，打包/上传的耗时都要预支提前量，慢网低端机会被
@@ -4030,9 +4042,10 @@ export const ActiveMsgClient = {
       for (const remote of remoteTasks) {
         if (remote.charId !== char.id || remote.status !== 'pending') continue;
         if (remote.messageType !== 'auto' && remote.messageType !== 'prompted') continue;
-        if (remote.messageSubtype === AMSG_INSTANT_CHAT_SUBTYPE) {
-          // 上游自排会继承父任务的 subtype。只看标签会漏掉从即时对话排出的子任务；
-          // 读 metadata 确认是自排任务，不能改用户正在等待的那一轮即时回复。
+        const rowClass = classifyTaskRow(remote);
+        if (rowClass === 'instant-chat') {
+          // 列表投影不带 metadata，从即时对话排出的旧自排任务也挂着 instant-chat；
+          // 读 metadata 再分一次，不能改用户正在等待的那一轮即时回复。
           try {
             const globalConfig = await ensureWorkerReady();
             const response = await fetchWithAuth(`message?id=${encodeURIComponent(remote.uuid)}`, globalConfig, {
@@ -4046,12 +4059,12 @@ export const ActiveMsgClient = {
             }
             const client = await initializeClient(globalConfig);
             const metadata = (await decryptPayload(client, response.data))?.task?.metadata;
-            if (metadata?.amsgInstantChat || metadata?.amsgSelfScheduled !== true) continue;
+            if (classifyTaskRow({ ...remote, metadata }) !== 'scheduled') continue;
           } catch {
             failed += 1;
             continue;
           }
-        } else if (remote.messageSubtype && remote.messageSubtype !== 'chat') continue;
+        } else if (rowClass !== 'scheduled') continue;
         tasksByUuid.set(remote.uuid, { taskUuid: remote.uuid, mode: remote.messageType } as ActiveMsg2TaskRecord);
       }
       const tasks = [...tasksByUuid.values()];
