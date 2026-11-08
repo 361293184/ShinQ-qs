@@ -1215,6 +1215,15 @@ const formatAmsgErrorDetails = (details: unknown, topLevel?: Record<string, unkn
   return parts.join('；');
 };
 
+/**
+ * Worker 解不开 D1 里的旧数据：几乎都是重新部署时换了 AMSG_MASTER_KEY，库里还留着旧钥匙加密的东西。
+ * amsg-server 3.2.0-next.2 起回 409 + 这个错误码；更早的 Worker 是 500，cause 里是 WebCrypto 的 OperationError。
+ */
+const STORED_DATA_UNDECRYPTABLE_CODE = 'STORED_DATA_UNDECRYPTABLE';
+const STORED_DATA_UNDECRYPTABLE_HINT =
+  '云端数据是用另一把 Master Key 加密的，Worker 现在这把解不开（多半是重新部署时换了密钥）。'
+  + '找得回原来的密钥就填回 Worker；找不回的话，去设置「高级信息」点「清空云端数据」，再点「重新连接并验证」';
+
 const formatAmsgErrorCause = (cause: unknown): string => {
   if (typeof cause === 'string') return cause.trim();
   if (!cause || typeof cause !== 'object' || Array.isArray(cause)) return '';
@@ -1224,6 +1233,7 @@ const formatAmsgErrorCause = (cause: unknown): string => {
   if (limitText) return `${limitText}（${code}）`;
   const name = typeof c.name === 'string' ? c.name.trim() : '';
   const message = typeof c.message === 'string' ? c.message.trim() : '';
+  if (name === 'OperationError' && /decrypt/i.test(message)) return `${STORED_DATA_UNDECRYPTABLE_HINT}（OperationError）`;
   const head = code
     ? (message.startsWith(code) ? '' : code)
     : (name && name !== 'Error' ? name : '');
@@ -1236,6 +1246,7 @@ export const formatAmsgErrorObject = (errorObj: unknown): string => {
   const err = errorObj as Record<string, unknown>;
   const message = typeof err.message === 'string' ? err.message.trim() : '';
   const code = typeof err.code === 'string' ? err.code.trim() : '';
+  if (code === STORED_DATA_UNDECRYPTABLE_CODE) return `${STORED_DATA_UNDECRYPTABLE_HINT}（${code}）`;
   const detailsText = formatAmsgErrorDetails(err.details, err);
   const causeText = formatAmsgErrorCause(err.cause);
 
@@ -1622,20 +1633,24 @@ const buildCharStateEntries = async (
 ];
 
 /** 全局工具凭据条目（v2 服务端工具循环用的搜索 / Notion / 飞书 / 小红书 / 自配 MCP 配置）。 */
-const buildToolConfigEntry = (
+const buildToolConfigEntry = async (
   realtimeConfig: RealtimeConfig | undefined,
   updatedAt: number,
-) => ({
+) => {
+  const { collectSpaceToolSettings } = await import('./userSpaceCloudSettings');
+  const settings = await collectSpaceToolSettings(realtimeConfig, collectMcpFireServers());
+  return {
   namespace: AMSG_GLOBAL_NAMESPACE,
   key: AMSG_TOOL_CONFIG_KEY,
   // MCP 配置在这里现读现带：三条上传路径（排程 / fire_pack 冲刷 / 设置保存）
   // 全走这个咽喉，不会出现某条路漏带的版本分叉。
-  value: JSON.stringify(buildToolConfig(realtimeConfig, {
-    servers: collectMcpFireServers(),
+  value: JSON.stringify(buildToolConfig(settings.realtime, {
+    servers: settings.servers,
     useNativeTools: getMcpUseNativeTools(),
   })),
   updatedAt,
-});
+  };
+};
 
 /**
  * 现有推送订阅还能不能继续用；不能用的当场退订，返回 null 让调用方重新订阅。
@@ -1761,6 +1776,18 @@ const subscribeOrThrow = async (
   throw withFailKind(new Error(message), failure ? SUBSCRIBE_FAIL_KIND[failure.kind] : '订阅失败');
 };
 
+/**
+ * 登记推送订阅。Worker 拒收（400/500 信封）时 amsg-client 只把信封还回来、不抛，
+ * 这里转成异常：登记没成功却当成功，重置按钮会先删旧订阅再静默失败，用户从此收不到推送。
+ */
+const putPushSubscriptionOrThrow = async (
+  client: ReiClient,
+  subscription: Parameters<ReiClient['putPushSubscription']>[0],
+): Promise<void> => {
+  const response = await client.putPushSubscription(subscription);
+  if (!response?.success) throw new Error(formatAmsgServerError(response, 'Worker 没有收下推送订阅。'));
+};
+
 /** 重置的公共尾段：拿 worker 的 VAPID → 重新订阅 → 覆盖登记回 worker。 */
 const resubscribeAndRegister = async (client: ReiClient): Promise<void> => {
   const vapidPublicKey = await fetchWorkerVapidKey(client);
@@ -1768,7 +1795,7 @@ const resubscribeAndRegister = async (client: ReiClient): Promise<void> => {
   const sub = await subscribeOrThrow(registration, vapidPublicKey);
 
   try {
-    await client.putPushSubscription(sub);
+    await putPushSubscriptionOrThrow(client, sub);
   } catch (error) {
     throw normalizeActiveMsgApiError(error, '登记推送订阅');
   }
@@ -1997,7 +2024,7 @@ export const ActiveMsgClient = {
     const config = await ensureWorkerReady();
     if (config.pushMode === 'third-party') return;
     const client = await initializeClient(config);
-    await client.putPushSubscription({ endpoint: `fcm:${value}` });
+    await putPushSubscriptionOrThrow(client, { endpoint: `fcm:${value}` });
   },
 
   async getGlobalConfig() {
@@ -2193,7 +2220,7 @@ export const ActiveMsgClient = {
     const client = await initializeClient(config);
     const subscription = await this.ensurePushSubscription();
     try {
-      await client.putPushSubscription(subscription);
+      await putPushSubscriptionOrThrow(client, subscription);
     } catch (error) {
       throw normalizeActiveMsgApiError(error, '登记推送订阅');
     }
@@ -2278,7 +2305,7 @@ export const ActiveMsgClient = {
         console.warn('[ActiveMsg] 重置推送订阅：删除 Worker 旧订阅失败，继续覆盖', error);
       }
       const subscription = await this.ensurePushSubscription();
-      await client.putPushSubscription(subscription);
+      await putPushSubscriptionOrThrow(client, subscription);
       return;
     }
 
@@ -2381,7 +2408,7 @@ export const ActiveMsgClient = {
         if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) return 'skipped';
         const config = await ensureWorkerReady();
         const client = await initializeClient(config);
-        await client.putPushSubscription({ endpoint: subscription.endpoint, keys: subscription.keys });
+        await putPushSubscriptionOrThrow(client, { endpoint: subscription.endpoint, keys: subscription.keys });
         return 'registered';
       } catch (error) {
         console.warn('[ActiveMsg] 连接后补登记 UnifiedPush 订阅失败', error);
@@ -2510,7 +2537,10 @@ export const ActiveMsgClient = {
    */
   async listRemoteTasksForChar(charId: string): Promise<RemoteTaskProjection[]> {
     const tasks = await this.listAllTasks();
-    if (tasks.length > 0 && tasks.every((t) => t?.charId == null)) {
+    // 解不开的任务（带 error，3.2.0-next.2 起）本来就没有 charId，别拿它当「worker 太旧」的证据：
+    // 换了 Master Key 时任务全是这种，按旧判断会叫用户去重新部署，越部署越乱。
+    const readable = tasks.filter((t) => !t?.error);
+    if (readable.length > 0 && readable.every((t) => t?.charId == null)) {
       throw new Error('worker 版本过旧：任务列表没有 charId 投影，无法按角色对账，请在设置里重新粘贴部署。');
     }
     return tasks
@@ -2870,7 +2900,7 @@ export const ActiveMsgClient = {
       const charEntries = await buildCharStateEntries(char, firePack, now);
       await putClientStateOrThrow(client, [
         ...(owesChat ? charEntries.filter((entry) => entry.key !== AMSG_FIRE_PACK_KEY) : charEntries),
-        buildToolConfigEntry(realtimeConfig, now),
+        await buildToolConfigEntry(realtimeConfig, now),
       ], '上传云端状态');
       ackStoppedReplyReceipts(charEntries, char.id);
     }
@@ -3305,7 +3335,7 @@ export const ActiveMsgClient = {
     const stampedAt = stampStateUpdatedAt();
     const stateEntries = [
       ...(await buildCharStateEntries(char, firePack, stampedAt)),
-      buildToolConfigEntry(realtimeConfig, stampedAt),
+      await buildToolConfigEntry(realtimeConfig, stampedAt),
     ];
     // 自愈那一轮只换戳、不重打包：value 里那份压好的 fire_pack 原样复用。
     const encryptStateEntries = (updatedAt: number) => encryptPayload(client, {
@@ -3475,7 +3505,7 @@ export const ActiveMsgClient = {
   ): Promise<void> {
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
-    const entry = buildToolConfigEntry(realtimeConfig, options?.updatedAt ?? stampStateUpdatedAt());
+    const entry = await buildToolConfigEntry(realtimeConfig, options?.updatedAt ?? stampStateUpdatedAt());
     const response = await putCloudClientState(client, [entry]);
     const [outcome] = classifyClientStateWrite([entry], response);
     if (outcome?.status === 'applied') return;
@@ -3987,7 +4017,8 @@ export const ActiveMsgClient = {
     updated: number;
     failed: number;
   }> {
-    const characters = (await DB.getAllCharacters()).filter(isAmsg2EnabledForChar);
+    const { allSpaceCharacters } = await import('./userSpaceCloudSettings');
+    const characters = (await allSpaceCharacters()).filter(isAmsg2EnabledForChar);
     if (!characters.length) return { status: 'no-tasks', updated: 0, failed: 0 };
     const remoteTasks = await this.listAllTasks();
     let updated = 0;
@@ -4242,7 +4273,7 @@ export const ActiveMsgClient = {
       const authed = await initializeClient(config);
       await putClientStateOrThrow(
         authed,
-        [buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())],
+        [await buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())],
         '重新上传工具凭据',
       );
     } catch (error) {

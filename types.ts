@@ -2525,6 +2525,7 @@ export interface StoryTheaterEntry {
     archiveAfter: number;
     /** 归档时至少留在会话里的最近楼层数；旧数据默认 5。 */
     archiveKeepRecent?: number;
+    archiveMode?: 'auto' | 'manual';
     archiveStrategy: StoryTheaterArchiveStrategy;
     archives: StoryTheaterArchive[];
     /** 从演员挂载世界书去重得到；只影响本剧情，不改外部挂载。 */
@@ -2985,6 +2986,7 @@ export interface MemoryPalaceWaterlineConfig {
 }
 
 export interface CharacterProfile {
+  userPersona?: import('./utils/userPersona').CharacterUserPersona;
   /** Local default for this character's dialogue; absent means follow Settings. Never shared in cards. */
   dialogueApi?: DialogueApiConfig;
   id: string;
