@@ -1086,6 +1086,22 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">定位</span>
                             </button>
 
+                            {/* 离开后消息：用户超过等待时长没开口，角色来找你（单页列表里补回，见上游 actionTiles） */}
+                            <button
+                              type="button"
+                              onClick={() => onPanelAction('away-message')}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className="relative">
+                                {acnh ? <AcnhActionTile kind="proactive" /> : (
+                                <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
+                                  <ChatCircleDots className="w-6 h-6" weight="bold" />
+                                </div>)}
+                                {awayMessageOn && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 bg-violet-500 border-white" />}
+                              </div>
+                              <span className="text-xs font-bold">离开后消息</span>
+                            </button>
+
                           </div>
 
                           <div className="p-4 grid grid-cols-4 gap-5">
@@ -1213,6 +1229,18 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <Star className="w-6 h-6" weight="fill" />
                               </div>
                               <span className="text-xs font-bold">语音收藏</span>
+                            </button>
+
+                            {/* 导出记录：导出当前角色聊天原文，含每条消息的原始时间 */}
+                            <button
+                              type="button"
+                              onClick={() => onPanelAction('export-chat')}
+                              className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className={`sully-action-tile ${isDiscordStyle ? 'sully-action-tile-dark' : ''}`}>
+                                <BookOpenText className="w-6 h-6" weight="bold" />
+                              </div>
+                              <span className="text-xs font-bold">导出记录</span>
                             </button>
                           </div>
 
