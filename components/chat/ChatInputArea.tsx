@@ -1086,7 +1086,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">定位</span>
                             </button>
 
-                            {/* 离开后消息：用户超过等待时长没开口，角色来找你（单页列表里补回，见上游 actionTiles） */}
+                          </div>
+
+                          <div className="p-4 grid grid-cols-4 gap-5">
+                            {/* 离开后消息：用户超过等待时长没开口，角色来找你（紧邻主动消息 2.0，与上游顺序一致） */}
                             <button
                               type="button"
                               onClick={() => onPanelAction('away-message')}
@@ -1102,9 +1105,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               <span className="text-xs font-bold">离开后消息</span>
                             </button>
 
-                          </div>
-
-                          <div className="p-4 grid grid-cols-4 gap-5">
                             {/* 主动消息 2.0：云端 worker 定时任务 */}
                             <button onClick={() => onPanelAction('active-msg-2')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 {acnh ? <AcnhActionTile kind="proactive" /> : (
