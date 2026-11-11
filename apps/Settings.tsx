@@ -115,16 +115,19 @@ const VIDEO_MODEL_LIST_STORAGE_KEY = 'os_video_available_models';
 /**
  * 内置视频模型候选。
  *
- * 智谱的 GET /models 只列「账号当前可用的模型」，视觉/视频系列经常不在返回里，
- * 或者干脆只给文本模型。所以选择器里永远垫一份内置清单：远程拉到什么就并进来，
+ * 有的服务商 GET /models 只列文本模型（智谱就是这样，视觉系列根本不在返回里），
+ * 有的干脆不给列表。所以选择器里永远垫一份内置清单：远程拉到什么就并进来，
  * 拉不到也不至于让人对着一片空白手打模型名。
+ *
+ * 阿里的 /compatible-mode/v1/models 是有的（实测 401 而不是 404），点「刷新模型列表」
+ * 能拉到全量；这份清单主要是给不刷新的人兜底。
  */
 const VIDEO_MODEL_FALLBACKS = [
+    'qwen-vl-max',
+    'qwen-vl-plus',
+    'qwen3-vl-plus',
+    'qwen3-vl-flash',
     'glm-4.6v-flash',
-    'glm-4.1v-thinking-flash',
-    'glm-4.6v-flashx',
-    'glm-4.6v',
-    'glm-4.5v',
 ];
 
 // 生图 API 预设（多预设切换）
@@ -5116,7 +5119,7 @@ const Settings: React.FC = () => {
                     </div>
                     {availableVideoModels.length === 0 && (
                         <div className="text-[10px] text-sky-600 bg-sky-50 px-3 py-2 rounded-xl leading-relaxed">
-                            下面是内置推荐（智谱 V 系列）。点「刷新模型列表」可以从服务商再拉一批并进来。
+                            下面是内置推荐（通义 Qwen-VL 系列 / 智谱 GLM-V）。点「刷新模型列表」可以从服务商拉全量再并进来。
                         </div>
                     )}
                     {videoModelCandidates.length > 0 && (
