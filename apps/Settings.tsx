@@ -123,10 +123,9 @@ const VIDEO_MODEL_LIST_STORAGE_KEY = 'os_video_available_models';
  * 能拉到全量；这份清单主要是给不刷新的人兜底。
  */
 const VIDEO_MODEL_FALLBACKS = [
+    'qwen3.7-plus',
+    'qwen3.6-flash',
     'qwen-vl-max',
-    'qwen-vl-plus',
-    'qwen3-vl-plus',
-    'qwen3-vl-flash',
     'glm-4.6v-flash',
 ];
 
