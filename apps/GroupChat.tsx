@@ -44,7 +44,15 @@ import ChatInputSettings from '../components/chat/ChatInputSettings';
 import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import TokenImg from '../components/os/TokenImg';
 import { ImageViewer } from '../components/chat/ChatImage';
-import { useBlobRefUrl, migrateDataUrlToRef } from '../utils/blobRef';
+import { useBlobRefUrl, migrateDataUrlToRef, putImageBlobDeduped } from '../utils/blobRef';
+import {
+    classifyVideoFile,
+    normalizeVideoMimeForUpload,
+    readVideoMeta,
+    VIDEO_MAX_DESCRIBE_SECONDS,
+    VIDEO_MAX_UPLOAD_BYTES,
+} from '../utils/videoMessage';
+import { describeVideoForMessage } from '../utils/videoApi';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
@@ -127,6 +135,25 @@ const GroupPacketCard = ({ msg, nameOf, onOpen }: {
 };
 
 // --- Sub-Component: Group Message Bubble ---
+// 群聊视频气泡：本地播放原片，带时长角标；比例取自消息元数据，避免加载时把列表顶一下。
+const GroupVideoBubble = React.memo(({ value, ratio, duration }: { value: string; ratio: number; duration: number }) => {
+    const url = useBlobRefUrl(value);
+    return (
+        <div className="relative overflow-hidden rounded-xl bg-black" style={{ width: 200, aspectRatio: String(ratio) }}>
+            {url ? (
+                <video src={url} controls playsInline preload="metadata" className="w-full h-full object-cover" />
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-300 text-[10px]">加载中…</div>
+            )}
+            {duration > 0 && (
+                <span className="pointer-events-none absolute bottom-1 right-1.5 rounded bg-black/60 px-1 text-[10px] text-white/90">
+                    {Math.floor(duration / 60)}:{String(Math.round(duration) % 60).padStart(2, '0')}
+                </span>
+            )}
+        </div>
+    );
+});
+
 const GroupMessageItem = React.memo(({
     msg,
     isUser,
@@ -356,6 +383,17 @@ const GroupMessageItem = React.memo(({
                         <TokenImg value={msg.content} className="max-w-[200px] max-h-[200px] rounded-xl shadow-sm border border-black/5" loading="lazy" />
                     </div>
                 );
+            case 'video': {
+                const videoMeta = (msg.metadata?.video || {}) as any;
+                const width = Number(videoMeta.width) || 0;
+                const height = Number(videoMeta.height) || 0;
+                const ratio = width > 0 && height > 0 ? width / height : 16 / 9;
+                return (
+                    <div onClick={(e) => { if (selectionMode) handleClick(e); }}>
+                        <GroupVideoBubble value={msg.content} ratio={ratio} duration={Number(videoMeta.duration) || 0} />
+                    </div>
+                );
+            }
             case 'emoji':
                 // 尺寸跟随外观 → 表情包大小（--sully-emoji-size 三挡，默认 96px = 原 w-24）
                 return <TokenImg value={msg.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] object-contain drop-shadow-sm hover:scale-110 transition-transform" />;
@@ -973,7 +1011,7 @@ const GroupChat: React.FC = () => {
                 setReplyTarget(null);
             }
 
-            await DB.saveMessage(newMessage);
+            const savedId = await DB.saveMessage(newMessage);
             sent = true;
             await refreshMessages(activeGroup.id);
             markGroupMembersDirty(activeGroup.members);
@@ -985,8 +1023,10 @@ const GroupChat: React.FC = () => {
             // 表情联想发送复用这里；表情发出后保留尚未发送的文字草稿。
             if (type === 'text') setInput(current => current === content ? '' : current);
 
+            // 返回落库 id：视频要拿着它去后台补画面描述。
+            return savedId;
         } finally {
-            finishSend(sent && ['text', 'image', 'emoji'].includes(type));
+            finishSend(sent && ['text', 'image', 'video', 'emoji'].includes(type));
         }
     };
 
@@ -1005,10 +1045,62 @@ const GroupChat: React.FC = () => {
         }
     };
 
+    /** 群聊发视频：与私聊同一套体积策略（原片存本地，送模型的是 ≤8MB 的副本）。 */
+    const handleVideoFile = async (file: File) => {
+        const finishVideo = autoReply.beginSend(activeGroup?.id || null);
+        try {
+            const objectUrl = URL.createObjectURL(file);
+            let meta = { duration: 0, width: 0, height: 0 };
+            try {
+                meta = await readVideoMeta(objectUrl);
+            } catch {
+                // 读不出元数据也照发，只影响气泡比例和时长角标。
+            } finally {
+                URL.revokeObjectURL(objectUrl);
+            }
+
+            const mime = normalizeVideoMimeForUpload(file.type);
+            const storeBlob: Blob = file.type === mime ? file : new Blob([file], { type: mime });
+            const { token } = await putImageBlobDeduped(storeBlob);
+
+            const videoMeta = {
+                duration: Math.round(meta.duration || 0),
+                width: meta.width || 0,
+                height: meta.height || 0,
+                mime,
+                bytes: storeBlob.size,
+                truncated: storeBlob.size > VIDEO_MAX_UPLOAD_BYTES
+                    || (meta.duration || 0) > VIDEO_MAX_DESCRIBE_SECONDS,
+            };
+            const messageId = await handleSendMessage(token, 'video', { video: videoMeta });
+
+            if (messageId) {
+                void describeVideoForMessage({
+                    id: messageId,
+                    charId: 'user',
+                    groupId: activeGroup?.id,
+                    role: 'user',
+                    type: 'video',
+                    content: token,
+                    timestamp: Date.now(),
+                    metadata: { video: videoMeta },
+                } as any, apiConfig?.videoApi);
+            }
+        } catch (err: any) {
+            addToast(err?.message || '视频发送失败', 'error');
+        } finally {
+            // 实际发送由 handleSendMessage 标记；这里只覆盖视频处理期间的等待。
+            finishVideo(false);
+        }
+    };
+
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        await handleImageFile(file);
+        // 同一个按钮两个用途：先认类型再分流。视频绝不能被塞进 processImage 的 canvas。
+        const { isVideo } = await classifyVideoFile(file);
+        if (isVideo) await handleVideoFile(file);
+        else await handleImageFile(file);
         if (e.target) e.target.value = '';
     };
 
@@ -2004,7 +2096,7 @@ ${memberTimeline || '(暂无互动记录)'}
                             </div>
                             <span className="text-xs font-bold">相册</span>
                         </button>
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleImageUpload} />
 
                         <button onClick={() => { setModalType('transfer'); setShowPanel('none'); trackEvent('打开发红包面板'); }} className="flex flex-col items-center gap-2 active:scale-95 transition-transform text-slate-600">
                             <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border bg-orange-50 text-orange-400 border-orange-100">

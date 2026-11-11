@@ -1002,6 +1002,51 @@ export const normalizeXhsComments = (payload: any): NormalizedXhsComment[] => {
     return rawComments.map((comment: any) => normalizeComment(comment));
 };
 
+/** 从一张配图的多种字段形态里挑出 URL（列表项有时是字符串，有时是带 info_list 的对象）。 */
+const pickXhsImageUrl = (item: any): string | undefined => {
+    if (!item) return undefined;
+    const raw = typeof item === 'string'
+        ? item
+        : item.urlDefault || item.url_default || item.url || item.urlPre || item.url_pre
+        || item.info_list?.[0]?.url || item.infoList?.[0]?.url;
+    return typeof raw === 'string' && /^https?:\/\//i.test(raw)
+        ? raw.replace(/^http:\/\//, 'https://')
+        : undefined;
+};
+
+/**
+ * 从笔记里挑出视频地址。
+ *
+ * 小红书返回的形态换过好几版：早期直接给 url，后来是 media.stream.h264[].masterUrl，
+ * 部分场景只给 consumer.originVideoKey（对象存储里的 key，得自己拼 CDN 域名）。
+ * 这里按「能直接用 → 需要拼」的顺序退，都拿不到就当普通图文笔记处理。
+ */
+const pickXhsVideoUrl = (n: any, card: any): string | undefined => {
+    const video = n.video || n.videoInfo || n.video_info || card?.video || card?.video_info;
+    if (!video) return undefined;
+
+    const streams = video.media?.stream || video.media_stream?.stream || video.media_stream || {};
+    const h264 = Array.isArray(streams.h264) ? streams.h264 : [];
+    const h265 = Array.isArray(streams.h265) ? streams.h265 : [];
+    const candidates: any[] = [
+        ...h264.map((item: any) => item?.masterUrl || item?.master_url || item?.url),
+        ...h265.map((item: any) => item?.masterUrl || item?.master_url || item?.url),
+        video.url, video.video_url, video.videoUrl,
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate)) {
+            return candidate.replace(/^http:\/\//, 'https://');
+        }
+    }
+
+    const originKey = video.consumer?.originVideoKey || video.originVideoKey;
+    if (typeof originKey === 'string' && originKey.trim()) {
+        return `https://sns-video-bd.xhscdn.com/${originKey.trim().replace(/^\/+/, '')}`;
+    }
+    return undefined;
+};
+
 export const normalizeNote = (n: any): {
     noteId: string;
     title: string;
@@ -1015,6 +1060,10 @@ export const normalizeNote = (n: any): {
     xsecToken?: string;
     coverUrl?: string;
     type?: string;
+    /** 笔记配图（最多 9 张）。保留原始 CDN 地址，取用时再走 worker /xhs-media 代理。 */
+    imageUrls?: string[];
+    /** 笔记视频地址（有就说明这条笔记是视频笔记）。 */
+    videoUrl?: string;
 } => {
     const card = n.noteCard || n.note_card || n.notecard;
     // 封面：cover 对象 / 字符串，或笔记图片列表首图（feed detail 返回 image_list）。
@@ -1023,6 +1072,15 @@ export const normalizeNote = (n: any): {
         : coverObj?.urlDefault || coverObj?.url_default || coverObj?.url || coverObj?.urlPre
         || coverObj?.info_list?.[0]?.url || undefined;
     const coverUrl = rawCoverUrl?.replace(/^http:\/\//, 'https://');
+
+    // 配图列表：一是给卡片轮播用，二是交给视觉模型"看"这篇笔记。
+    // 只认明确出现的图片字段，不猜——猜错会拿到一串 404 的地址去喂模型。
+    const imageListRaw = firstArray(n.image_list, n.imageList, card?.image_list, card?.imageList) || [];
+    const imageUrls = imageListRaw
+        .map(pickXhsImageUrl)
+        .filter((item): item is string => !!item)
+        .slice(0, 9);
+    const videoUrl = pickXhsVideoUrl(n, card);
     // 点赞数：支持 interactInfo.likedCount (profile notes) 和 interact_info.liked_count (search results)
     const interact = n.interact_info || n.interactInfo
         || card?.interact_info || card?.interactInfo || {};
@@ -1043,6 +1101,8 @@ export const normalizeNote = (n: any): {
         xsecToken: n.xsecToken || n.xsec_token || card?.xsec_token || card?.xsecToken || undefined,
         coverUrl,
         type: n.type || card?.type || undefined,
+        imageUrls,
+        videoUrl,
     };
 };
 

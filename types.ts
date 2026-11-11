@@ -287,6 +287,19 @@ export interface VisionApiConfig {
   model: string;
 }
 
+/**
+ * 独立的视频理解配置。与识图分开的理由不是「省一个 key」而是契约不同：
+ * 识图是 image_url + base64，视频是 video_url + 几十 MB 的二进制；两者的
+ * 失败模式、体积策略、开关时机都不一样，混在一起会互相拖累。
+ */
+export interface VideoApiConfig {
+  /** 开启后，聊天里的视频先由视觉模型转成文字，再交给主对话模型。 */
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 /** A complete dialogue endpoint, separate from TTS/vision configuration. */
 export type DialogueApiConfig = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature' | 'maxTokens' | 'apiType'>;
 
@@ -298,6 +311,8 @@ export interface APIConfig {
   apiKey: string;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
+  // 可选视频理解：与识图同一家也能是不同家，切主 API 预设不会带走它。
+  videoApi?: VideoApiConfig;
   minimaxApiKey?: string;
   minimaxGroupId?: string;
   // 'domestic' → https://api.minimaxi.com (国内站)
@@ -4177,7 +4192,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay' | 'letter_card' | 'letter_reply_card';
+export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'secret_note' | 'text' | 'image' | 'video' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'fanwai_card' | 'location_card' | 'game_replay' | 'letter_card' | 'letter_reply_card';
 
 export interface Message {
     id: number;

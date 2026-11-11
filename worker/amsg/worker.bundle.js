@@ -17781,11 +17781,43 @@ var normalizeXhsComments = (payload) => {
   };
   return rawComments.map((comment) => normalizeComment(comment));
 };
+var pickXhsImageUrl = (item) => {
+  if (!item) return void 0;
+  const raw = typeof item === "string" ? item : item.urlDefault || item.url_default || item.url || item.urlPre || item.url_pre || item.info_list?.[0]?.url || item.infoList?.[0]?.url;
+  return typeof raw === "string" && /^https?:\/\//i.test(raw) ? raw.replace(/^http:\/\//, "https://") : void 0;
+};
+var pickXhsVideoUrl = (n, card) => {
+  const video = n.video || n.videoInfo || n.video_info || card?.video || card?.video_info;
+  if (!video) return void 0;
+  const streams = video.media?.stream || video.media_stream?.stream || video.media_stream || {};
+  const h264 = Array.isArray(streams.h264) ? streams.h264 : [];
+  const h265 = Array.isArray(streams.h265) ? streams.h265 : [];
+  const candidates = [
+    ...h264.map((item) => item?.masterUrl || item?.master_url || item?.url),
+    ...h265.map((item) => item?.masterUrl || item?.master_url || item?.url),
+    video.url,
+    video.video_url,
+    video.videoUrl
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate)) {
+      return candidate.replace(/^http:\/\//, "https://");
+    }
+  }
+  const originKey = video.consumer?.originVideoKey || video.originVideoKey;
+  if (typeof originKey === "string" && originKey.trim()) {
+    return `https://sns-video-bd.xhscdn.com/${originKey.trim().replace(/^\/+/, "")}`;
+  }
+  return void 0;
+};
 var normalizeNote = (n) => {
   const card = n.noteCard || n.note_card || n.notecard;
   const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0];
   const rawCoverUrl = typeof coverObj === "string" ? coverObj : coverObj?.urlDefault || coverObj?.url_default || coverObj?.url || coverObj?.urlPre || coverObj?.info_list?.[0]?.url || void 0;
   const coverUrl = rawCoverUrl?.replace(/^http:\/\//, "https://");
+  const imageListRaw = firstArray(n.image_list, n.imageList, card?.image_list, card?.imageList) || [];
+  const imageUrls = imageListRaw.map(pickXhsImageUrl).filter((item) => !!item).slice(0, 9);
+  const videoUrl = pickXhsVideoUrl(n, card);
   const interact = n.interact_info || n.interactInfo || card?.interact_info || card?.interactInfo || {};
   const likesRaw = n.likes ?? n.liked_count ?? interact.liked_count ?? interact.likedCount ?? 0;
   const collectsRaw = n.collects ?? n.collected_count ?? interact.collected_count ?? interact.collectedCount ?? 0;
@@ -17803,7 +17835,9 @@ var normalizeNote = (n) => {
     shareCount: parseXhsCount(shareCountRaw),
     xsecToken: n.xsecToken || n.xsec_token || card?.xsec_token || card?.xsecToken || void 0,
     coverUrl,
-    type: n.type || card?.type || void 0
+    type: n.type || card?.type || void 0,
+    imageUrls,
+    videoUrl
   };
 };
 var normalizeXhsLiteDetail = (payload, commentLimit = 15) => {

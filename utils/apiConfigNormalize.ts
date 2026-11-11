@@ -19,6 +19,7 @@ export const normalizeApiModel = (value: unknown): string =>
 
 export function normalizeApiConfig(config: APIConfig): APIConfig {
   const visionApi = config.visionApi;
+  const videoApi = config.videoApi;
   return {
     ...config,
     baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(config.baseUrl), config.apiType),
@@ -30,6 +31,15 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
         baseUrl: normalizeApiBaseUrl(visionApi.baseUrl),
         apiKey: normalizeApiCredential(visionApi.apiKey),
         model: normalizeApiModel(visionApi.model),
+      },
+    } : {}),
+    // 视频理解与识图同一套清洗规则，只是各存各的槽位。
+    ...(videoApi ? {
+      videoApi: {
+        enabled: videoApi.enabled === true,
+        baseUrl: normalizeApiBaseUrl(videoApi.baseUrl),
+        apiKey: normalizeApiCredential(videoApi.apiKey),
+        model: normalizeApiModel(videoApi.model),
       },
     } : {}),
   };

@@ -122,6 +122,15 @@ export function normalizeMessageContent(
 
     // 纯视觉类给占位；语音优先使用配套转写，避免把音频资源地址送进上下文。
     if (type === 'image') return '[图片]';
+    if (type === 'video') {
+        // 视频的 content 是 blobref 令牌，绝不能原样进上下文（会变成一段无意义 ID 被记住）。
+        // 有描述就把描述当成内容；没描述如实说「看不到」，避免模型编一段它没看过的画面。
+        const desc = typeof msg.metadata?.visionDescription === 'string' ? msg.metadata.visionDescription.trim() : '';
+        if (!desc) return '[视频]（没有画面描述，你看不到这段视频的内容）';
+        return msg.metadata?.videoTruncated === true
+            ? `[视频：${desc}]（这是被截断的片段，结尾之后还有内容）`
+            : `[视频：${desc}]`;
+    }
     if (type === 'emoji') return '[表情包]';
     if (type === 'voice') {
         const transcript = getVoiceTranscript(msg);
@@ -296,7 +305,11 @@ export function normalizeMessageContent(
             note.commentCount != null ? note.commentCount + '评论' : '',
             note.shareCount != null ? note.shareCount + '分享' : '',
         ].filter(Boolean).join(' · ');
-        const details = (stats ? '\n互动：' + stats : '') + commentsPart;
+        // 画面描述：分享时后台用视觉模型把配图/视频转成了文字（见 utils/xhsMedia.ts）。
+        // 有就让角色"看到"图，没有就什么都不说 —— 别让它假装看过封面。
+        const mediaDesc = typeof note.mediaDesc === 'string' ? note.mediaDesc.trim() : '';
+        const mediaPart = mediaDesc ? `\n画面内容：\n${mediaDesc}` : '';
+        const details = (stats ? '\n互动：' + stats : '') + mediaPart + commentsPart;
         if (desc) return `${head}\n笔记正文：\n${desc}${details}`;
         // 只有标题（没部署 MCP / 没抓到正文）：角色至少知道是哪篇笔记，但别假装读过正文。
         if (title) return `${head}${details}\n（注：只拿到了笔记标题，正文/图片没抓到；可用原链接调用已配置的解析工具。别假装读过正文。）`;
@@ -433,6 +446,9 @@ export function isMessageSemanticallyRelevant(msg: Message): boolean {
     const type = msg.type as string;
     if (type === 'image' || type === 'emoji') return false;
     if (type === 'voice') return !!getVoiceTranscript(msg);
+    // 视频比图片多一层：有描述时它就是有语义的材料（和语音转写同理），
+    // 没描述时只是「用户发过一段视频」，仍算一次有效的互动事件，但不带内容。
+    if (type === 'video') return true;
     // 卡片是其它功能汇入聊天的结构化上下文；即使 content 为空，只要专用格式化器
     // 能从 metadata 生成可读摘要，也必须参与缓冲区计数和记忆总结。
     if (type?.endsWith('_card')) {

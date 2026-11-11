@@ -1286,6 +1286,30 @@ ${voiceActingGuide()}`;
                      }
                      return { role: m.role, content: [{ type: "text", text: textPart.trimStart() }, { type: "image_url", image_url: { url: m.content } }] };
                 }
+
+                // 视频：content 是 blobref 令牌，绝不能落到下面「原样拼 content」的分支
+                // ——那会让令牌整条活着进 prompt。这里一律提前 return。
+                // 主模型永远收不到视频字节：视频理解在 utils/videoApi.ts 那侧已经转成文字了。
+                if (m.type === 'video') {
+                    const videoDescription = typeof m.metadata?.visionDescription === 'string'
+                        ? m.metadata.visionDescription.trim()
+                        : '';
+                    const videoTruncated = m.metadata?.videoTruncated === true
+                        || m.metadata?.video?.truncated === true;
+                    let textPart: string;
+                    if (videoDescription) {
+                        textPart = `${timeStr} [视频：${videoDescription}]`;
+                        if (videoTruncated) {
+                            // 截断了要说明白：不然模型会把第 60 秒的中断当成结局，自己补一个收尾。
+                            textPart += '（这段视频被截断，结尾之后还有内容，不要当成完整结局，也不要替它补收尾）';
+                        }
+                    } else {
+                        // 没描述就如实说看不到。宁可它问一句「什么视频」，也别让它编画面。
+                        textPart = `${timeStr} [User sent a video, but you can't see its content — 视频画面描述暂不可用，不要猜测画面内容]`;
+                    }
+                    if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
+                    return { role: m.role, content: textPart.trimStart() };
+                }
                 
                 if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') content = `${content}\n\n${timeGapHint}`; 
                 

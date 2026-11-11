@@ -10,6 +10,7 @@ export function formatChatTextExport(messages: Message[]): string {
             const date = new Date(message.timestamp);
             const time = Number.isFinite(date.getTime()) ? date.toLocaleString('sv-SE', { hour12: false }) : '时间未知';
             const content = message.type === 'image' ? '[图片]'
+                : message.type === 'video' ? '[视频]'
                 : message.type === 'emoji' ? '[表情]'
                 : /^(?:blobref:|blob:|data:)/i.test(message.content || '') ? '[附件]'
                 : message.type === 'voice' ? `[语音] ${message.content || ''}` : message.content || '';

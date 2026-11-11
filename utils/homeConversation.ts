@@ -109,11 +109,11 @@ async function buildHomeConversationRequest({char,user,api,scene,records,signal,
   historyMsgs:rows,contextLimit:Math.max(1,rows.length),contextHighWaterMark:range.hwm,
   recallEntryPoint:'home_3d',realtimeConfig:context?.realtimeConfig,musicSnapshot:context?.musicSnapshot,
   onPreparationStage:event=>{
-   const label={vision:'识图准备',memory:'记忆召回',prompt:'组装提示词',collaboration:'读取协同文件柜',tasks:'读取任务与回执'}[event.stage];
+   const label={vision:'识图准备',video:'视频理解',memory:'记忆召回',prompt:'组装提示词',collaboration:'读取协同文件柜',tasks:'读取任务与回执'}[event.stage];
    if(event.status==='start')onStage?.(label);
    if(event.status==='end')timingLog.info(label+'：结束',{ms:event.ms});else timingLog.info(label+'：开始');
   },
-  innerState:regenerating?'':undefined,visionApiConfig:api.visionApi,
+  innerState:regenerating?'':undefined,visionApiConfig:api.visionApi,videoApiConfig:api.videoApi,
   appPrompt:{rules:'',scene:buildHomeScenePrompt(user,scene)+socialScene+(initiative?'\n这是你主动发起的交谈：你现在在'+scene.roomName+'，刚经历了当前家园回合里的本地活动，现在有话想对'+(user.name?.trim()||'用户')+'说。'+(automatic?'你已被允许主动开口，'+(user.name?.trim()||'用户')+'没有提出问题。':(user.name?.trim()||'用户')+'只是点了听听，没有提出问题。')+'结合真实经历和情绪自然开口，并从当前 actions 选择适合的实际动作，不编造已经执行的行为。':'')},
  }));
  if(signal.aborted)throw new DOMException('已取消','AbortError');

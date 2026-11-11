@@ -42,6 +42,7 @@ export const CHAT_TYPE_SAMPLES = {
  letter_reply_card:msg(39,'letter_reply_card','我的回信',{letterReply:{title:'写给你的回信',occasion:{name:'日常'},excerpt:'收到你的信了，我也有话想跟你说。'}}),
  secret_note:msg(40,'secret_note','（悄悄话）',{secretNote:{text:'其实我今天一直在想你。'},tone:'害羞'}),
  friend_feed_card:msg(29,'friend_feed_card','[好友圈记录] 你评论：那我带杯子过来。',{source:'friend_feed',friendFeedComment:{postId:'preview-coffee',commentId:'preview-comment',postAuthor:'小雨',postExcerpt:'今天终于把咖啡机研究明白了。先声明：上次的焦味不算。',comment:'那我带杯子过来。焦味的那杯先留给你。'}},'system'),
+video:msg(41,'video','[视频] 周末的海边',{video:{duration:12,width:1280,height:720,mime:'video/mp4',bytes:4200000}}),
 } satisfies Record<MessageType, Message>;
 
 export interface ChatPreviewScene {id:string;label:string;messages:Message[];expanded?:boolean;voiceLoading?:boolean;voicePlaying?:boolean}

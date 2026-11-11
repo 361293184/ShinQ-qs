@@ -60,6 +60,14 @@ interface ChatInputAreaProps {
     actionsContent?: React.ReactNode;
     onPanelAction: (type: string, payload?: any) => void;
     onImageSelect: (file: File) => void;
+    /**
+     * 允许在同一个入口里选视频。
+     *
+     * 用 prop 而不是直接改 accept：这个组件被私聊和群聊共用，群聊的
+     * handleImageFile 会直接调 processImage 把文件塞进 canvas，视频进去必炸
+     * （`Failed to execute 'drawImage'`）。所以群聊不传这个 prop。
+     */
+    videoEnabled?: boolean;
     isSummarizing: boolean;
     // Categories Support
     categories?: EmojiCategory[];
@@ -100,7 +108,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     customThemes = [], onUpdateTheme = () => {}, onRemoveTheme = () => {}, activeThemeId = '',
     actionsContent,
     previewActionsPage=0,
-    onPanelAction, onImageSelect, isSummarizing,
+    onPanelAction, onImageSelect, isSummarizing, videoEnabled,
     categories = [], activeCategory = 'default',
     onReroll, canReroll,
     mcdConfigured = false,
@@ -1019,7 +1027,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 </div>)}
                                 <span className="text-xs font-bold">相册</span>
                             </button>
-                            <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
+                            <input type="file" ref={chatImageInputRef} className="hidden" accept={videoEnabled ? "image/*,video/*" : "image/*"} onChange={(e) => handleImageChange(e, 'chat')} />
 
                             {/* 生图按钮：打开手动生图面板（角色 / 你 / 合照） */}
                             <button onClick={() => onPanelAction('image-gen')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>

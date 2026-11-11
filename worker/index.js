@@ -282,6 +282,11 @@ return {handleWeibo,handleWeiboImage,readWeiboSession,weiboPageUid,normalizeWeib
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1";
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const XHS_BASE = "https://edith.xiaohongshu.com";
+// /xhs-media 代理放行的域名：只看后缀、子域一律允许。
+// 封面在 sns-webpic-qc.xhscdn.com，视频在 sns-video-hw.xhscdn.com，
+// 少数笔记图仍挂在 ci.xiaohongshu.com —— 只放 *.xhscdn.com 会漏掉后面两类。
+const XHS_MEDIA_HOSTS = ["xhscdn.com", "xhscdn.net", "xiaohongshu.com"];
+const XHS_MEDIA_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const XHS_MEDIA_HOST_CANDIDATES = [
   "https://edith.xiaohongshu.com",
   "https://creator.xiaohongshu.com",
@@ -3399,6 +3404,71 @@ export default {
         return forward(`${WEREAD_BASE}/web/search/global?keyword=${encodeURIComponent(keyword)}&maxIdx=${encodeURIComponent(maxIdx)}&fragmentSize=100&maxCount=10`);
       }
       return jsonResponse({ error: "Unknown Weread endpoint" }, { status: 404, origin });
+    }
+
+    // ========== 小红书媒体代理（不需要 cookie，只做防盗链中继） ==========
+    // 笔记图片/视频挂在 *.xhscdn.com 上，且带 Referer 校验：浏览器直连会 403，
+    // 视觉模型的服务端抓取也会 403。这里只放行小红书自家的 CDN 域名——
+    // 不做白名单的话，?url= 就是一个无状态 GET 的开放代理（能打内网和云元数据）。
+    if (url.pathname === '/xhs-media') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+            'Access-Control-Allow-Headers': 'Range',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      }
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return jsonResponse({ error: 'METHOD_NOT_ALLOWED' }, { status: 405, origin });
+      }
+
+      const target = url.searchParams.get('url') || '';
+      if (!target) return jsonResponse({ error: 'BAD_REQUEST', message: '缺少 url' }, { status: 400, origin });
+
+      let mediaUrl;
+      try {
+        mediaUrl = new URL(target);
+      } catch {
+        return jsonResponse({ error: 'BAD_URL' }, { status: 400, origin });
+      }
+      // 只允许 https：http 既会被 CDN 拒，也顺手挡住了 file:/gopher: 之类的协议。
+      if (mediaUrl.protocol !== 'https:') {
+        return jsonResponse({ error: 'ONLY_HTTPS' }, { status: 400, origin });
+      }
+      const mediaHost = mediaUrl.hostname.toLowerCase();
+      const hostAllowed = XHS_MEDIA_HOSTS.some(base => mediaHost === base || mediaHost.endsWith('.' + base));
+      if (!hostAllowed) {
+        return jsonResponse({ error: 'HOST_NOT_ALLOWED', host: mediaHost }, { status: 403, origin });
+      }
+
+      // Range 要原样转发：视频拖动进度条靠它，图片偶尔也走 206。
+      const range = request.headers.get('Range');
+      const upstream = await fetch(mediaUrl.toString(), {
+        method: request.method,
+        headers: {
+          'Referer': 'https://www.xiaohongshu.com/',
+          'User-Agent': XHS_MEDIA_UA,
+          ...(range ? { 'Range': range } : {}),
+        },
+        redirect: 'follow',
+      });
+
+      const passthrough = new Headers();
+      for (const [key, value] of upstream.headers) {
+        if (/^(content-type|content-length|content-range|accept-ranges|etag|last-modified)$/i.test(key)) {
+          passthrough.set(key, value);
+        }
+      }
+      passthrough.set('Access-Control-Allow-Origin', origin || '*');
+      passthrough.set('Cache-Control', 'public, max-age=86400');
+      return new Response(request.method === 'HEAD' ? null : upstream.body, {
+        status: upstream.status,
+        headers: passthrough,
+      });
     }
 
     // ========== 小红书代理 ==========

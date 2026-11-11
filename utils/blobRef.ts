@@ -66,6 +66,12 @@ export async function putImageBlob(blob: Blob): Promise<string> {
     return blobStore.put(blob);
 }
 
+/**
+ * 视频消息的存储。函数名带 Image 的实现本来就是通用的（只认 Blob，不认类型），
+ * 所以这里不是另起一套，只是给调用点一个说得清自己存的是什么的名字。
+ */
+export const putVideoBlob = (blob: Blob): Promise<string> => putImageBlob(blob);
+
 /** 读取令牌对应的 Blob（非令牌或不存在返回 null）。 */
 export async function getBlobForRef(ref: string): Promise<Blob | null> {
     return blobStore.get(ref);

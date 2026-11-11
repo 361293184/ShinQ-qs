@@ -539,6 +539,38 @@ const ForwardCard: React.FC<{
     );
 };
 
+// ─── 视频气泡：本地播放原片（从不播放压缩副本），带时长角标 ───
+// 宽高比取自消息写入时的元数据：视频还没有 poster，不先定尺寸的话，加载那一刻
+// 会把整个聊天列表顶一下，正好和"贴底校正"打架。
+const formatVideoDuration = (seconds?: number): string => {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    const minutes = Math.floor(total / 60);
+    const rest = total % 60;
+    return `${minutes}:${String(rest).padStart(2, '0')}`;
+};
+
+const VideoBubble: React.FC<{ value: string; metadata?: any; className?: string }> = ({ value, metadata, className }) => {
+    const url = useBlobRefUrl(value);
+    const meta = metadata?.video || {};
+    const width = Number(meta.width) || 0;
+    const height = Number(meta.height) || 0;
+    const ratio = width > 0 && height > 0 ? width / height : 16 / 9;
+    return (
+        <div className={`relative overflow-hidden rounded-2xl bg-black ${className || ''}`} style={{ width: 220, aspectRatio: String(ratio) }}>
+            {url ? (
+                <video src={url} controls playsInline preload="metadata" className="w-full h-full object-cover" />
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs">视频加载中…</div>
+            )}
+            {Number(meta.duration) > 0 && (
+                <span className="pointer-events-none absolute bottom-1.5 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90">
+                    {formatVideoDuration(meta.duration)}
+                </span>
+            )}
+        </div>
+    );
+};
+
 // ============================================================
 // 转账卡片：点开看精美详情，可接收 / 退回；回执则渲染成小卡
 // ============================================================
@@ -3464,6 +3496,17 @@ const MessageItem = React.memo(({
                 <TokenImg value={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
             ) : (
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
+            )
+        );
+    }
+
+    if (m.type === 'video') {
+        const videoMeta = (m as any).metadata || {};
+        return commonLayout(
+            m.content ? (
+                <VideoBubble value={m.content} metadata={videoMeta} />
+            ) : (
+                <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[视频已丢失]</div>
             )
         );
     }

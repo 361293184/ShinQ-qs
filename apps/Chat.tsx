@@ -33,6 +33,15 @@ import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsSha
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, putImageBlobDeduped, useBlobRefUrl } from '../utils/blobRef';
+import {
+    classifyVideoFile,
+    normalizeVideoMimeForUpload,
+    readVideoMeta,
+    VIDEO_MAX_DESCRIBE_SECONDS,
+    VIDEO_MAX_UPLOAD_BYTES,
+} from '../utils/videoMessage';
+import { describeVideoForMessage } from '../utils/videoApi';
+import { describeXhsNoteMedia } from '../utils/xhsMedia';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { isMcdConfigured } from '../utils/mcdMcpClient';
@@ -1651,13 +1660,34 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         }
                     }
 
-                    await DB.saveMessage({
+                    const xhsCardId = await DB.saveMessage({
                         charId: char.id,
                         role: 'user',
                         type: 'xhs_card',
                         content: note.title || '小红书笔记',
                         metadata: { ...metadata, xhsNote: note, originalShareText: text, originalShareUrl: detectFirstUrl(text) || xhsShortUrl }
                     });
+                    // 画面描述跑在后台：卡片立刻发出去，识别慢一点也不影响分享。
+                    // 走 worker 的 /xhs-media 代理拿字节（xhscdn 有 Referer 校验，直连 403）。
+                    if (xhsCardId && ((note.imageUrls?.length || 0) > 0 || note.videoUrl)) {
+                        const proxyBase = realtimeConfig?.xhsMcpConfig?.serverUrl || '';
+                        void (async () => {
+                            try {
+                                const mediaDesc = await describeXhsNoteMedia(note, {
+                                    proxyBase,
+                                    visionApi: apiConfig?.visionApi,
+                                    videoApi: apiConfig?.videoApi,
+                                });
+                                if (!mediaDesc) return;
+                                await DB.updateMessageMetadata(xhsCardId, (prev: any) => ({
+                                    ...(prev || {}),
+                                    xhsNote: { ...(prev?.xhsNote || note), mediaDesc, mediaDescAt: Date.now() },
+                                }));
+                            } catch (e) {
+                                console.warn('[XhsMedia] describe failed:', e);
+                            }
+                        })();
+                    }
                     // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
                     if (isDevDebugAvailable()) {
                         console.log('[卡片调试] 小红书卡片·metadata =', note);
@@ -1726,14 +1756,16 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         // 自动回复模式下允许连续挑表情，用户主动收起加号等面板后才计时。
         if (!inputPreferences.autoReply) setShowPanel('none');
 
-        return true;
+        // 返回落库后的消息 id：视频要拿着它去后台补描述（拿到 id 才能把描述写回同一条）。
+        return savedUserMsgId;
     };
 
     const handleSendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
         const finish = autoReply.beginSend(char?.id || null);
         try {
-            const sent = await sendText(customContent, customType, metadata);
-            finish(sent === true && (!customType || ['text', 'image', 'emoji'].includes(customType)));
+            const sentId = await sendText(customContent, customType, metadata);
+            finish(!!sentId && (!customType || ['text', 'image', 'video', 'emoji'].includes(customType)));
+            return sentId;
         } catch (error) {
             finish(false);
             throw error;
@@ -1911,6 +1943,69 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             // 是否真正发出由 handleSendText 标记；这里仅解除图片处理期间的暂停。
             finishImage(false);
         }
+    };
+
+    /**
+     * 视频消息：本机存原片（播放用），送模型的是 ≤8MB 的副本。
+     *
+     * 取舍：视频先进聊天、立刻能看；理解跑在后台，慢一点不影响发送。
+     * 描述失败也不回滚消息 —— 用户发的是视频，不是「描述」。
+     */
+    const handleVideoSelect = async (file: File) => {
+        try {
+            const objectUrl = URL.createObjectURL(file);
+            let meta = { duration: 0, width: 0, height: 0 };
+            try {
+                meta = await readVideoMeta(objectUrl);
+            } catch {
+                // 读不出时长/分辨率照样发：只影响气泡宽高比和时长角标。
+            } finally {
+                URL.revokeObjectURL(objectUrl);
+            }
+
+            // 容器统一标 mp4：QuickTime 原样送模型多数会被拒（编码另说，见 videoMessage.ts）。
+            const mime = normalizeVideoMimeForUpload(file.type);
+            const storeBlob: Blob = file.type === mime ? file : new Blob([file], { type: mime });
+            const { token } = await putImageBlobDeduped(storeBlob);
+            if (!inputPreferences.autoReply) setShowPanel('none');
+
+            const videoMeta = {
+                duration: Math.round(meta.duration || 0),
+                width: meta.width || 0,
+                height: meta.height || 0,
+                mime,
+                bytes: storeBlob.size,
+                // 超体积会被压缩、超时长会被截断，两种都算 truncated，prompt 要如实说明。
+                truncated: storeBlob.size > VIDEO_MAX_UPLOAD_BYTES
+                    || (meta.duration || 0) > VIDEO_MAX_DESCRIBE_SECONDS,
+            };
+            const messageId = await handleSendText(token, 'video', { video: videoMeta });
+
+            if (messageId) {
+                const pending: Message = {
+                    id: messageId,
+                    charId: char?.id || '',
+                    role: 'user',
+                    type: 'video',
+                    content: token,
+                    timestamp: Date.now(),
+                    metadata: { video: videoMeta },
+                };
+                // 后台补描述：失败只留 console 痕迹，绝不弹错给用户。
+                void describeVideoForMessage(pending, apiConfig?.videoApi);
+            }
+        } catch (err: any) {
+            addToast(err?.message || '视频处理失败', 'error');
+        }
+    };
+
+    /** 同一个入口既收图也收视频：先认类型再分流（accept 里两个都开了）。 */
+    const handleMediaSelect = (file: File) => {
+        void (async () => {
+            const { isVideo } = await classifyVideoFile(file);
+            if (isVideo) { void handleVideoSelect(file); return; }
+            void handleImageSelect(file);
+        })();
     };
 
     const exportingChatRef = useRef(false);
@@ -5203,7 +5298,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     customThemes={customThemes} onUpdateTheme={(id) => updateCharacter(char.id, { bubbleStyle: id })}
                     onRemoveTheme={removeCustomTheme} activeThemeId={currentThemeId}
                     onPanelAction={handlePanelAction}
-                    onImageSelect={handleImageSelect}
+                    onImageSelect={handleMediaSelect}
+                    videoEnabled
                     isSummarizing={isSummarizing}
                     categories={visibleCategories}
                     activeCategory={activeCategory}

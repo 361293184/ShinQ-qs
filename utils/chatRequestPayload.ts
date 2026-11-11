@@ -15,7 +15,7 @@ import { protectPendingChatTurn } from './storyTheaterTimeline';
  * 等价。新增 caller（runProactive）只是补齐了过去缺的字段。
  */
 
-import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig, OfflineConfig } from '../types';
+import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig, VideoApiConfig, OfflineConfig } from '../types';
 import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
 import { ContextBuilder } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
@@ -40,6 +40,7 @@ import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
+import { materializeVideoDescriptions } from './videoApi';
 import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
 import { isChatConversationEntry } from './memoryPalace/trace';
 import { loadCollaborationFileCabinetBlock } from '../features/collaboration/chatLibrary';
@@ -111,6 +112,8 @@ export interface BuildChatPayloadInput {
     subApiConfig?: { baseUrl?: string; apiKey?: string; model?: string } | null;
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
+    /** 可选视频 API：开启后先把视频持久化转写为 [视频：描述]，与识图是两条独立的路。 */
+    videoApiConfig?: VideoApiConfig;
     mcdMiniSnap?: McdMiniAppSnapshot;
     luckinMiniSnap?: LuckinMiniAppSnapshot;
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
@@ -142,7 +145,7 @@ export interface BuildChatPayloadInput {
     timelyByWorker?: boolean;
 }
 
-export type ChatPreparationStage='vision'|'memory'|'prompt'|'collaboration'|'tasks';
+export type ChatPreparationStage='vision'|'video'|'memory'|'prompt'|'collaboration'|'tasks';
 export type ChatPreparationEvent={stage:ChatPreparationStage;status:'start'}|{stage:ChatPreparationStage;status:'end';ms:number};
 
 export interface BuildChatPayloadResult {
@@ -298,6 +301,22 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         const preparedById = new Map(prepared.map(message => [message.id, message]));
         historyMsgsForPrompt = selectedHistory.map(message => preparedById.get(message.id) || message);
         recentMsgsHint = rawRecentMsgsHint.map(message => preparedById.get(message.id) || message);
+    }
+
+    // 视频是另一条独立的路：与识图各存各的 key、各改各的开关。放在识图之后而不是合并进
+    // 同一个块，是因为两者的成功/失败互不影响——识图挂了不该让视频这一步也跳过。
+    const useVideoDescriptions = input.videoApiConfig?.enabled === true;
+    if (useVideoDescriptions) {
+        const uniqueMessages = new Map<number, Message>();
+        for (const message of recentMsgsHint) uniqueMessages.set(message.id, message);
+        for (const message of historyMsgsForPrompt) uniqueMessages.set(message.id, message);
+        const prepared = await prepare('video', () => materializeVideoDescriptions(
+            [...uniqueMessages.values()],
+            input.videoApiConfig,
+        ));
+        const preparedById = new Map(prepared.map(message => [message.id, message]));
+        historyMsgsForPrompt = historyMsgsForPrompt.map(message => preparedById.get(message.id) || message);
+        recentMsgsHint = recentMsgsHint.map(message => preparedById.get(message.id) || message);
     }
 
     // Range/vision processing must retain database IDs. Only after those steps may

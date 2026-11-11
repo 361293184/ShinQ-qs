@@ -9,6 +9,15 @@ import { isBlobRef } from '../blobRef';
 export function messageLogText(m: Message, stickerName?: (url: string) => string): string {
     const rawText = typeof m.content === 'string' ? m.content : '';
     if (m.type === 'image') return '[图片]';
+    if (m.type === 'video') {
+        // 视频的 content 是 blobref 令牌：有描述就用描述，没有就如实说看不到，
+        // 别让群聊里的成员对一段它没看过的画面发表意见。
+        const desc = typeof m.metadata?.visionDescription === 'string' ? m.metadata.visionDescription.trim() : '';
+        if (!desc) return '[视频]（没有画面描述，看不到内容）';
+        return m.metadata?.videoTruncated === true
+            ? `[视频：${desc}]（截断片段）`
+            : `[视频：${desc}]`;
+    }
     if (m.type === 'emoji') return `[表情包: ${stickerName ? stickerName(rawText.trim()) : '表情'}]`;
     if (m.type === 'transfer') {
         if (m.metadata?.packetReceipt) return m.metadata.packetReceipt === 'claimed' ? '[领取红包]' : '[退回红包]';

@@ -79,6 +79,8 @@ import {
     getSttProviderLabel,
 } from '../utils/speechToText';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
+import { describeVideoWithVideoApi, readVideoApiUsage } from '../utils/videoApi';
+import { createSampleVideoBlob } from '../utils/videoMessage';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -527,6 +529,14 @@ const Settings: React.FC = () => {
   const [visionStatusMsg, setVisionStatusMsg] = useState('');
   const [testingVisionApi, setTestingVisionApi] = useState(false);
   const [visionTestResult, setVisionTestResult] = useState<string | null>(null);
+  // 视频理解是独立槽位：与识图各存各的开关和凭据，切主 API 预设不会带走它。
+  const [localVideoEnabled, setLocalVideoEnabled] = useState(apiConfig.videoApi?.enabled === true);
+  const [localVideoUrl, setLocalVideoUrl] = useState(apiConfig.videoApi?.baseUrl || '');
+  const [localVideoKey, setLocalVideoKey] = useState(apiConfig.videoApi?.apiKey || '');
+  const [localVideoModel, setLocalVideoModel] = useState(apiConfig.videoApi?.model || '');
+  const [videoStatusMsg, setVideoStatusMsg] = useState('');
+  const [testingVideoApi, setTestingVideoApi] = useState(false);
+  const [videoTestResult, setVideoTestResult] = useState<string | null>(null);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -846,6 +856,14 @@ const Settings: React.FC = () => {
       setLocalVisionKey(apiConfig.visionApi?.apiKey || '');
       setLocalVisionModel(apiConfig.visionApi?.model || '');
   }, [apiConfig.visionApi?.baseUrl || '', apiConfig.visionApi?.apiKey || '', apiConfig.visionApi?.model || '']);
+  useEffect(() => {
+      setLocalVideoEnabled(apiConfig.videoApi?.enabled === true);
+  }, [apiConfig.videoApi?.enabled]);
+  useEffect(() => {
+      setLocalVideoUrl(apiConfig.videoApi?.baseUrl || '');
+      setLocalVideoKey(apiConfig.videoApi?.apiKey || '');
+      setLocalVideoModel(apiConfig.videoApi?.model || '');
+  }, [apiConfig.videoApi?.baseUrl || '', apiConfig.videoApi?.apiKey || '', apiConfig.videoApi?.model || '']);
 
   useEffect(() => {
       setLocalMiniMaxKey(apiConfig.minimaxApiKey || '');
@@ -1323,6 +1341,73 @@ const Settings: React.FC = () => {
       trackEvent('测试识图 API', { result: '失败' });
     } finally {
       setTestingVisionApi(false);
+    }
+  };
+
+  const handleSaveVideoApi = (enabled = localVideoEnabled) => {
+    const nextVideoApi = {
+      enabled,
+      baseUrl: normalizeApiBaseUrl(localVideoUrl),
+      apiKey: normalizeApiCredential(localVideoKey),
+      model: normalizeApiModel(localVideoModel),
+    };
+    if (nextVideoApi.enabled && (!nextVideoApi.baseUrl || !nextVideoApi.apiKey || !nextVideoApi.model)) {
+      addToast('开启视频 API 前，请填写完整的 URL、Key 和 Model', 'error');
+      return;
+    }
+    setLocalVideoUrl(nextVideoApi.baseUrl);
+    setLocalVideoKey(nextVideoApi.apiKey);
+    setLocalVideoModel(nextVideoApi.model);
+    updateApiConfig({ videoApi: nextVideoApi });
+    setVideoStatusMsg(nextVideoApi.enabled ? '视频 API 已接入' : '已关闭，角色看不到视频内容');
+    setTimeout(() => setVideoStatusMsg(''), 2200);
+  };
+
+  const handleToggleVideoApi = () => {
+    const enabled = !localVideoEnabled;
+    setLocalVideoEnabled(enabled);
+    if (!enabled) {
+      // 关闭立即落盘；保留已保存的凭据，未保存的输入仍留在表单里。
+      updateApiConfig({ videoApi: {
+        baseUrl: '', apiKey: '', model: '', ...apiConfig.videoApi, enabled: false,
+      } });
+      setVideoStatusMsg('已关闭，角色看不到视频内容');
+    } else if (normalizeApiBaseUrl(localVideoUrl) && normalizeApiCredential(localVideoKey) && normalizeApiModel(localVideoModel)) {
+      handleSaveVideoApi(true);
+    } else {
+      setVideoStatusMsg('请填写 URL、Key 和 Model，保存后接入');
+    }
+  };
+
+  const handleTestVideoApi = async () => {
+    const config = {
+      enabled: true,
+      baseUrl: normalizeApiBaseUrl(localVideoUrl),
+      apiKey: normalizeApiCredential(localVideoKey),
+      model: normalizeApiModel(localVideoModel),
+    };
+    if (!config.baseUrl || !config.apiKey || !config.model) {
+      setVideoTestResult('❌ 请先填写完整的 URL、Key 和 Model');
+      return;
+    }
+    setTestingVideoApi(true);
+    setVideoTestResult(null);
+    try {
+      // 测试必须发真视频：HTTP 200 只能证明连通，证明不了它看没看懂画面。
+      const sample = await createSampleVideoBlob(2.5);
+      if (!sample) {
+        setVideoTestResult('❌ 当前环境生成不了测试视频（不支持 MediaRecorder）');
+        return;
+      }
+      const description = await describeVideoWithVideoApi(sample, config);
+      setVideoTestResult(`✅ 视频理解成功 — ${description.slice(0, 80)}`);
+      trackEvent('测试视频 API', { result: '成功' });
+    } catch (error: any) {
+      console.error('Test Video API Error', error);
+      setVideoTestResult(`❌ 视频理解失败：${error?.message || '未知错误'}`);
+      trackEvent('测试视频 API', { result: '失败' });
+    } finally {
+      setTestingVideoApi(false);
     }
   };
 
@@ -3380,6 +3465,129 @@ const Settings: React.FC = () => {
                         visionTestResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
                     }`}>
                         {visionTestResult}
+                    </div>
+                )}
+            </div>
+        </SettingsSection>
+
+        {/* 独立视频 API：主模型看不懂视频，这里先把视频转成文字。与识图各存各的槽位。 */}
+        <SettingsSection
+            title="视频 API"
+            badge={
+                <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${
+                    apiConfig.videoApi?.enabled
+                        ? 'bg-sky-100 text-sky-600'
+                        : 'bg-slate-100 text-slate-400'
+                }`}>
+                    {apiConfig.videoApi?.enabled ? '已接入' : '未接入'}
+                </span>
+            }
+            icon={
+                <div className="p-2 bg-sky-100/60 rounded-xl text-sky-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-bold text-slate-600">接入独立视频 API</div>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                角色才能"看"到你发的视频画面和声音。
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={localVideoEnabled}
+                            onClick={handleToggleVideoApi}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${localVideoEnabled ? 'bg-sky-500' : 'bg-slate-200'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${localVideoEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 leading-relaxed px-1">
+                    开启后，每段聊天视频只会先交给这里的视觉模型识别一次，并把结果写成
+                    <span className="font-semibold text-sky-600"> [视频：模型看到的内容] </span>
+                    再发给主 API；之后聊天和重 roll 都直接复用，不会重复扣费。关闭时视频照常发送，只是角色看不到内容。
+                </p>
+
+                <div className={`space-y-3 transition-opacity ${localVideoEnabled ? 'opacity-100' : 'opacity-50'}`}>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
+                        <input
+                            type="text"
+                            value={localVideoUrl}
+                            onChange={event => { setLocalVideoUrl(event.target.value); setVideoTestResult(null); }}
+                            disabled={!localVideoEnabled}
+                            placeholder="https://open.bigmodel.cn/api/paas/v4"
+                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">Key</label>
+                        <input
+                            type="password"
+                            value={localVideoKey}
+                            onChange={event => { setLocalVideoKey(event.target.value); setVideoTestResult(null); }}
+                            disabled={!localVideoEnabled}
+                            placeholder="sk-..."
+                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">Model</label>
+                        <input
+                            type="text"
+                            value={localVideoModel}
+                            onChange={event => { setLocalVideoModel(event.target.value); setVideoTestResult(null); }}
+                            disabled={!localVideoEnabled}
+                            placeholder="glm-4.6v-flash"
+                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between px-1 text-[10px] text-slate-400">
+                    <span>今日已用</span>
+                    <span className="font-mono text-slate-500">{readVideoApiUsage().count} 次</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        onClick={handleTestVideoApi}
+                        disabled={testingVideoApi || !localVideoEnabled || !localVideoUrl.trim() || !localVideoKey.trim() || !localVideoModel.trim()}
+                        className="py-3 rounded-2xl font-bold text-sky-600 border border-sky-200 bg-sky-50 active:scale-95 transition-all disabled:opacity-40"
+                    >
+                        {testingVideoApi ? '视频测试中…' : '🧪 测试视频'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSaveVideoApi()}
+                        disabled={testingVideoApi}
+                        className="py-3 rounded-2xl font-bold text-white shadow-lg shadow-sky-500/20 bg-sky-500 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                        保存视频 API
+                    </button>
+                </div>
+                {videoStatusMsg && (
+                    <div className="text-[11px] text-center text-sky-600 bg-sky-50 px-3 py-2 rounded-xl">{videoStatusMsg}</div>
+                )}
+                <p className="text-[9px] text-slate-300 px-1 leading-relaxed">
+                    测试会现场录一段 2.5 秒的紫色方块动画发给该模型，确认真能看懂画面，并消耗一次极小请求。
+                    智谱的地址填 https://open.bigmodel.cn/api/paas/v4，模型填 glm-4.6v-flash。
+                </p>
+                {videoTestResult && (
+                    <div className={`text-xs px-3 py-2 rounded-xl leading-relaxed ${
+                        videoTestResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                    }`}>
+                        {videoTestResult}
                     </div>
                 )}
             </div>
