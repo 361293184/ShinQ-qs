@@ -110,6 +110,8 @@ const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
 // 需要重新启用时只改为 true。
 const SHOW_FIRECRAWL_ARK_UI = false;
 const VISION_MODEL_LIST_STORAGE_KEY = 'os_vision_available_models';
+// 视频模型列表单独存一份：同一家供应商的视频模型和识图模型往往不同，混用会把列表冲掉。
+const VIDEO_MODEL_LIST_STORAGE_KEY = 'os_video_available_models';
 
 // 生图 API 预设（多预设切换）
 interface ImageGenPreset { id: string; name: string; baseUrl: string; apiKey: string; model: string; updatedAt: number; }
@@ -118,6 +120,14 @@ const IMAGE_GEN_PRESET_KEY = 'sullyos_imagegen_presets';
 const readStoredVisionModels = (): string[] => {
     try {
         return normalizeModelIds(JSON.parse(localStorage.getItem(VISION_MODEL_LIST_STORAGE_KEY) || '[]'));
+    } catch {
+        return [];
+    }
+};
+
+const readStoredVideoModels = (): string[] => {
+    try {
+        return normalizeModelIds(JSON.parse(localStorage.getItem(VIDEO_MODEL_LIST_STORAGE_KEY) || '[]'));
     } catch {
         return [];
     }
@@ -537,6 +547,10 @@ const Settings: React.FC = () => {
   const [videoStatusMsg, setVideoStatusMsg] = useState('');
   const [testingVideoApi, setTestingVideoApi] = useState(false);
   const [videoTestResult, setVideoTestResult] = useState<string | null>(null);
+  const [availableVideoModels, setAvailableVideoModels] = useState<string[]>(readStoredVideoModels);
+  const [videoModelFilter, setVideoModelFilter] = useState('');
+  const [showVideoModelModal, setShowVideoModelModal] = useState(false);
+  const [isLoadingVideoModels, setIsLoadingVideoModels] = useState(false);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -803,6 +817,10 @@ const Settings: React.FC = () => {
   const visionModelPickerView = useMemo(
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
+  );
+  const videoModelPickerView = useMemo(
+      () => buildModelPickerView(availableVideoModels, videoModelFilter),
+      [videoModelFilter, availableVideoModels],
   );
 
   // For web download link
@@ -1341,6 +1359,40 @@ const Settings: React.FC = () => {
       trackEvent('测试识图 API', { result: '失败' });
     } finally {
       setTestingVisionApi(false);
+    }
+  };
+
+  const fetchVideoModels = async () => {
+    const baseUrl = normalizeApiBaseUrl(localVideoUrl);
+    const apiKey = normalizeApiCredential(localVideoKey);
+    if (!baseUrl) { setVideoStatusMsg('请先填写视频 API 的 URL'); return; }
+    setIsLoadingVideoModels(true);
+    setVideoStatusMsg('正在拉取视频模型...');
+    setVideoTestResult(null);
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const models = extractModelIds(await safeResponseJson(response));
+      if (models.length === 0) {
+        setVideoStatusMsg('这个接口没返回模型列表，可手动输入模型名');
+        return;
+      }
+      setAvailableVideoModels(models);
+      try { localStorage.setItem(VIDEO_MODEL_LIST_STORAGE_KEY, JSON.stringify(models)); } catch { /* ignore */ }
+      if (!models.includes(normalizeApiModel(localVideoModel))) {
+        setLocalVideoModel(models[0]);
+      }
+      setVideoStatusMsg(`获取到 ${models.length} 个模型`);
+      setVideoModelFilter('');
+      setShowVideoModelModal(true);
+    } catch (error: any) {
+      console.error('Fetch Video Models Error', error);
+      setVideoStatusMsg(`拉取失败${error?.message ? `：${error.message}` : ''}，可手动输入模型名`);
+    } finally {
+      setIsLoadingVideoModels(false);
     }
   };
 
@@ -3541,15 +3593,29 @@ const Settings: React.FC = () => {
                         />
                     </div>
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">Model</label>
-                        <input
-                            type="text"
-                            value={localVideoModel}
-                            onChange={event => { setLocalVideoModel(event.target.value); setVideoTestResult(null); }}
+                        <div className="flex justify-between items-center mb-1.5 pl-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Model</label>
+                            <button
+                                type="button"
+                                onClick={fetchVideoModels}
+                                disabled={!localVideoEnabled || isLoadingVideoModels}
+                                className="text-[10px] text-sky-600 font-bold disabled:text-slate-300"
+                            >
+                                {isLoadingVideoModels ? '拉取中...' : '刷新模型列表'}
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowVideoModelModal(true)}
                             disabled={!localVideoEnabled}
-                            placeholder="glm-4.6v-flash"
-                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
-                        />
+                            title={localVideoModel || '选择或手动输入模型'}
+                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-3 text-sm text-slate-700 flex justify-between items-center gap-2 active:bg-white transition-all shadow-sm disabled:cursor-not-allowed"
+                        >
+                            <span className="font-mono overflow-hidden whitespace-nowrap min-w-0 flex-1 text-left text-ellipsis">
+                                {localVideoModel || '选择或手动输入模型...'}
+                            </span>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-400 shrink-0"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
+                        </button>
                     </div>
                 </div>
 
@@ -4989,6 +5055,88 @@ const Settings: React.FC = () => {
                                 {availableVisionModels.length === 0
                                     ? '列表为空，可手动输入或点击“刷新模型列表”拉取'
                                     : `没有匹配 "${visionModelFilter}" 的模型`}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        })()}
+      </Modal>
+
+      {/* 视频模型列表与识图分开存：同一家供应商的视频/识图模型往往不是同一批。 */}
+      <Modal isOpen={showVideoModelModal} title="选择视频模型" onClose={() => setShowVideoModelModal(false)}>
+        {(() => {
+            const { filtered, commonPrefix } = videoModelPickerView;
+            return (
+                <div className="space-y-3 p-1">
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={localVideoModel}
+                            onChange={(event) => { setLocalVideoModel(event.target.value); setVideoTestResult(null); }}
+                            placeholder="手动输入视频模型名称..."
+                            className="flex-1 min-w-0 bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-sky-500 focus:bg-white transition-all"
+                        />
+                        <button
+                            onClick={() => setShowVideoModelModal(false)}
+                            className="px-4 py-2.5 bg-sky-500 text-white text-sm font-bold rounded-xl active:scale-95 transition-all"
+                        >
+                            确定
+                        </button>
+                    </div>
+                    {availableVideoModels.length > 0 && (
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={videoModelFilter}
+                                onChange={(event) => setVideoModelFilter(event.target.value)}
+                                placeholder={`🔍 搜索 ${availableVideoModels.length} 个视频模型...`}
+                                className="w-full bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2 text-xs focus:outline-sky-500 focus:bg-white transition-all"
+                            />
+                            {videoModelFilter && (
+                                <button
+                                    onClick={() => setVideoModelFilter('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs px-2"
+                                >×</button>
+                            )}
+                        </div>
+                    )}
+                    {commonPrefix && (
+                        <div className="text-[10px] text-slate-400 px-1 flex items-center gap-1 flex-wrap">
+                            <span>共同前缀:</span>
+                            <code className="font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded break-all">{commonPrefix}</code>
+                            <span className="text-slate-300">(下方已弱化显示)</span>
+                        </div>
+                    )}
+                    <div className="max-h-[40vh] overflow-y-auto no-scrollbar space-y-2">
+                        {filtered.length > 0 ? filtered.map(model => {
+                            const suffix = commonPrefix && model.startsWith(commonPrefix) ? model.slice(commonPrefix.length) : model;
+                            const selected = model === localVideoModel;
+                            return (
+                                <button
+                                    key={model}
+                                    onClick={() => {
+                                        setLocalVideoModel(model);
+                                        setVideoTestResult(null);
+                                        setShowVideoModelModal(false);
+                                    }}
+                                    title={model}
+                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm font-mono flex justify-between items-start gap-2 ${selected ? 'bg-sky-100 text-sky-700 font-bold ring-1 ring-sky-200' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                >
+                                    <span className="break-all min-w-0 flex-1 leading-relaxed">
+                                        {commonPrefix && suffix !== model && (
+                                            <span className={selected ? 'text-sky-400 font-normal' : 'text-slate-400 font-normal'}>{commonPrefix}</span>
+                                        )}
+                                        <span>{suffix}</span>
+                                    </span>
+                                    {selected && <div className="w-2 h-2 rounded-full bg-sky-500 mt-1.5 shrink-0" />}
+                                </button>
+                            );
+                        }) : (
+                            <div className="text-center text-slate-400 py-8 text-xs">
+                                {availableVideoModels.length === 0
+                                    ? '列表为空，可手动输入或点击“刷新模型列表”拉取'
+                                    : `没有匹配 "${videoModelFilter}" 的模型`}
                             </div>
                         )}
                     </div>
