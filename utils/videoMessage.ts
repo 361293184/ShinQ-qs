@@ -114,18 +114,24 @@ export const normalizeVideoMimeForUpload = (value: string | undefined | null): s
     return type;
 };
 
-/** Blob → data URL（描述这一步要把字节真的送到模型面前，不能只给令牌）。 */
-export const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        if (!result.includes(',')) { reject(new Error('读取视频数据失败')); return; }
-        resolve(result);
-    };
-    reader.onerror = () => reject(reader.error || new Error('读取视频数据失败'));
-    reader.onabort = () => reject(new Error('读取视频数据被中断'));
-    reader.readAsDataURL(blob);
-});
+/**
+ * Blob → data URL（描述这一步要把字节真的送到模型面前，不能只给令牌）。
+ *
+ * 不用 FileReader：它在 Worker 和 Node 测试环境里都没有，而 arrayBuffer + btoa
+ * 到处可用；顺便省掉一层 onload/onerror 的事件状态机。
+ */
+export const blobToDataUrl = async (blob: Blob): Promise<string> => {
+    if (!(blob instanceof Blob) || blob.size === 0) throw new Error('读取视频数据失败');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // 分块拼：一次 string.fromCharCode(...8MB) 会爆调用栈。
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    const mime = normalizeVideoMimeForUpload(blob.type);
+    return `data:${mime};base64,${btoa(binary)}`;
+};
 
 const pickRecorderMime = (): string | null => {
     if (typeof MediaRecorder === 'undefined') return null;

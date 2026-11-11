@@ -8,6 +8,43 @@ const base: Omit<Message, 'type' | 'content' | 'metadata'> = {
 const mk = (type: string, content: string, metadata?: any): Message =>
   ({ ...base, type, content, metadata } as Message);
 
+describe('normalizeMessageContent · video', () => {
+  it('有描述时把画面描述当成内容，令牌不进上下文', () => {
+    const out = normalizeMessageContent(
+      mk('video', 'blobref:b_1', { visionDescription: '海边日落，有人跑过沙滩' }),
+      'Char', '我',
+    );
+    expect(out).toContain('海边日落');
+    expect(out).not.toContain('blobref:');
+  });
+
+  it('截断的片段要说明还有后续，避免模型把中断当结局', () => {
+    const out = normalizeMessageContent(
+      mk('video', 'blobref:b_1', { visionDescription: '前面的内容', videoTruncated: true }),
+      'Char', '我',
+    );
+    expect(out).toContain('截断');
+  });
+
+  it('没有描述时如实说看不到，不编画面', () => {
+    const out = normalizeMessageContent(mk('video', 'blobref:b_1'), 'Char', '我');
+    expect(out).toContain('[视频]');
+    expect(out).toContain('看不到');
+    expect(out).not.toContain('blobref:');
+  });
+});
+
+describe('normalizeMessageContent · xhs_card 画面描述', () => {
+  it('把后台识别出的画面内容一起喂给角色', () => {
+    const out = normalizeMessageContent(
+      mk('xhs_card', '海边', { xhsNote: { title: '海边', desc: '正文', mediaDesc: '一张日落照片，海面有反光' } }),
+      'Char', '我',
+    );
+    expect(out).toContain('画面内容');
+    expect(out).toContain('一张日落照片');
+  });
+});
+
 describe('normalizeMessageContent · xhs_card', () => {
   it('有 MCP 正文时把标题+正文+作者喂给角色', () => {
     const out = normalizeMessageContent(
