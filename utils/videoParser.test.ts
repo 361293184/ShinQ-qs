@@ -3,7 +3,9 @@ import {
     isVideoShareUrl,
     formatStatCount,
     parseVideoShareUrl,
+    parseXhsNoteFromShareUrl,
     getVideoParseKey,
+    getCustomVideoParseKey,
     setVideoParseKey,
 } from './videoParser';
 
@@ -160,5 +162,95 @@ describe('parseVideoShareUrl', () => {
         expect(calledUrl).toContain('flat=1');
         setVideoParseKey('');
         expect(getVideoParseKey()).toMatch(/^sk_live_/); // 清空后回落项目方共享 key
+    });
+});
+
+describe('parseXhsNoteFromShareUrl', () => {
+    it('getCustomVideoParseKey 只返回自填值，空串表示回落共享 Key', () => {
+        expect(getCustomVideoParseKey()).toBe('');
+        setVideoParseKey('  my-key  ');
+        expect(getCustomVideoParseKey()).toBe('my-key');
+        setVideoParseKey('');
+        expect(getCustomVideoParseKey()).toBe('');
+        expect(getVideoParseKey()).toMatch(/^sk_live_/);
+    });
+
+    // 极数本源解析小红书图文笔记的真实形状（docs 里的图集样例裁剪）。
+    const xhsImageNote = {
+        code: 0,
+        msg: '成功',
+        data: {
+            platform: 'xiaohongshu',
+            type: '图集',
+            title: '周末去了趟厦门',
+            desc: '海风很好，推荐沙坡尾',
+            work_id: '6a93806c000000002903e620',
+            video_url: '',
+            cover_url: 'https://sns-img-hw.xhscdn.com/cover',
+            audio_url: '',
+            imagelist: [
+                'https://sns-img-hw.xhscdn.com/1',
+                'http://sns-img-hw.xhscdn.com/2',
+            ],
+            source: { platform: 'xiaohongshu', platform_label: '小红书', original_url: 'https://xhslink.com/abc' },
+            stats: {
+                author_name: '林俊烨',
+                author_id: '5f1e2d3c',
+                like_count: 40,
+                comment_count: 23,
+                share_count: 4,
+                collect_count: 9,
+            },
+        },
+    };
+
+    it('图集笔记 → xhsNote 形状（图片升 https、id/作者/互动数补齐）', async () => {
+        mockFetch(xhsImageNote);
+        const note = await parseXhsNoteFromShareUrl('https://xhslink.com/abc');
+        expect(note).toMatchObject({
+            noteId: '6a93806c000000002903e620',
+            title: '周末去了趟厦门',
+            desc: '海风很好，推荐沙坡尾',
+            author: '林俊烨',
+            authorId: '5f1e2d3c',
+            likes: 40,
+            collects: 9,
+            commentCount: 23,
+            shareCount: 4,
+            provider: 'apizero-xhs',
+        });
+        // xhscdn 只认 https，代理再取字节时 http 会 403
+        expect(note.imageUrls).toEqual([
+            'https://sns-img-hw.xhscdn.com/1',
+            'https://sns-img-hw.xhscdn.com/2',
+        ]);
+        expect(note.videoUrl).toBeUndefined();
+        expect(note.coverUrl).toBe('https://sns-img-hw.xhscdn.com/cover');
+    });
+
+    it('视频笔记 → videoUrl 升 https，配图最多 9 张', async () => {
+        mockFetch({
+            code: 0,
+            data: {
+                platform: 'xiaohongshu', type: '视频', title: '十秒学会', desc: '',
+                work_id: 'aaa', video_url: 'http://sns-video-v3.xhscdn.com/stream/x.mp4?sign=1',
+                imagelist: Array.from({ length: 12 }, (_, i) => `https://sns-img-hw.xhscdn.com/${i}`),
+                source: {}, stats: {},
+            },
+        });
+        const note = await parseXhsNoteFromShareUrl('https://www.xiaohongshu.com/explore/aaa');
+        expect(note.videoUrl).toBe('https://sns-video-v3.xhscdn.com/stream/x.mp4?sign=1');
+        expect(note.imageUrls).toHaveLength(9);
+        expect(note.likes).toBe(0); // 缺失的互动数落 0，不是 undefined
+    });
+
+    it('空壳结果抛错，调用方保留原始分享文案', async () => {
+        mockFetch({ code: 0, data: { platform: 'xiaohongshu', title: '', desc: '', video_url: '', imagelist: [] } });
+        await expect(parseXhsNoteFromShareUrl('https://xhslink.com/abc')).rejects.toThrow('解析结果为空');
+    });
+
+    it('配额耗尽沿用视频解析的错误文案', async () => {
+        mockFetch({ code: 4030, msg: 'daily quota exceeded' });
+        await expect(parseXhsNoteFromShareUrl('https://xhslink.com/abc')).rejects.toThrow(/配额已耗尽/);
     });
 });

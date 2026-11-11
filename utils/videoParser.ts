@@ -27,6 +27,15 @@ export const getVideoParseKey = (): string => {
   }
 };
 
+/** 只读用户自填的 Key（空串 = 没填，回落到内置共享 Key）。设置页输入框用它回显。 */
+export const getCustomVideoParseKey = (): string => {
+  try {
+    return (localStorage.getItem(LS_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+};
+
 /** 写入 API Key。传空 → 清掉（回落内置默认 key，没有内置则匿名）。 */
 export const setVideoParseKey = (key: string): void => {
   try {
@@ -39,7 +48,8 @@ export const setVideoParseKey = (key: string): void => {
 // video-parse 支持的平台域名。判断按 hostname 后缀匹配（含子域）。
 // 宽进严出：命中了但解析失败会降级回通用网页抓取，所以像 weibo/x.com 这种
 // 「不一定是视频」的域名也放进来——视频页解析成功赚到，文字帖失败就走老路。
-// 小红书不在列：已有专门的 xhs_card 路径（apps/Chat.tsx）。
+// 小红书不在列：走专门的 xhs_card 路径（apps/Chat.tsx），但同一个解析端点
+// 也被 parseXhsNoteFromShareUrl 复用——没部署小红书 MCP 时的兜底解析。
 const VIDEO_SHARE_HOSTS: RegExp[] = [
   /(?:^|\.)douyin\.com$/i, /(?:^|\.)iesdouyin\.com$/i,
   /(?:^|\.)tiktok\.com$/i,
@@ -91,7 +101,12 @@ const toCount = (v: any): number | undefined => {
  * webpage_card metadata 的 ExtractedWebpage（带 video 附加字段）。
  * 失败抛错，调用方负责降级到 extractWebpageContent。
  */
-export async function parseVideoShareUrl(url: string): Promise<ExtractedWebpage> {
+/**
+ * 调 apizero video-parse 拿 flat=1 的 data 段。视频卡片和小红书笔记共用同一份
+ * 请求/报错逻辑（同一个端点、同一把 key），差别只在怎么映射字段。
+ * 失败抛错，错误信息已是人话（配额/平台不支持/超时）。
+ */
+async function fetchVideoParseData(url: string): Promise<any> {
   const params = new URLSearchParams({ url, flat: '1' });
   const key = getVideoParseKey();
   if (key) params.set('key', key);
@@ -117,7 +132,11 @@ export async function parseVideoShareUrl(url: string): Promise<ExtractedWebpage>
   }
 
   // flat=1：字段直接在 data 顶层。兼容 flat=0 的两层 data 以防 API 行为变化。
-  const d: any = parsed.data?.data && !parsed.data.title ? parsed.data.data : (parsed.data || {});
+  return parsed.data?.data && !parsed.data.title ? parsed.data.data : (parsed.data || {});
+}
+
+export async function parseVideoShareUrl(url: string): Promise<ExtractedWebpage> {
+  const d: any = await fetchVideoParseData(url);
   const source: any = d.source || {};
   const stats: any = d.stats || {};
   const imagelist: string[] = Array.isArray(d.imagelist) ? d.imagelist.filter((u: any) => typeof u === 'string' && u) : [];
@@ -156,5 +175,78 @@ export async function parseVideoShareUrl(url: string): Promise<ExtractedWebpage>
     fetchedAt: Date.now(),
     video,
     provider: 'apizero-video',
+  };
+}
+
+/**
+ * 极数本源解析出来的小红书笔记，字段对齐 xhs_card 的 metadata.xhsNote。
+ *
+ * 有它就不必自己部署 xiaohongshu-mcp / Lite worker：纯前端直连（该 API CORS 全开），
+ * 分享短链 xhslink.com / .cn 也能直接喂进去，平台由服务端自动识别。
+ */
+export interface XhsApiZeroNote {
+  noteId: string;
+  title: string;
+  desc: string;
+  author: string;
+  authorId: string;
+  likes: number;
+  collects: number;
+  commentCount: number;
+  shareCount: number;
+  coverUrl?: string;
+  /** 笔记配图（已升 https、最多 9 张）。取字节要经 worker /xhs-media 代理，xhscdn 有防盗链。 */
+  imageUrls: string[];
+  /** 视频笔记的直链；纯图文为空。 */
+  videoUrl?: string;
+  /** 平台原始类型（「视频」/「图集」）。 */
+  type?: string;
+  provider: 'apizero-xhs';
+}
+
+/** xhscdn 只认 https（http 直链会 403 或被嗅探拦），统一升一下。 */
+const toHttpsUrl = (value: any): string => {
+  const raw = String(value || '').trim();
+  return /^https?:\/\//i.test(raw) ? raw.replace(/^http:\/\//i, 'https://') : '';
+};
+
+/**
+ * 小红书分享链接 → 笔记元数据（标题/正文/作者/互动数/配图/视频直链）。
+ *
+ * 只做解析、不下载媒体；图片和视频交给 utils/xhsMedia 经 worker 代理后喂视觉模型。
+ * 解析出来是空壳（没标题没图没视频）时抛错，让调用方保留原始分享文案。
+ */
+export async function parseXhsNoteFromShareUrl(url: string): Promise<XhsApiZeroNote> {
+  const d: any = await fetchVideoParseData(url);
+  const source: any = d.source || {};
+  const stats: any = d.stats || {};
+
+  const imageUrls = (Array.isArray(d.imagelist) ? d.imagelist : [])
+    .map(toHttpsUrl)
+    .filter((item: string) => !!item)
+    .slice(0, 9);
+  const videoUrl = toHttpsUrl(d.video_url) || undefined;
+  const title = String(d.title || '').trim();
+  const desc = String(d.desc || '').trim().slice(0, 500);
+
+  if (!title && !desc && !videoUrl && imageUrls.length === 0) {
+    throw new Error('笔记解析结果为空');
+  }
+
+  return {
+    noteId: String(d.work_id || source.work_id || '').trim(),
+    title,
+    desc,
+    author: String(stats.author_name || source.author_name || '').trim(),
+    authorId: String(stats.author_id || source.author_id || '').trim(),
+    likes: toCount(stats.like_count) || 0,
+    collects: toCount(stats.collect_count) || 0,
+    commentCount: toCount(stats.comment_count) || 0,
+    shareCount: toCount(stats.share_count) || 0,
+    coverUrl: toHttpsUrl(d.cover_url) || imageUrls[0] || undefined,
+    imageUrls,
+    videoUrl,
+    type: String(d.type || '').trim() || undefined,
+    provider: 'apizero-xhs',
   };
 }

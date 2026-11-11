@@ -80,6 +80,13 @@ import {
 } from '../utils/speechToText';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { describeVideoWithVideoApi, readVideoApiUsage } from '../utils/videoApi';
+import { getCustomVideoParseKey, setVideoParseKey } from '../utils/videoParser';
+import {
+    getMainVisionMode,
+    setMainVisionMode,
+    getMainVisionCapability,
+    probeAndStoreMainVision,
+} from '../utils/mainVisionCapability';
 import { createSampleVideoBlob } from '../utils/videoMessage';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
@@ -567,6 +574,15 @@ const Settings: React.FC = () => {
   const [videoModelFilter, setVideoModelFilter] = useState('');
   const [showVideoModelModal, setShowVideoModelModal] = useState(false);
   const [isLoadingVideoModels, setIsLoadingVideoModels] = useState(false);
+  // 极数本源（apizero）只做分享链接解析，和视频理解共用同一张卡但各存各的 Key：
+  // 留空就回落到项目内置的共享 Key。
+  const [localVideoParseKey, setLocalVideoParseKey] = useState(getCustomVideoParseKey);
+  // 主模型能否直接收图：自动（按探测）/ 强制开 / 强制关。
+  const [mainVisionMode, setLocalMainVisionMode] = useState(getMainVisionMode);
+  const [mainVisionSupported, setMainVisionSupported] = useState<boolean | null>(
+    () => getMainVisionCapability()?.supported ?? null,
+  );
+  const [probingMainVision, setProbingMainVision] = useState(false);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -1445,6 +1461,52 @@ const Settings: React.FC = () => {
     updateApiConfig({ videoApi: nextVideoApi });
     setVideoStatusMsg(nextVideoApi.enabled ? '视频 API 已接入' : '已关闭，角色看不到视频内容');
     setTimeout(() => setVideoStatusMsg(''), 2200);
+  };
+
+  /**
+   * 极数本源解析 Key 单独落盘（localStorage 'sully_video_parse_key_v1'），
+   * 不写进 apiConfig：它跟视觉模型无关，只是分享链接的解析额度。
+   * 传空 → 清掉，回落到项目内置共享 Key。
+   */
+  const handleSaveVideoParseKey = () => {
+    setVideoParseKey(localVideoParseKey);
+    const saved = getCustomVideoParseKey();
+    setLocalVideoParseKey(saved);
+    setVideoStatusMsg(saved
+      ? '极数本源 Key 已保存，链接解析会用你自己的额度'
+      : '已清空，回落到项目内置共享 Key');
+    setTimeout(() => setVideoStatusMsg(''), 2600);
+  };
+
+  /**
+   * 探测主模型能不能直接吃图。用一张经 worker 代理的小红书图问它颜色：
+   * 代理没部署、或模型不收 image_url，都会当场失败并说明原因，不会污染聊天。
+   * 结论按「baseUrl + model」记忆，换模型自动作废。
+   */
+  const handleProbeMainVision = async () => {
+    setProbingMainVision(true);
+    setVideoStatusMsg('正在探测主模型能否看图…');
+    try {
+      const result = await probeAndStoreMainVision({
+        baseUrl: normalizeApiBaseUrl(apiConfig.baseUrl),
+        apiKey: normalizeApiCredential(apiConfig.apiKey),
+        model: normalizeApiModel(apiConfig.model),
+      });
+      setMainVisionSupported(result.supported);
+      setVideoStatusMsg(result.supported
+        ? '主模型能看图：小红书配图会直传，不再单独花识图/视频 API'
+        : `不支持直传：${result.reason || '未知原因'}`);
+    } catch (e: any) {
+      setVideoStatusMsg(`探测失败：${e?.message || '未知错误'}`);
+    } finally {
+      setProbingMainVision(false);
+      setTimeout(() => setVideoStatusMsg(''), 6000);
+    }
+  };
+
+  const handleChangeMainVisionMode = (mode: 'auto' | 'on' | 'off') => {
+    setMainVisionMode(mode);
+    setLocalMainVisionMode(mode);
   };
 
   const handleToggleVideoApi = () => {
@@ -3688,6 +3750,94 @@ const Settings: React.FC = () => {
                         {videoTestResult}
                     </div>
                 )}
+
+                {/* 极数本源 = 分享链接解析，不是视觉模型：只吐标题/配图/视频直链，
+                    真正"看懂"画面还得靠上面填的视频模型。放这张卡里是因为它属于同一条链路。 */}
+                <div className="rounded-2xl border border-slate-200/70 bg-white/60 p-3.5 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-600">极数本源 · 链接解析</div>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                小红书 / 抖音 / B站 分享链接靠它解析出标题、配图、视频直链。
+                                它不是视觉模型，不负责看懂画面——那一步还是交给上面的视频 API。
+                            </p>
+                        </div>
+                        <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full ${
+                            localVideoParseKey.trim() ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                        }`}>
+                            {localVideoParseKey.trim() ? '自定义 Key' : '共享 Key'}
+                        </span>
+                    </div>
+                    <input
+                        type="password"
+                        value={localVideoParseKey}
+                        onChange={event => setLocalVideoParseKey(event.target.value)}
+                        placeholder="sk_live_...（留空 = 用内置共享 Key）"
+                        className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all"
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="text-[9px] text-slate-300 leading-relaxed">
+                            共享 Key 全站共用额度，可能被用光；填自己的更稳（apizero.cn 注册）。
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handleSaveVideoParseKey}
+                            className="shrink-0 px-4 py-2 rounded-xl text-[11px] font-bold text-slate-600 border border-slate-200 bg-white active:scale-95 transition-all"
+                        >
+                            保存
+                        </button>
+                    </div>
+                </div>
+
+                {/* 主模型直传：多模态主模型可以直接看小红书配图，省掉一次识图/视频 API 调用。 */}
+                <div className="rounded-2xl border border-slate-200/70 bg-white/60 p-3.5 space-y-3">
+                    <div>
+                        <div className="text-xs font-bold text-slate-600">主模型直传图片</div>
+                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                            主模型本身能看图时，小红书配图直接随聊天请求发过去，不用再单独跑一次识图/视频 API。
+                            先点「测试主模型识图」确认它能收图，再交给自动。
+                        </p>
+                    </div>
+                    <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+                        {([
+                            ['auto', '自动'],
+                            ['on', '开'],
+                            ['off', '关'],
+                        ] as const).map(([value, label]) => (
+                            <button
+                                key={value}
+                                type="button"
+                                onClick={() => handleChangeMainVisionMode(value)}
+                                className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                                    mainVisionMode === value ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="text-[9px] text-slate-400 leading-relaxed">
+                            {mainVisionMode === 'off'
+                                ? '已关闭：配图走文字描述，需要独立的识图/视频 API。'
+                                : mainVisionMode === 'on'
+                                    ? '强制直传：主模型不吃图会让整轮聊天报错，确认过再用。'
+                                    : mainVisionSupported === true
+                                        ? '已探测：支持直传，配图不再单独花钱。'
+                                        : mainVisionSupported === false
+                                            ? '已探测：不支持，配图仍走文字描述。'
+                                            : '未探测：暂时按文字走，点测试后自动判断。'}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handleProbeMainVision}
+                            disabled={probingMainVision}
+                            className="shrink-0 px-3 py-2 rounded-xl text-[11px] font-bold text-sky-600 border border-sky-200 bg-sky-50 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                            {probingMainVision ? '探测中…' : '测试主模型识图'}
+                        </button>
+                    </div>
+                </div>
             </div>
         </SettingsSection>
 

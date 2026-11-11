@@ -14,6 +14,9 @@ import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
 import { normalizeMessageContent, stickerNameFromUrl, theaterWhenPhrase } from './messageFormat';
+import { shouldAttachMainVisionImages } from './mainVisionCapability';
+import { buildXhsMediaProxyUrl } from './xhsMedia';
+import { getProxyWorkerUrl } from './proxyWorker';
 import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
@@ -1216,8 +1219,33 @@ ${voiceActingGuide()}`;
                     const images=share?.imagesEnabled&&Array.isArray(share.imageRefs)?share.imageRefs.filter((r:unknown)=>isBlobRef(r)||typeof r==='string'&&r.startsWith('data:image/')).slice(0,18):[];
                     const description=options?.useVisionDescriptions&&typeof m.metadata?.visionDescription==='string'?m.metadata.visionDescription:'';
                     if(description)return {role:m.role,content:text};
-                    if(options?.useVisionDescriptions || !images.length)return {role:m.role,content:text+(images.length?'\n配图描述暂不可用，请不要猜测。':'')};
+                    if(options?.useVisionDescriptions || !images.length)return {role:m.role,content:text+(images.length?'配图描述暂不可用，请不要猜测。':'')};
                     return {role:m.role,content:[{type:'text',text},...images.map((url:string)=>({type:'image_url',image_url:{url}}))]};
+                }
+                // 小红书卡片：配图可以直接塞进主请求让主模型自己看，省掉一次独立识图/视频 API。
+                // 前提是探测过且主模型吃图（utils/mainVisionCapability.ts）；否则老老实实走
+                // 文本（标题/正文/评论区/mediaDesc），别拿 400 把整轮聊天打死。
+                if (m.type === 'xhs_card') {
+                    const text = normalizeMessageContent(m, char.name, userProfile?.name || '用户');
+                    const noteForMedia: any = m.metadata?.xhsNote || {};
+                    const mediaDesc = typeof noteForMedia.mediaDesc === 'string' ? noteForMedia.mediaDesc.trim() : '';
+                    const rawImages: string[] = Array.isArray(noteForMedia.imageUrls) ? noteForMedia.imageUrls.slice(0, 4) : [];
+                    // 已经有文字描述就别再传图：那份描述本身就是视觉模型的结论，传图是重复付费。
+                    const attach = !mediaDesc && rawImages.length > 0 && shouldAttachMainVisionImages();
+                    if (!attach) return { role: m.role, content: text };
+                    // xhscdn 有 Referer 校验，必须经 worker /xhs-media 换成可访问地址。
+                    const proxyBase = getProxyWorkerUrl();
+                    const proxiedImages = rawImages
+                        .map((url: string) => buildXhsMediaProxyUrl(proxyBase, url))
+                        .filter((url: string) => !!url);
+                    if (!proxiedImages.length) return { role: m.role, content: text };
+                    return {
+                        role: m.role,
+                        content: [
+                            { type: 'text', text },
+                            ...proxiedImages.map((url: string) => ({ type: 'image_url', image_url: { url } })),
+                        ],
+                    };
                 }
                 // 历史里的坏语音格式按规范写法呈现：模型照着上文学格式，旧错不能一路示范下去
                 let content: any = m.role === 'assistant' && typeof m.content === 'string' ? normalizeVoiceTags(m.content) : m.content;

@@ -30,7 +30,9 @@ import { buildSARMemoryBoundaryInstruction, formatMessageWithTime, normalizeMess
 import { getRoomLabel } from '../utils/memoryPalace/types';
 import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '../utils/xhsMcpClient';
 import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteLink, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
-import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
+import { isVideoShareUrl, parseVideoShareUrl, parseXhsNoteFromShareUrl } from '../utils/videoParser';
+import { getProxyWorkerUrl } from '../utils/proxyWorker';
+import { shouldAttachMainVisionImages } from '../utils/mainVisionCapability';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, putImageBlobDeduped, useBlobRefUrl } from '../utils/blobRef';
 import {
@@ -1630,16 +1632,18 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
                 // 拿不到 noteId（短链展开失败/被挡）就不建空卡，保留原文给用户，并明确
                 // 告诉用户如何排查。此前这里完全静默，表现就是“角色能分享、用户分享不了”。
-                if (noteId) {
+                // 有 id 或短链都建卡：极数本源能直接解析 xhslink 短链，
+                // 不再强依赖 worker 展开短链成功。
+                if (noteId || xhsShortUrl) {
                     // 基础卡数据来自分享文案，零后端依赖。
                     let note: any = {
                         noteId, title: titleFromText || '', desc: '', author: '',
                         authorId: '', likes: 0, xsecToken,
                     };
 
-                    // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
+                    // 首选：配了小红书 MCP/Lite 就抓详情（正文/封面/作者/评论最全）。
                     const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
-                    if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
+                    if (noteId && mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
                         try {
                             const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_share` : ''}`;
                             // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
@@ -1660,43 +1664,76 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         }
                     }
 
-                    const xhsCardId = await DB.saveMessage({
-                        charId: char.id,
-                        role: 'user',
-                        type: 'xhs_card',
-                        content: note.title || '小红书笔记',
-                        metadata: { ...metadata, xhsNote: note, originalShareText: text, originalShareUrl: detectFirstUrl(text) || xhsShortUrl }
-                    });
-                    // 画面描述跑在后台：卡片立刻发出去，识别慢一点也不影响分享。
-                    // 走 worker 的 /xhs-media 代理拿字节（xhscdn 有 Referer 校验，直连 403）。
-                    if (xhsCardId && ((note.imageUrls?.length || 0) > 0 || note.videoUrl)) {
-                        const proxyBase = realtimeConfig?.xhsMcpConfig?.serverUrl || '';
-                        void (async () => {
-                            try {
-                                const mediaDesc = await describeXhsNoteMedia(note, {
-                                    proxyBase,
-                                    visionApi: apiConfig?.visionApi,
-                                    videoApi: apiConfig?.videoApi,
-                                });
-                                if (!mediaDesc) return;
-                                await DB.updateMessageMetadata(xhsCardId, (prev: any) => ({
-                                    ...(prev || {}),
-                                    xhsNote: { ...(prev?.xhsNote || note), mediaDesc, mediaDescAt: Date.now() },
-                                }));
-                            } catch (e) {
-                                console.warn('[XhsMedia] describe failed:', e);
-                            }
-                        })();
+                    // 兜底：没配自建服务、或自建服务没抓到内容时，回落到极数本源解析。
+                    // 纯前端直连（该 API CORS 全开），分享短链也能直接喂进去，用户不用部署任何东西。
+                    // 只在缺正文/配图/视频时才调用，避免白烧一次解析配额。
+                    const missingDetail = !note.desc && !(note.imageUrls?.length) && !note.videoUrl;
+                    if (missingDetail) {
+                        const parseUrl = xhsShortUrl
+                            || `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_share` : ''}`;
+                        try {
+                            const parsed = await parseXhsNoteFromShareUrl(parseUrl);
+                            note = {
+                                ...note,
+                                ...parsed,
+                                // id 以解析结果补空缺；标题优先分享文案（更完整可读），token 只用本地拿到的。
+                                noteId: parsed.noteId || note.noteId,
+                                title: titleFromText || parsed.title || note.title,
+                                xsecToken,
+                            };
+                            if (isDevDebugAvailable()) console.log('[卡片调试] 小红书·极数本源解析 =', parsed);
+                        } catch (e) {
+                            const reason = e instanceof Error ? e.message : '解析失败';
+                            console.warn('小红书链接经极数本源解析失败:', e);
+                            addToast(`小红书内容解析失败，已发送基础卡片。（${reason}）`, 'info');
+                        }
                     }
-                    // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
-                    if (isDevDebugAvailable()) {
-                        console.log('[卡片调试] 小红书卡片·metadata =', note);
-                        console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
-                            { type: 'xhs_card', role: 'user', content: note.title || '小红书笔记', metadata: { xhsNote: note } } as any,
-                            char.name, userProfile.name,
-                        ));
+
+                    // 一条内容都拿不到（没 id、没标题、没正文、没配图、没视频）时不发空卡，保留原消息。
+                    if (!note.noteId && !note.title && !note.desc && !(note.imageUrls?.length) && !note.videoUrl) {
+                        addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查网络代理与解析配额。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
+                    } else {
+                        const xhsCardId = await DB.saveMessage({
+                            charId: char.id,
+                            role: 'user',
+                            type: 'xhs_card',
+                            content: note.title || '小红书笔记',
+                            metadata: { ...metadata, xhsNote: note, originalShareText: text, originalShareUrl: detectFirstUrl(text) || xhsShortUrl }
+                        });
+                        // 画面描述跑在后台：卡片立刻发出去，识别慢一点也不影响分享。
+                        // 走 worker 的 /xhs-media 代理拿字节（xhscdn 有 Referer 校验，直连 403）。
+                        // 没配自建小红书服务时 proxyBase 兜底到默认 worker，否则这里直接返回空串。
+                        // 主模型自己能看图时不跑这一步：配图会随主请求直传，再转文字就是重复付费。
+                        const mainSeesImages = shouldAttachMainVisionImages();
+                        if (xhsCardId && !mainSeesImages && ((note.imageUrls?.length || 0) > 0 || note.videoUrl)) {
+                            const proxyBase = realtimeConfig?.xhsMcpConfig?.serverUrl || getProxyWorkerUrl();
+                            void (async () => {
+                                try {
+                                    const mediaDesc = await describeXhsNoteMedia(note, {
+                                        proxyBase,
+                                        visionApi: apiConfig?.visionApi,
+                                        videoApi: apiConfig?.videoApi,
+                                    });
+                                    if (!mediaDesc) return;
+                                    await DB.updateMessageMetadata(xhsCardId, (prev: any) => ({
+                                        ...(prev || {}),
+                                        xhsNote: { ...(prev?.xhsNote || note), mediaDesc, mediaDescAt: Date.now() },
+                                    }));
+                                } catch (e) {
+                                    console.warn('[XhsMedia] describe failed:', e);
+                                }
+                            })();
+                        }
+                        // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
+                        if (isDevDebugAvailable()) {
+                            console.log('[卡片调试] 小红书卡片·metadata =', note);
+                            console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
+                                { type: 'xhs_card', role: 'user', content: note.title || '小红书笔记', metadata: { xhsNote: note } } as any,
+                                char.name, userProfile.name,
+                            ));
+                        }
+                        xhsCardCreated = true;
                     }
-                    xhsCardCreated = true;
                 } else {
                     addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查网络代理与小红书 Lite 配置。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
                 }
