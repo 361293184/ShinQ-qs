@@ -112,6 +112,20 @@ const SHOW_FIRECRAWL_ARK_UI = false;
 const VISION_MODEL_LIST_STORAGE_KEY = 'os_vision_available_models';
 // 视频模型列表单独存一份：同一家供应商的视频模型和识图模型往往不同，混用会把列表冲掉。
 const VIDEO_MODEL_LIST_STORAGE_KEY = 'os_video_available_models';
+/**
+ * 内置视频模型候选。
+ *
+ * 智谱的 GET /models 只列「账号当前可用的模型」，视觉/视频系列经常不在返回里，
+ * 或者干脆只给文本模型。所以选择器里永远垫一份内置清单：远程拉到什么就并进来，
+ * 拉不到也不至于让人对着一片空白手打模型名。
+ */
+const VIDEO_MODEL_FALLBACKS = [
+    'glm-4.6v-flash',
+    'glm-4.1v-thinking-flash',
+    'glm-4.6v-flashx',
+    'glm-4.6v',
+    'glm-4.5v',
+];
 
 // 生图 API 预设（多预设切换）
 interface ImageGenPreset { id: string; name: string; baseUrl: string; apiKey: string; model: string; updatedAt: number; }
@@ -818,9 +832,20 @@ const Settings: React.FC = () => {
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
   );
+  // 远程列表 + 内置推荐：远程优先，同名只留一份。
+  const videoModelCandidates = useMemo(() => {
+      const seen = new Set<string>();
+      const merged: string[] = [];
+      for (const model of [...availableVideoModels, ...VIDEO_MODEL_FALLBACKS]) {
+          if (!model || seen.has(model)) continue;
+          seen.add(model);
+          merged.push(model);
+      }
+      return merged;
+  }, [availableVideoModels]);
   const videoModelPickerView = useMemo(
-      () => buildModelPickerView(availableVideoModels, videoModelFilter),
-      [videoModelFilter, availableVideoModels],
+      () => buildModelPickerView(videoModelCandidates, videoModelFilter),
+      [videoModelFilter, videoModelCandidates],
   );
 
   // For web download link
@@ -1366,6 +1391,7 @@ const Settings: React.FC = () => {
     const baseUrl = normalizeApiBaseUrl(localVideoUrl);
     const apiKey = normalizeApiCredential(localVideoKey);
     if (!baseUrl) { setVideoStatusMsg('请先填写视频 API 的 URL'); return; }
+    if (!apiKey) { setVideoStatusMsg('请先填写视频 API 的 Key 再拉取模型列表'); return; }
     setIsLoadingVideoModels(true);
     setVideoStatusMsg('正在拉取视频模型...');
     setVideoTestResult(null);
@@ -1376,21 +1402,25 @@ const Settings: React.FC = () => {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const models = extractModelIds(await safeResponseJson(response));
-      if (models.length === 0) {
-        setVideoStatusMsg('这个接口没返回模型列表，可手动输入模型名');
-        return;
+      // 拉到就直接用；空列表也算「这家不给视频模型」，走下面的内置推荐。
+      if (models.length > 0) {
+        setAvailableVideoModels(models);
+        try { localStorage.setItem(VIDEO_MODEL_LIST_STORAGE_KEY, JSON.stringify(models)); } catch { /* ignore */ }
+        if (!models.includes(normalizeApiModel(localVideoModel))) {
+          setLocalVideoModel(models[0]);
+        }
+        setVideoStatusMsg(`获取到 ${models.length} 个模型`);
+      } else {
+        setVideoStatusMsg('这个接口没返回可用模型，已列出内置推荐，可直接点选');
       }
-      setAvailableVideoModels(models);
-      try { localStorage.setItem(VIDEO_MODEL_LIST_STORAGE_KEY, JSON.stringify(models)); } catch { /* ignore */ }
-      if (!models.includes(normalizeApiModel(localVideoModel))) {
-        setLocalVideoModel(models[0]);
-      }
-      setVideoStatusMsg(`获取到 ${models.length} 个模型`);
       setVideoModelFilter('');
       setShowVideoModelModal(true);
     } catch (error: any) {
       console.error('Fetch Video Models Error', error);
-      setVideoStatusMsg(`拉取失败${error?.message ? `：${error.message}` : ''}，可手动输入模型名`);
+      // 拉不到不代表没法用：内置推荐照样能选，别让人卡在「必须先拉到列表」。
+      setVideoStatusMsg(`拉取失败${error?.message ? `（${error.message}）` : ''}，已列出内置推荐，可直接点选`);
+      setVideoModelFilter('');
+      setShowVideoModelModal(true);
     } finally {
       setIsLoadingVideoModels(false);
     }
@@ -5084,13 +5114,18 @@ const Settings: React.FC = () => {
                             确定
                         </button>
                     </div>
-                    {availableVideoModels.length > 0 && (
+                    {availableVideoModels.length === 0 && (
+                        <div className="text-[10px] text-sky-600 bg-sky-50 px-3 py-2 rounded-xl leading-relaxed">
+                            下面是内置推荐（智谱 V 系列）。点「刷新模型列表」可以从服务商再拉一批并进来。
+                        </div>
+                    )}
+                    {videoModelCandidates.length > 0 && (
                         <div className="relative">
                             <input
                                 type="text"
                                 value={videoModelFilter}
                                 onChange={(event) => setVideoModelFilter(event.target.value)}
-                                placeholder={`🔍 搜索 ${availableVideoModels.length} 个视频模型...`}
+                                placeholder={`🔍 搜索 ${videoModelCandidates.length} 个视频模型...`}
                                 className="w-full bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2 text-xs focus:outline-sky-500 focus:bg-white transition-all"
                             />
                             {videoModelFilter && (
@@ -5134,9 +5169,9 @@ const Settings: React.FC = () => {
                             );
                         }) : (
                             <div className="text-center text-slate-400 py-8 text-xs">
-                                {availableVideoModels.length === 0
-                                    ? '列表为空，可手动输入或点击“刷新模型列表”拉取'
-                                    : `没有匹配 "${videoModelFilter}" 的模型`}
+                                {videoModelFilter
+                                    ? `没有匹配 "${videoModelFilter}" 的模型，可在上方直接手填`
+                                    : '列表为空，可在上方直接手填模型名'}
                             </div>
                         )}
                     </div>
