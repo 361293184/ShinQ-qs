@@ -32,6 +32,8 @@ const Gallery: React.FC = () => {
     });
     const [images, setImages] = useState<GalleryImage[]>([]);
     const [selectedImage, setSelectedImage] = useState<GalleryImage | null>(null);
+    // 网格一次只渲染这么多张，滚到底再追加（防止一次解码几百张图把内存打爆）
+    const [visibleCount, setVisibleCount] = useState(60);
     const [isReviewing, setIsReviewing] = useState(false);
     const [showChatContext, setShowChatContext] = useState(false);
     const [imageFavorited, setImageFavorited] = useState(false);
@@ -54,11 +56,15 @@ const Gallery: React.FC = () => {
 
     useEffect(() => {
         // Load image counts for all characters
+        // 只查数量：之前用 getAll 把整张图的数据也读进来，几百张就直接把相册打崩。
         const loadCounts = async () => {
             const counts: Record<string, number> = {};
             for (const char of characters) {
-                const imgs = await DB.getGalleryImages(char.id);
-                counts[char.id] = imgs.length;
+                try {
+                    counts[char.id] = await DB.getGalleryCount(char.id);
+                } catch {
+                    counts[char.id] = 0;
+                }
             }
             setAlbumCounts(counts);
         };
@@ -67,6 +73,7 @@ const Gallery: React.FC = () => {
 
     useEffect(() => {
         if (activeCharId) {
+            setVisibleCount(60); // 换相册先回到第一页，别延续上一个角色的追加量
             DB.getGalleryImages(activeCharId).then(imgs => {
                 setImages(imgs.sort((a, b) => b.timestamp - a.timestamp));
             });
@@ -130,7 +137,14 @@ const Gallery: React.FC = () => {
 
     // ── 日期分组 ──
     // 只在 images / groupMode 变化时重算：选择态变化不触发，避免勾一张就整网格重分组
-    const groups = useMemo(() => groupImagesByDate(images, groupMode), [images, groupMode]);
+    // 分批上屏：一次性挂几百个 <img> 会让移动端一次解码几百张图直接 OOM。
+    // 先渲染最近的一页，滚到底再追加，内存里同时存活的位图始终是常数级。
+    const visibleImages = useMemo(
+        () => (visibleCount >= images.length ? images : images.slice(0, visibleCount)),
+        [images, visibleCount],
+    );
+    const hasMoreImages = visibleCount < images.length;
+    const groups = useMemo(() => groupImagesByDate(visibleImages, groupMode), [visibleImages, groupMode]);
 
     // 组件卸载时清掉两个长按定时器，避免在已卸载组件上 setState
     useEffect(() => () => {
@@ -489,6 +503,12 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
             className="flex-1 overflow-y-auto animate-fade-in"
             // 多选态底部升起操作栏，网格补足等高内边距，最后一行才不会被盖住
             style={selectMode ? { paddingBottom: 'calc(5.5rem + var(--safe-bottom, 0px))' } : undefined}
+            // 滚到接近底部就再放一页出来，保持同时挂载的图片数量是常数级
+            onScroll={event => {
+                const el = event.currentTarget;
+                if (el.scrollHeight - el.scrollTop - el.clientHeight > 600) return;
+                setVisibleCount(prev => (prev >= images.length ? prev : Math.min(prev + 60, images.length)));
+            }}
         >
             {images.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-3 py-20">

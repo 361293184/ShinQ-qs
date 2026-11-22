@@ -1920,6 +1920,20 @@ export const DB = {
     transaction.objectStore(STORE_JOURNAL_STICKERS).delete(name);
   },
 
+  /**
+   * 只返回数量，不把记录（含整张图片数据）读进内存。
+   * 相册首页要显示每个角色的张数，之前用 getAll 统计，几百张图会直接把内存打爆。
+   */
+  getGalleryCount: async (charId: string): Promise<number> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_GALLERY, 'readonly');
+          const request = transaction.objectStore(STORE_GALLERY).index('charId').count(IDBKeyRange.only(charId));
+          request.onsuccess = () => resolve(request.result || 0);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
   saveGalleryImage: async (img: GalleryImage): Promise<void> => {
       const db = await openDB();
       // 同 saveAsset：等事务落盘并把失败抛出去，配额不足时不再静默丢图。
