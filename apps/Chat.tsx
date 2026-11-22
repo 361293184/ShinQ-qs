@@ -5053,7 +5053,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 </ChatSubtitleLayer>
             </div>
 
-            <div className="relative z-40">
+            <div className="relative z-40" ref={offlineBallAnchorRef}>
                 {mcdActivated && (
                     <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
                         <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
@@ -5116,6 +5116,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 <ChatInputArea
                     compactHome={!!homePhone}
                     awayMessageOn={!!char?.awayMessage?.enabled}
+                    offlineModeEnabled={!!char && isOfflineEnabled(char.offlineConfig)}
+                    offlineInputMode={offlineInputMode}
                     input={input} setInput={handleInputChange}
                     isTyping={isTyping || instantChatPending} selectionMode={selectionMode}
                     showPanel={showPanel} setShowPanel={setShowPanel}
@@ -5171,6 +5173,47 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             </div>
             </div>
             {/* .sully-chat-root 仅包裹聊天舞台；系统弹窗、迷你应用与底部面板挂载在舞台外，避免白框顶层颜色/字体规则向表单和对话框继承。 */}
+
+            {/* 线下模式 · 输入模式悬浮球（对话 / 旁白）：点一下切换，吸附在底栏右上角外侧 */}
+            {char && isOfflineEnabled(char.offlineConfig) && (
+                <OfflineInputBall
+                    anchorRef={offlineBallAnchorRef}
+                    mode={offlineInputMode}
+                    onToggle={() => {
+                        setOfflineInputMode(offlineInputMode === 'dialogue' ? 'narration' : 'dialogue');
+                        trackEvent('切换线下输入模式');
+                    }}
+                />
+            )}
+
+            {/* 线下模式 · 手机道具：可拖动悬浮球 + 悬浮手机弹窗（弹窗打开时球淡出） */}
+            {char && isOfflineEnabled(char.offlineConfig) && (
+                <>
+                    <OfflinePhoneBall
+                        holder={phoneHolder}
+                        hidden={phonePanelOpen}
+                        onOpen={() => setPhonePanelOpen(true)}
+                        onPickHolder={(next) => {
+                            setPhoneHolder(next);
+                            writePhoneHolder(char.id, next);
+                        }}
+                    />
+                    <OfflinePhonePanel
+                        open={phonePanelOpen}
+                        holder={phoneHolder}
+                        charId={char.id}
+                        charName={char.name}
+                        userName={userProfile.name || '用户'}
+                        subApi={apiConfig.subBaseUrl && apiConfig.subApiKey && apiConfig.subModel
+                            ? { baseUrl: apiConfig.subBaseUrl, apiKey: apiConfig.subApiKey, model: apiConfig.subModel }
+                            : undefined}
+                        char={char}
+                        user={userProfile}
+                        charTimeZone={resolveCharTimeZone(char)}
+                        onClose={() => setPhonePanelOpen(false)}
+                    />
+                </>
+            )}
 
             {/* 记忆整理结果 — 弹窗（高级感） */}
             {memoryPalaceResult && (
