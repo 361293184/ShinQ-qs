@@ -1225,23 +1225,25 @@ export const useChatAI = ({
             //
             // 不并入的几种情形（各自都有更合适的既有路径，强行并入只会变差）：
             //  · 即时对话：主请求在 worker 里发，剥块也要在 worker 里做；这一版先不碰云端。
-            //  · 工具模式（点单/MCP/主动消息 2.0）：一轮会发多次请求，控制块落在哪一轮说不清。
-            // 情绪开关语义（默认并入）：只有用户显式关掉（inline=false）才走独立评估。
+            // 工具定义（点单/MCP/主动消息 2.0）会往主请求里塞 tools，但这不等于「本轮一定调工具」，
+            // 普通聊天照样能顺带吐控制块——所以不因此排除并入，只在最终正文和工具轮旁白里
+            // 都剥一遍（见下方 amsg2LeadIns 处理）。
+            //
+            // 情绪开关语义：只有「用户显式关掉 **且** 真的配了副 API」才走独立评估。
+            // 没配副 API 时关掉并入毫无收益——独立评估同样走主 API，只会白多一次调用，
+            // 所以这种情况一律并入（历史数据里被旧面板写成的 false 也会因此自动恢复）。
+            const emotionHasDedicatedApi = !!char.emotionConfig?.api?.baseUrl;
             const inlineEmotionOn = !!(
                 emotionEvalEnabled
                 && !instantChatRoute
-                && char.emotionConfig?.inline !== false
                 && !promptBuildSkipped
-                && !toolModeActive
-                && !amsg2ToolsInjected
+                && (char.emotionConfig?.inline !== false || !emotionHasDedicatedApi)
             );
             // 日程一天只生成一次：今天已经有了就完全不注入，一个字都不多花。
             const inlineScheduleEligible = !!(
                 isScheduleFeatureOn(char)
                 && !instantChatRoute
                 && !promptBuildSkipped
-                && !toolModeActive
-                && !amsg2ToolsInjected
             );
             const inlineScheduleNeeded = inlineScheduleEligible
                 ? !(await replyStep(async () => getDailyScheduleForChar(charForGen).catch(() => null)))
@@ -2265,6 +2267,26 @@ export const useChatAI = ({
             // 工具轮里说过的话拼在最前面（没有工具轮时 amsg2LeadIns 是空的，原样取最后一轮）；
             // SAR 信封生效期若跨多轮输出了信封，逐轮拆解后再合并去重真意与外显。
             const finalRoundContentRaw = data.choices?.[0]?.message?.content || '';
+            // 工具轮里模型可能把控制块吐在中间某轮的旁白里（主动消息 2.0 会注入工具定义，
+            // 但这一轮未必真的调工具）。落库前把旁白数组也扫一遍：块剥掉，raw 留最后一次非空的。
+            let leadInScheduleRaw = '';
+            let leadInEmotionRaw = '';
+            if (inlineScheduleNeeded || inlineEmotionOn) {
+                for (let i = 0; i < amsg2LeadIns.length; i += 1) {
+                    let leadIn = amsg2LeadIns[i];
+                    if (inlineScheduleNeeded) {
+                        const stripped = extractInlineScheduleBlock(leadIn);
+                        if (stripped.raw) leadInScheduleRaw = stripped.raw;
+                        leadIn = stripped.content;
+                    }
+                    if (inlineEmotionOn) {
+                        const stripped = extractInlineEmotionBlock(leadIn);
+                        if (stripped.raw) leadInEmotionRaw = stripped.raw;
+                        leadIn = stripped.content;
+                    }
+                    amsg2LeadIns[i] = leadIn;
+                }
+            }
             // 日程 / 情绪控制块在这里剥掉，正文原样进后处理；raw 等落库后再各自落地。
             // 顺序：先日程后情绪——日程块被要求排在最前，情绪块收尾。
             // 直接写回 data.message.content——后处理管线的二轮分支（引用/搜索等）会重新读
@@ -2275,17 +2297,19 @@ export const useChatAI = ({
             const inlineEmotion = inlineEmotionOn
                 ? extractInlineEmotionBlock(inlineSchedule.content)
                 : { content: inlineSchedule.content, raw: '', closed: false };
+            const inlineScheduleRaw = inlineSchedule.raw || leadInScheduleRaw;
+            const inlineEmotionRaw = inlineEmotion.raw || leadInEmotionRaw;
             if (inlineScheduleNeeded) {
-                if (!inlineSchedule.raw) {
+                if (!inlineScheduleRaw) {
                     console.warn('🗓️ [Schedule] 本轮主回复没有输出日程块，今天仍无日程（下一轮再试）');
-                } else if (!inlineSchedule.closed) {
+                } else if (inlineSchedule.raw && !inlineSchedule.closed) {
                     console.warn('🗓️ [Schedule] 日程块未闭合（可能被 max_tokens 截断），按截断修复解析');
                 }
             }
             if (inlineEmotionOn) {
-                if (!inlineEmotion.raw) {
+                if (!inlineEmotionRaw) {
                     console.warn('🎭 [Emotion] 本轮主回复没有输出情绪控制块，情绪保持上一轮');
-                } else if (!inlineEmotion.closed) {
+                } else if (inlineEmotion.raw && !inlineEmotion.closed) {
                     console.warn('🎭 [Emotion] 情绪控制块未闭合（可能被 max_tokens 截断），按截断修复解析');
                 }
             }
@@ -2369,9 +2393,9 @@ export const useChatAI = ({
             // 日程并入主 API 的落地：解析控制块 → 归一化 → 落库 → 通知界面与云端。
             // 与独立生成路径共用 buildScheduleFromParsed / persistGeneratedSchedule，
             // 时段映射、家园房间校验、串门副作用两边完全一致。
-            if (inlineScheduleNeeded && inlineSchedule.raw) {
+            if (inlineScheduleNeeded && inlineScheduleRaw) {
                 try {
-                    const parsed = extractJson(inlineSchedule.raw);
+                    const parsed = extractJson(inlineScheduleRaw);
                     const coverImage = await replyStep(async () =>
                         DB.getScheduleCoverImage(charForGen.id).catch(() => null));
                     const schedule = parsed
@@ -2409,14 +2433,14 @@ export const useChatAI = ({
             // 顺序放在后处理之后，是为了「正文先上屏」——情绪写库偶发失败不该拖住消息。
             if (inlineEmotionOn) {
                 try {
-                    if (inlineEmotion.raw) {
+                    if (inlineEmotionRaw) {
                         // 秘密便签的归属（消息来源）跟独立评估同口径：只有真的准备了任务才取。
                         const secretOrigin = inlineSecretTask
                             ? await replyRun.secretSourceIds.then(ids =>
                                 ids.length ? { source: 'chat' as const, messageIds: ids } : undefined)
                             : undefined;
                         const innerState = await replyStep(async () => applyEmotionEvalRaw(
-                            inlineEmotion.raw, charForGen, inlineSecretTask?.id, secretOrigin,
+                            inlineEmotionRaw, charForGen, inlineSecretTask?.id, secretOrigin,
                         ));
                         if (innerState) setEvolvedNarrative(innerState);
                     }

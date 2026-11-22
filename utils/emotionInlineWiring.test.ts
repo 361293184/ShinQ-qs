@@ -26,10 +26,17 @@ describe('情绪并入主 API — 接线', () => {
         expect(chatAiSrc).toContain('if (!inlineEmotionOn) fireLocalEmotionEval?.();');
     });
 
-    it('即时对话 / 工具模式 / 主动消息 2.0 一律不并入', () => {
+    it('只有即时对话不并入；工具模式与无副 API 的误关都不再阻止并入', () => {
         expect(chatAiSrc).toContain('&& !instantChatRoute');
-        expect(chatAiSrc).toContain('&& !toolModeActive');
-        expect(chatAiSrc).toContain('&& !amsg2ToolsInjected');
+        expect(chatAiSrc).toContain('&& !promptBuildSkipped');
+        expect(chatAiSrc).toContain('|| !emotionHasDedicatedApi');
+        // 只看判定块本身：工具定义注入不等于本轮调工具，不能再作为排除条件。
+        const block = chatAiSrc.slice(
+            chatAiSrc.indexOf('const inlineEmotionOn'),
+            chatAiSrc.indexOf('const inlineScheduleEligible'),
+        );
+        expect(block).not.toContain('toolModeActive');
+        expect(block).not.toContain('amsg2ToolsInjected');
     });
 
     it('落库前剥离控制块，并写回本次响应正文', () => {
@@ -39,7 +46,7 @@ describe('情绪并入主 API — 接线', () => {
 
     it('落地复用既有的 applyEmotionEvalRaw（不另写一套解析）', () => {
         expect(chatAiSrc).toContain('applyEmotionEvalRaw(');
-        expect(chatAiSrc).toContain('inlineEmotion.raw, charForGen, inlineSecretTask?.id, secretOrigin,');
+        expect(chatAiSrc).toContain('inlineEmotionRaw, charForGen, inlineSecretTask?.id, secretOrigin,');
     });
 
     it('秘密/朋友圈任务在成功、失败、提前返回三条路都会交还', () => {

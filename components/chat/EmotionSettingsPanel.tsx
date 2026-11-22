@@ -40,8 +40,9 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
         setUrl(s?.api?.baseUrl ?? '');
         setKey(s?.api?.apiKey ?? '');
         setModel(s?.api?.model ?? '');
-        // 默认并入；只有显式关掉（inline=false）才走下方副 API 的独立评估。
-        setInline(s?.inline !== false);
+        // 没填副 API 时一律并入（独立评估同样走主 API，只会白多一次调用），
+        // 所以此时无论历史值是什么都显示为勾选；只有真配了副 API 才尊重用户的关闭。
+        setInline(s?.api?.baseUrl ? s?.inline !== false : true);
         setShowSavePreset(false);
         setNewPresetName('');
         setDirty(false);
@@ -105,9 +106,14 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
                         已勾选并入：下面填的副 API 这一轮不会被调用。还想用那个独立模型评估情绪，就取消勾选。
                     </p>
                 )}
-                {!inline && (
+                {!inline && !!url && (
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                        未并入：情绪会按下面的副 API 单独发一次请求（URL 留空则用主 API，但仍是一次额外调用）。
+                        未并入：情绪会按下面的副 API 单独发一次请求。
+                    </p>
+                )}
+                {!url && (
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                        没填副 API 时这项自动生效——否则「独立评估」也还是用主 API，只会白多一次调用。
                     </p>
                 )}
             </div>
