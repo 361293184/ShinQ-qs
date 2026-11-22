@@ -2,11 +2,14 @@ import { hashBlob, dataUrlToBlob, blobToDataUrl } from '@rei-standard/blob-store
 import { DB, openSpaceDB } from './db';
 import { createBackupArchive } from './backupArchive';
 import { collectBlobRefs } from './backupBlobs';
+import { createDamagedPictureGuard } from './backupFormat';
 import { listUserSpaces, SESSION_SPACE_ID, readSpaceLocal, writeSpaceLocal, rawSpaceStorage, isSharedSpaceKey, saveUserSpaces, sharedSettingForBackup, createSpaceStorage, prepareUserSpaceRestore, assertUserSpaceAvailable, type UserSpace } from './userSpaces';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
 import { openCollaborationSpace, deleteCollaborationSpace } from '../features/collaboration/store';
 import { commitSpaceRows, persistSpaceCatalog, assertUniqueSpaceCharacters } from './userSpaceData';
 import { collectFriendFeedMedia, applyFriendFeedMedia, isActivityTextAsset } from './activityBackup';
+import { HELP_HISTORY_KEY, helpMediaHistory, helpTextHistory, restoreHelpMedia } from './sullyHelpBackup';
+import { legacyStickerLinks, portableEmojiRow, patchEmojiOriginal, patchSentSticker } from './emojiBackup';
 import { parseFriendFeed } from './friendFeed';
 import { exportDecorationMedia, restoreDecorationMedia } from './decorationMediaBackup';
 import { shouldIncludeVoiceRelatedAssetInBackup } from './voiceMessageBackup';
@@ -15,6 +18,8 @@ import { collectCharacterCompanionVoiceAssetIds } from './companionPresets';
 import { withSharedAssetLock } from './sharedAssetLock';
 import { backupAssetField, backupAssetSource, recordMissingBackupAsset, writeMissingBackupAssets, type BackupMissingAsset } from './backupMissingAssets';
 import { newImportedSpaceId, newImportedBlobId, remapIndependentUser } from './independentUserImport';
+import { exportUserLocationSettings, validateSpaceLocationBackup, type SpaceLocationBackup } from './userLocationBackup';
+import { USER_LOCATION_STORAGE_KEY } from './userLocationPrivacy';
 
 type Mode = 'full' | 'text_only' | 'media_only';
 interface SpaceArchive {
@@ -22,6 +27,7 @@ interface SpaceArchive {
     spaces: Array<UserSpace & { local: Record<string, string>; stores: Record<string, string[]> }>;
     settings: Record<string, string>;
     backend?: Awaited<ReturnType<typeof exportAmsg2GlobalConfig>>;
+    userLocation?: SpaceLocationBackup;
     blobs: Array<{ id: string; path: string; type: string; size: number }>;
     missingAssets?: BackupMissingAsset[];
 }
@@ -29,12 +35,18 @@ const mediaStores = new Set(['characters', 'user_profile', 'themes', 'emojis', '
 const mediaAsset = (id: string) => id === 'friend_feed_v1' || !isActivityTextAsset(id);
 const privateLocalExcluded = (key: string) => /location|geolocation|latitude|longitude|privacy|user_spaces_catalog|import.*progress/i.test(key);
 export function spaceMediaRow(store: string, row: any) {
+    if (store === 'assets' && row.id === HELP_HISTORY_KEY) return { id: row.id, data: helpMediaHistory(row.data) };
     if (store === 'characters') {
         const keys = ['id', 'avatar', 'sprites', 'dateSkinSets', 'activeSkinSetId', 'customDateSprites', 'spriteConfig', 'chibiStudio', 'videoAvatar', 'videoAvatarWardrobe', 'companionAvatar', 'companionTouchSettings', 'companionBackground', 'videoCallBackground', 'dateBackground', 'roomConfig'];
         const homeKeys = ['version', 'assetVersion', 'roomSizeVersion', 'homePalette', 'rooms'];
         return { ...Object.fromEntries(keys.filter(k => row[k] !== undefined).map(k => [k, row[k]])), ...restoreDecorationMedia(exportDecorationMedia(row)), ...(row.vrState?.chibi ? { vrState: { chibi: row.vrState.chibi } } : {}), ...(row.home3D ? { home3D: Object.fromEntries(homeKeys.filter(k => row.home3D[k] !== undefined).map(k => [k, row.home3D[k]])) } : {}) };
     }
-    if (store === 'messages') return { id: row.id, charId: row.charId, role: row.role, timestamp: row.timestamp, type: row.type, content: row.type === 'image' || row.type === 'emoji' ? row.content : '', metadata: row.metadata?.cameraSnapshotRef || row.metadata?.cameraSnapshotExpired ? { cameraSnapshotRef: row.metadata.cameraSnapshotRef, cameraSnapshotExpired: row.metadata.cameraSnapshotExpired } : undefined };
+    if (store === 'messages') return {
+        id: row.id, charId: row.charId, groupId: row.groupId, role: row.role, timestamp: row.timestamp, type: row.type,
+        content: row.type === 'image' || row.type === 'emoji' ? row.content : '',
+        metadata: row.type === 'emoji' && row.metadata?.stickerName ? { stickerName: row.metadata.stickerName }
+            : row.metadata?.cameraSnapshotRef || row.metadata?.cameraSnapshotExpired ? { cameraSnapshotRef: row.metadata.cameraSnapshotRef, cameraSnapshotExpired: row.metadata.cameraSnapshotExpired } : undefined,
+    };
     if (store === 'user_profile') return { id: row.id, avatar: row.avatar, perCharAvatars: row.perCharAvatars, chibiStudio: row.chibiStudio };
     if (store === 'daily_schedule') return { id: row.id, coverImage: row.coverImage };
     if (store === 'assets' && row.id === 'friend_feed_v1') return { id: row.id, data: JSON.stringify(collectFriendFeedMedia(parseFriendFeed(row.data))) };
@@ -96,6 +108,12 @@ async function exportUserSpacesUnderLease(mode: Mode, scope: 'current' | 'all', 
     };
     for (const space of listUserSpaces().filter(s => scope === 'all' || s.id === SESSION_SPACE_ID)) {
         const db = await openSpaceDB(space.id);
+        const stickerRows = !db.objectStoreNames.contains('emojis') ? [] : await new Promise<import('../types').Emoji[]>((resolve, reject) => {
+            const request = db.transaction('emojis').objectStore('emojis').getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+        const stickerLinks = legacyStickerLinks(stickerRows);
         const characters = await new Promise<any[]>((resolve, reject) => { const request = db.transaction('characters').objectStore('characters').getAll(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
         const voiceIds = collectCharacterCompanionVoiceAssetIds(characters);
         const characterNames = new Map<string, string>(characters.map(character => [character.id, character.name]));
@@ -121,7 +139,11 @@ async function exportUserSpacesUnderLease(mode: Mode, scope: 'current' | 'all', 
                     .filter(r => mode !== 'media_only' || store !== 'daily_schedule' || r.coverImage)
                     .filter(r => mode !== 'media_only' || store !== 'messages' || r.type === 'image' || r.type === 'emoji' || r.metadata?.cameraSnapshotRef || r.metadata?.cameraSnapshotExpired);
                 const processed = [];
-                for (const row of rows) processed.push(await pack(mode === 'media_only' ? spaceMediaRow(store, row) : row, '', backupAssetSource(space.name, store, row, characterNames)));
+                for (const row of rows) {
+                    const value = mode === 'media_only' ? spaceMediaRow(store, row)
+                        : mode === 'text_only' && store === 'assets' && row.id === HELP_HISTORY_KEY ? { id: row.id, data: helpTextHistory(row.data) } : row;
+                    processed.push(await pack(portableEmojiRow(store, value, stickerLinks), '', backupAssetSource(space.name, store, row, characterNames)));
+                }
                 const text = JSON.stringify(processed); collectBlobRefs(text, refs);
                 const path = `spaces/${space.id}/${store}.${part++}.json`;
                 zip.file(path, text); entry.stores[store].push(path);
@@ -139,6 +161,15 @@ async function exportUserSpacesUnderLease(mode: Mode, scope: 'current' | 'all', 
     }
     if (mode !== 'text_only') for (const ref of refs) await addAsset(ref.slice('blobref:'.length));
     if (mode !== 'media_only') manifest.backend = await exportAmsg2GlobalConfig({ includeBackendConnection });
+    if (mode !== 'media_only' && rawSpaceStorage) {
+        for (const space of manifest.spaces) {
+            const config = exportUserLocationSettings(createSpaceStorage(rawSpaceStorage, space.id));
+            if (!config) continue;
+            const { characterIds, ...settings } = config;
+            manifest.userLocation ??= { settings, audiences: {} };
+            manifest.userLocation.audiences[space.id] = characterIds ?? null;
+        }
+    }
     const missing = [...missingAssets.values()];
     if (missing.length) manifest.missingAssets = missing;
     writeMissingBackupAssets(zip, missing);
@@ -149,12 +180,23 @@ async function exportUserSpacesUnderLease(mode: Mode, scope: 'current' | 'all', 
     return result;
 }
 
+export type ImportUserSpacesOptions = {
+    asNewUsers?: boolean;
+    /** Called once every read-only check has passed, right before the first database write. */
+    onBeforeWrite?: () => void;
+    /** asNewUsers only: the failed attempt's new users were removed completely, so existing data is as before. */
+    onRolledBack?: () => void;
+    /** A picture whose bytes are corrupt inside the archive was skipped like a missing one; the rest still restores. */
+    onDamagedAsset?: (id: string) => void;
+};
+
 /** Preflight every file and store before any live writes. Each space commits atomically. */
-export async function importUserSpaces(zip: any, allowBackendConnection = false, options: { asNewUsers?: boolean } = {}): Promise<UserSpace[]> {
+export async function importUserSpaces(zip: any, allowBackendConnection = false, options: ImportUserSpacesOptions = {}): Promise<UserSpace[]> {
     return withSharedAssetLock('exclusive', async () => {
         const created: string[] = [];
-        try { return await importUserSpacesUnderLease(zip, allowBackendConnection, options.asNewUsers === true, created); }
+        try { return await importUserSpacesUnderLease(zip, allowBackendConnection, options.asNewUsers === true, created, options.onBeforeWrite, options.onDamagedAsset); }
         catch (error) {
+            let cleanedUp = true;
             // Only IDs allocated by this attempt can be removed. Existing spaces are never rollback targets.
             if (created.length) {
                 for (const id of created) {
@@ -165,19 +207,20 @@ export async function importUserSpaces(zip: any, allowBackendConnection = false,
                             const view = createSpaceStorage(rawSpaceStorage, id);
                             for (const key of Object.keys(readSpaceLocal(id))) view.removeItem(key);
                         }
-                    } catch (cleanupError) { console.warn('迁入临时用户清理未完成', cleanupError); }
+                    } catch (cleanupError) { cleanedUp = false; console.warn('迁入临时用户清理未完成', cleanupError); }
                 }
                 const catalog = listUserSpaces();
                 if (catalog.some(space => created.includes(space.id))) {
                     saveUserSpaces(catalog.filter(space => !created.includes(space.id)));
-                    try { await persistSpaceCatalog(); } catch { /* Preserve the original failure. */ }
+                    try { await persistSpaceCatalog(); } catch { cleanedUp = false; /* Preserve the original failure. */ }
                 }
             }
+            if (options.asNewUsers && cleanedUp) options.onRolledBack?.();
             throw error;
         }
     });
 }
-async function importUserSpacesUnderLease(zip: any, allowBackendConnection: boolean, asNewUsers: boolean, created: string[]): Promise<UserSpace[]> {
+async function importUserSpacesUnderLease(zip: any, allowBackendConnection: boolean, asNewUsers: boolean, created: string[], onBeforeWrite?: () => void, onDamagedAsset?: (id: string) => void): Promise<UserSpace[]> {
     const manifest = JSON.parse(await zip.file('user-spaces.json').async('string')) as SpaceArchive;
     if (manifest.format !== 'sully-user-spaces' || manifest.version !== 1 || !['full', 'text_only', 'media_only'].includes(manifest.mode)
         || !Array.isArray(manifest.spaces) || !manifest.spaces.length || !Array.isArray(manifest.blobs)) throw new Error('用户空间备份格式无效');
@@ -189,6 +232,13 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
         if (match) occupiedSpaceIds.add(match[1]);
     }
     const unique = new Set<string>();
+    // 图片在包里坏了（CRC 不符、解压失败）按缺图跳过并上报；读文件失败、内存不足不是包坏了，照常中止。
+    const skipDamaged = createDamagedPictureGuard(zip);
+    const readPicture = async (path: string, id: string) => {
+        const bytes = await skipDamaged<any>(() => zip.file(path).async('uint8array'));
+        if (bytes === null) onDamagedAsset?.(id);
+        return bytes;
+    };
     const unpack = async (v: any): Promise<any> => {
         if (typeof v === 'string' && /^\s*[\[{]/.test(v)) {
             try {
@@ -199,7 +249,9 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
         }
         if (v?.__spaceDataURL) {
             if (!/^shared\/[a-zA-Z0-9_-]+\.bin$/.test(v.__spaceDataURL) || !zip.file(v.__spaceDataURL) || typeof v.header !== 'string' || !/^data:[^,]*;base64,$/.test(v.header)) throw new Error('备份内嵌素材无效');
-            const url = await blobToDataUrl(new Blob([await zip.file(v.__spaceDataURL).async('uint8array')], { type: v.type || '' }));
+            const bytes = await readPicture(v.__spaceDataURL, v.__spaceDataURL);
+            if (!bytes) return ''; // 与文字备份里被剥掉的图片同形
+            const url = await blobToDataUrl(new Blob([bytes], { type: v.type || '' }));
             return v.header + url.slice(url.indexOf(',') + 1);
         }
         if (v?.__spaceDate) { const date = new Date(v.__spaceDate); if (!Number.isFinite(date.getTime())) throw new Error('备份日期无效'); return date; }
@@ -219,6 +271,8 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
         if (v && typeof v === 'object') { const out: any = Object.create(null); for (const [k, value] of Object.entries(v)) out[k] = await unpack(value); return out; }
         return v;
     };
+    const userLocation = !asNewUsers && manifest.mode !== 'media_only'
+        ? validateSpaceLocationBackup(manifest.userLocation, manifest.spaces.map(space => space.id)) : undefined;
     const prepared = [];
     for (const storedSpace of manifest.spaces) {
         const space = { ...storedSpace, local: await unpack(storedSpace.local) };
@@ -263,7 +317,8 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
     const blobs: Array<{ id: string; blob: Blob }> = [];
     for (const entry of manifest.blobs) {
         if (!/^[a-zA-Z0-9_:.-]+$/.test(entry.id) || !/^shared\/[a-zA-Z0-9_-]+\.bin$/.test(entry.path) || !zip.file(entry.path)) throw new Error('共享素材索引无效');
-        const bytes = await zip.file(entry.path).async('uint8array');
+        const bytes = await readPicture(entry.path, entry.id);
+        if (!bytes) continue;
         if (bytes.byteLength !== entry.size) throw new Error('共享素材文件不完整');
         const blob = new Blob([bytes], { type: entry.type });
         const id = blobIds.get(entry.id) || entry.id;
@@ -273,11 +328,15 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
     }
     for (const { space, db, tables, collaboration, collabTables } of prepared) {
         if (manifest.mode === 'media_only') {
+            delete tables.emoji_categories;
             for (const [store, rows] of Object.entries(tables)) {
-                if (store !== 'characters' && store !== 'user_profile' && store !== 'messages' && store !== 'assets' && store !== 'daily_schedule') continue;
+                if (store !== 'emojis' && store !== 'characters' && store !== 'user_profile' && store !== 'messages' && store !== 'assets' && store !== 'daily_schedule') continue;
                 tables[store] = await Promise.all(rows.map(async row => {
-                    const existing = await new Promise<any>((resolve, reject) => { const req = db.transaction(store).objectStore(store).get(row.id); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+                    const existing = await new Promise<any>((resolve, reject) => { const req = db.transaction(store).objectStore(store).get(store === 'emojis' ? row.name : row.id); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+                    if (store === 'emojis') return patchEmojiOriginal(existing,row);
+                    if (store === 'messages' && row.type === 'emoji') return patchSentSticker(existing, row);
                     if (store === 'assets') {
+                        if (row.id === HELP_HISTORY_KEY) return existing ? { id: row.id, data: restoreHelpMedia(existing.data, row.data) } : null;
                         if (row.id === 'friend_feed_v1') return { id: row.id, data: JSON.stringify(applyFriendFeedMedia(parseFriendFeed(existing?.data ?? null), JSON.parse(row.data))) };
                         return mediaAsset(row.id) ? row : null;
                     }
@@ -287,6 +346,7 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
             }
         }
     }
+    onBeforeWrite?.();
     for (const entry of blobs) if (!await DB.getBlobAsset(entry.id)) await DB.putBlobAsset(entry.id, entry.blob);
     for (const { space, db, tables, collaboration, collabTables } of prepared) {
         if (manifest.mode !== 'media_only') prepareUserSpaceRestore(space.id, true);
@@ -308,6 +368,16 @@ async function importUserSpacesUnderLease(zip: any, allowBackendConnection: bool
     if (!asNewUsers && manifest.mode !== 'media_only') await importAmsg2GlobalConfig(manifest.backend, { allowBackendConnection });
     if (!asNewUsers && manifest.mode !== 'media_only') for (const [key, value] of Object.entries(manifest.settings || {})) {
         if (isSharedSpaceKey(key) && !privateLocalExcluded(key) && typeof value === 'string') rawSpaceStorage?.setItem(key, value);
+    }
+    if (userLocation && rawSpaceStorage) {
+        for (const { space } of prepared) {
+            const audience = userLocation.audiences[space.id];
+            createSpaceStorage(rawSpaceStorage, space.id).setItem(USER_LOCATION_STORAGE_KEY, JSON.stringify({
+                ...userLocation.settings, ...(audience === null ? {} : { characterIds: audience }),
+            }));
+        }
+        // Invalidate any lookup/cache in the current page while keeping its own audience intact.
+        (await import('./userLocation')).invalidateUserLocationContext();
     }
     return prepared.map(({ space }) => ({ id: space.id, name: space.name }));
 }

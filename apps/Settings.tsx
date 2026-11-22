@@ -1,11 +1,13 @@
+import AwarenessSwitch from '../components/settings/AwarenessSwitch';
 import { listUserSpaces } from '../utils/userSpaces';
+import { errorDetails } from '../utils/errorSelfCheck';
 import { BackupMissingAssetsNotice } from '../components/BackupMissingAssetsNotice';
 import type { BackupMissingAsset } from '../utils/backupMissingAssets';
 import { readBackupPreferences, updateBackupPreferences } from '../utils/backupPreferences';
 import {CharacterWeatherCities} from '../components/settings/CharacterAwarenessSettings';
 import {cleanCharacterWeatherCities} from '../utils/characterWeather';
 import NavigationBallSettings from '../components/settings/NavigationBallSettings';
-import { useSettingsFocus } from '../utils/settingsNavigation';
+import { requestSettingsFocus, useSettingsFocus } from '../utils/settingsNavigation';
 import ApiPresetGroups from '../components/settings/ApiPresetGroups';
 import DialogueApiFields from '../components/settings/DialogueApiFields';
 import { llmApiType, normalizeLlmBaseUrl, type LlmApiType } from '../utils/llmEndpoint';
@@ -23,14 +25,19 @@ import { extractContent, safeResponseJson } from '../utils/safeApi';
 import { extractModelIds, normalizeModelIds } from '../utils/modelList';
 import { EXPORT_CHUNK_SIZE, sliceRanges } from '../utils/backupExport';
 import { isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
+import '../components/settings/realtimeSettings.css';
+import SettingsDetailPage from '../components/settings/SettingsDetailPage';
 import Modal from '../components/os/Modal';
 import UserHolidaySettings from '../components/settings/UserHolidaySettings';
-import UserLocationSettings, { USER_LOCATION_PAGE_TITLES, getUserLocationParentPage, type UserLocationSettingsPage } from '../components/settings/UserLocationSettings';
+import UserLocationSettings, { awarenessSections, USER_LOCATION_PAGE_TITLES, getUserLocationParentPage, type UserLocationSettingsPage } from '../components/settings/UserLocationSettings';
 import { useLocalBackHandler } from '../hooks/useLocalBackHandler';
+import { ActiveMsgSettingsEntry, ActiveMsgSettingsPages, type AmsgSettingsPage } from '../components/settings/ActiveMsgSettings';
 import { loadUserLocationConfig, type UserLocationConfig } from '../utils/userLocationPrivacy';
 import { saveUserLocationConfig } from '../utils/userLocation';
 import { consumeHolidaySettings, hasHolidaySettingsRequest, type UserHolidayConfig } from '../utils/userHolidays';
-import { NotionManager, FeishuManager, RealtimeContextManager, fetchOwmWeather, fetchOpenMeteoWeather } from '../utils/realtimeContext';
+import { NotionManager, FeishuManager, RealtimeContextManager } from '../utils/realtimeContext';
+import { normalizeFreeWeatherSource } from '../utils/realtimeWorldCore';
+import WeatherSourceSettings from '../components/settings/WeatherSourceSettings';
 import { XhsMcpClient } from '../utils/xhsMcpClient';
 import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
 import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
@@ -48,20 +55,25 @@ import {
 import { getDateVoiceGuide } from '../utils/datePrompts';
 import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PlugsConnected } from '@phosphor-icons/react';
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
-import { PushVapidSettingsModal } from '../components/settings/PushVapidSettingsModal';
-import AmsgCloudDataModal from '../components/settings/AmsgCloudDataModal';
-import PushSubscriptionPanel from '../components/settings/PushSubscriptionPanel';
-import ActiveMsgGlobalSettingsModal from '../components/settings/ActiveMsgGlobalSettingsModal';
 import { syncAmsgLlmCredentials, syncAmsgToolConfig, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
+import { ActiveMsgStore } from '../utils/activeMsgStore';
+import {
+    AMSG_CRON_TRIGGER_EVENT,
+    AMSG_GLOBAL_CONFIG_EVENT,
+    isAmsg2GloballyEnabled,
+    isAmsg2WorkerActive,
+    isCloudCronPaused,
+} from '../utils/amsgGlobalGate';
+import { flushAmsg2AfterReenable, setAmsg2GlobalEnabled } from '../utils/amsgGlobalSwitch';
 import VersionInfo from '../components/settings/VersionInfo';
-import { isPushVapidReady } from '../utils/pushVapid';
+import SullySupportEntry, { SupportIcon } from '../components/settings/SullySupportEntry';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import StorageUsagePanel from '../components/settings/StorageUsagePanel';
 import WebCacheControl from '../components/settings/WebCacheControl';
 import McpConnectionConsole from '../components/settings/McpConnectionConsole';
 import { DB } from '../utils/db';
-import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
+import { getBackupReminderState, markBackupDone, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import {
     createAvatarModelBackup,
     getAvatarModelBackupInventory,
@@ -81,6 +93,8 @@ import {
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { describeVideoWithVideoApi, readVideoApiUsage } from '../utils/videoApi';
 import { getCustomVideoParseKey, setVideoParseKey } from '../utils/videoParser';
+import { FIRECRAWL_API_KEYS_URL, getFirecrawlApiKey, getFirecrawlCreditUsage, setFirecrawlApiKey, type FirecrawlCreditUsage } from '../utils/firecrawl';
+import { shareOrDownloadBlob } from '../utils/shareExport';
 import {
     getMainVisionMode,
     setMainVisionMode,
@@ -88,6 +102,8 @@ import {
     probeAndStoreMainVision,
 } from '../utils/mainVisionCapability';
 import { createSampleVideoBlob } from '../utils/videoMessage';
+
+const SullySupportPage = React.lazy(() => import('../components/settings/SullySupportPage'));
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -182,11 +198,14 @@ const SettingsSection: React.FC<{
     const [open, setOpen] = useState(() => title === 'API 配置' && guideStep === 0);
     const sectionRef = useRef<HTMLElement>(null);
     const [focusRequest, setFocusRequest] = useState(0);
-    useSettingsFocus(title === 'API 配置' ? 'api' : undefined, () => {
+    useSettingsFocus(title === 'API 配置' ? 'api' : title === '备份与恢复 (ZIP)' ? 'backup' : undefined, () => {
         setOpen(true); setFocusRequest(value => value + 1);
     });
     useEffect(() => {
-        if (focusRequest) sectionRef.current?.scrollIntoView({ block: 'start' });
+        if (!focusRequest) return;
+        const restore = sectionRef.current?.querySelector<HTMLButtonElement>('[data-amsg-backup-restore]');
+        if (restore) { restore.scrollIntoView({ block: 'center' }); restore.focus({ preventScroll: true }); }
+        else sectionRef.current?.scrollIntoView({ block: 'start' });
     }, [focusRequest]);
     useEffect(() => {
         const reveal = () => { if (title === 'API 配置' && guideStep === 0) setOpen(true); };
@@ -238,6 +257,14 @@ const flushMcpToolConfigSync = () => {
     if (!mcpToolConfigSyncTimer) return;
     clearTimeout(mcpToolConfigSyncTimer);
     runMcpToolConfigSync();
+};
+
+const cancelMcpToolConfigSync = () => {
+    if (mcpToolConfigSyncTimer) {
+        clearTimeout(mcpToolConfigSyncTimer);
+        mcpToolConfigSyncTimer = null;
+    }
+    pendingMcpToolConfigSync = null;
 };
 
 /**
@@ -508,6 +535,37 @@ const McpServersCard: React.FC<{
     );
 };
 
+const awarenessGroups = [
+  { label: '环境感知', pages: ['location', 'weather', 'holidays'] },
+  { label: '资讯动态', pages: ['news', 'xhs'] },
+  { label: '外部服务', pages: ['notion', 'feishu', 'orders'] },
+] as const;
+
+function PresetNameButton({ onHold, onClick, ...props }: React.ComponentProps<'button'> & { onHold: () => void }) {
+    const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const held = useRef(false);
+    const start = useRef({ x: 0, y: 0 });
+    const cancel = () => clearTimeout(timer.current);
+    useEffect(() => cancel, []);
+    return <button {...props} type="button"
+        onPointerDown={event => {
+            if (event.button !== 0) return;
+            cancel();
+            held.current = false;
+            start.current = { x: event.clientX, y: event.clientY };
+            timer.current = setTimeout(() => { held.current = true; onHold(); }, 550);
+        }}
+        onPointerMove={event => {
+            if (Math.hypot(event.clientX - start.current.x, event.clientY - start.current.y) > 10) cancel();
+        }}
+        onPointerUp={cancel} onPointerCancel={cancel} onPointerLeave={cancel}
+        onContextMenu={event => event.preventDefault()}
+        onClick={event => {
+            if (!held.current || event.detail === 0) onClick?.(event);
+            held.current = false;
+        }} />;
+}
+
 const Settings: React.FC = () => {
   const {
       apiConfig, updateApiConfig, closeApp, availableModels, setAvailableModels,
@@ -518,7 +576,7 @@ const Settings: React.FC = () => {
       sysOperation, // Get progress state
       realtimeConfig, updateRealtimeConfig, // 实时感知配置
       // 改工具凭据时要连云端提示词一起刷（见 syncAmsgToolConfigAndPrompts）
-      characters, groups, userProfile,
+      characters, characterGroups, groups, userProfile,
       cloudBackupConfig, updateCloudBackupConfig,
       cloudBackupToWebDAV, cloudRestoreFromWebDAV, listCloudBackups,
   } = useOS();
@@ -577,6 +635,14 @@ const Settings: React.FC = () => {
   // 极数本源（apizero）只做分享链接解析，和视频理解共用同一张卡但各存各的 Key：
   // 留空就回落到项目内置的共享 Key。
   const [localVideoParseKey, setLocalVideoParseKey] = useState(getCustomVideoParseKey);
+  // 预设长按删除（本地交互）：按住 700ms 直接删除，松手取消。
+  const [holdingDeletePresetId, setHoldingDeletePresetId] = useState<string | null>(null);
+  const presetDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Firecrawl 网页读取（上游新增能力，配置面板在实时感知里按需显示）
+  const [firecrawlKeyInput, setFirecrawlKeyInput] = useState(getFirecrawlApiKey);
+  const [firecrawlUsage, setFirecrawlUsage] = useState<FirecrawlCreditUsage | null>(null);
+  const [firecrawlChecking, setFirecrawlChecking] = useState(false);
+  const [firecrawlCheckResult, setFirecrawlCheckResult] = useState<{ ok: boolean; text: string } | null>(null);
   // 主模型能否直接收图：自动（按探测）/ 强制开 / 强制关。
   const [mainVisionMode, setLocalMainVisionMode] = useState(getMainVisionMode);
   const [mainVisionSupported, setMainVisionSupported] = useState<boolean | null>(
@@ -631,10 +697,22 @@ const Settings: React.FC = () => {
   const [editPresetStream, setEditPresetStream] = useState(false);
   const [editPresetTemperature, setEditPresetTemperature] = useState(0.85);
   const [editPresetMaxTokens, setEditPresetMaxTokens] = useState(8000);
-  const [holdingDeletePresetId, setHoldingDeletePresetId] = useState<string | null>(null);
-  const presetDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copyingPreset, setCopyingPreset] = useState(false);
   
   // UI States
+  const [showSupport, setShowSupport] = useState(false);
+  const supportEntryRef = useRef<HTMLButtonElement>(null);
+  const supportWasOpen = useRef(false);
+  useSettingsFocus('support', () => {
+      supportEntryRef.current?.scrollIntoView({ block: 'center' });
+      trackEvent('打开打赏 Sully', { 入口: '更新提醒' });
+      setShowSupport(true);
+  });
+  useLocalBackHandler(() => { setShowSupport(false); return true; }, 30, showSupport);
+  useEffect(() => {
+      if (!showSupport && supportWasOpen.current) supportEntryRef.current?.focus({ preventScroll: true });
+      supportWasOpen.current = showSupport;
+  }, [showSupport]);
   const [showModelModal, setShowModelModal] = useState(false);
   // 打开模型弹窗那一刻的模型名：点 × 关掉时退回它，只有「确定」/点选列表才算数。
   const modelBeforePickerRef = useRef('');
@@ -709,6 +787,7 @@ const Settings: React.FC = () => {
   const [ghUseProxy, setGhUseProxy] = useState(cloudBackupConfig.githubUseProxy !== false);
   const [ghShowAdvanced, setGhShowAdvanced] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
+  const [ghRelayAsk, setGhRelayAsk] = useState(false);
   const [ghTestResult, setGhTestResult] = useState<string>('');
 
   // 主代理 Worker 地址（联网搜索 / 备份代理 / Notion / 飞书 / MCD·瑞幸 MCP / 网页抓取 / 出图都走它）。
@@ -720,20 +799,22 @@ const Settings: React.FC = () => {
   // 实时感知配置的本地状态
   const [rtWeatherEnabled, setRtWeatherEnabled] = useState(realtimeConfig.weatherEnabled);
   const [rtUserLocation, setRtUserLocation] = useState<UserLocationConfig>(() => { try { return loadUserLocationConfig(); } catch { return { enabled: false, regions: [] }; } });
-  const [rtUserLocationPage, setRtUserLocationPage] = useState<UserLocationSettingsPage>('main');
+  const [rtUserLocationPage, setRtUserLocationPage] = useState<UserLocationSettingsPage>(holidaySettingsFocus ? 'holidays' : 'location');
   const [rtUserLocationBusy, setRtUserLocationBusy] = useState(false);
   useSettingsFocus('location', () => {
       setRtUserLocationPage('location');
       setShowRealtimeModal(true);
   });
+  const primaryAwarenessPage = rtUserLocationPage === 'location' || rtUserLocationPage in awarenessSections;
+  const awarenessGroup = awarenessGroups.find(group => group.pages.some(id => id === rtUserLocationPage)) ?? awarenessGroups[0];
   const closeRealtimePage = () => {
       if (rtUserLocationBusy) return;
-      if (rtUserLocationPage !== 'main') setRtUserLocationPage(getUserLocationParentPage(rtUserLocationPage));
+      if (!primaryAwarenessPage) setRtUserLocationPage(getUserLocationParentPage(rtUserLocationPage));
       else setShowRealtimeModal(false);
   };
-  useLocalBackHandler(() => { closeRealtimePage(); return true; }, 30, showRealtimeModal);
   const [rtUserHolidays, setRtUserHolidays] = useState<UserHolidayConfig>(() => ({ ...(realtimeConfig.userHolidays || { enabled: false, countryCode: '' }), ...(holidaySettingsFocus ? { enabled: true } : {}) }));
   const [rtWeatherKey, setRtWeatherKey] = useState(realtimeConfig.weatherApiKey);
+  const [rtWeatherFreeSource, setRtWeatherFreeSource] = useState(() => normalizeFreeWeatherSource(realtimeConfig.weatherFreeSource));
   const [rtWeatherCities, setRtWeatherCities] = useState(()=>cleanCharacterWeatherCities(realtimeConfig.weatherCities));
   const [rtWeatherCity, setRtWeatherCity] = useState(realtimeConfig.weatherCity);
   const [rtNewsEnabled, setRtNewsEnabled] = useState(realtimeConfig.newsEnabled);
@@ -778,6 +859,7 @@ const Settings: React.FC = () => {
   const [rtXhsNickname, setRtXhsNickname] = useState(realtimeConfig.xhsMcpConfig?.loggedInNickname || '');
   const [rtXhsUserId, setRtXhsUserId] = useState(realtimeConfig.xhsMcpConfig?.loggedInUserId || '');
   const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
+  const [showRtXhsCookie, setShowRtXhsCookie] = useState(false);
   const [rtXhsPlatform, setRtXhsPlatform] = useState<'xhs' | 'rednote' | undefined>(realtimeConfig.xhsMcpConfig?.platform);
   const [rtXhsGuideOpen, setRtXhsGuideOpen] = useState(false);
   const [rtTestStatuses, setRtTestStatuses] = useState<Record<string, string>>({});
@@ -809,17 +891,106 @@ const Settings: React.FC = () => {
   const [rtWereadTesting, setRtWereadTesting] = useState(false);
   const [showAmsg2Modal, setShowAmsg2Modal] = useState(false);
   const [showAmsgCloudData, setShowAmsgCloudData] = useState(false);
+  const [amsgPage, setAmsgPage] = useState<AmsgSettingsPage | null>(null);
+  const amsgEntryFocus = useRef<HTMLElement | null>(null);
+  const amsgWasOpen = useRef(false);
+  useEffect(() => {
+      if (!amsgPage && amsgWasOpen.current) amsgEntryFocus.current?.focus({ preventScroll: true });
+      amsgWasOpen.current = Boolean(amsgPage);
+  }, [amsgPage]);
+  const openAmsgPage = (page: AmsgSettingsPage) => {
+      amsgEntryFocus.current = document.activeElement as HTMLElement | null;
+      if (page === 'config' || page === 'overview') trackEvent('打开主动消息2.0配置');
+      setAmsgPage(page);
+  };
+  useSettingsFocus('amsg2', () => openAmsgPage('config'));
+  const [amsgGlobalConfig, setAmsgGlobalConfig] = useState<{ workerUrl: string; enabled?: boolean; initializedAt?: number } | null>(null);
+  const [amsgGlobalToggling, setAmsgGlobalToggling] = useState(false);
+  const [amsgCloudCronPaused, setAmsgCloudCronPaused] = useState(false);
+
+  useEffect(() => {
+      let alive = true;
+      void ActiveMsgStore.getGlobalConfig()
+          .then((cfg) => { if (alive) setAmsgGlobalConfig(cfg); })
+          .catch(() => {});
+      const onGlobalCfg = (ev: Event) => {
+          const detail = (ev as CustomEvent).detail;
+          if (detail) {
+              setAmsgGlobalConfig(detail);
+              // 总开关已落盘为暂停时，立即冲刷 800ms 防抖内的 MCP 改动——syncAmsgToolConfig 在暂停态下
+              // 仅写 localStorage 底账、零网络请求，这样重新开启后不会漏同步。
+              if (!isAmsg2GloballyEnabled(detail)) flushMcpToolConfigSync();
+          }
+      };
+      const onCronChanged = (ev: Event) => {
+          const detail = (ev as CustomEvent<{ enabled?: boolean }>).detail;
+          if (detail && typeof detail.enabled === 'boolean') {
+              setAmsgCloudCronPaused(!detail.enabled);
+          }
+      };
+      window.addEventListener(AMSG_GLOBAL_CONFIG_EVENT, onGlobalCfg);
+      window.addEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
+      return () => {
+          alive = false;
+          window.removeEventListener(AMSG_GLOBAL_CONFIG_EVENT, onGlobalCfg);
+          window.removeEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
+      };
+  }, []);
+
+  useEffect(() => {
+      if (!amsgGlobalConfig?.initializedAt || !isAmsg2WorkerActive(amsgGlobalConfig)) {
+          setAmsgCloudCronPaused(false);
+          return;
+      }
+      let alive = true;
+      void ActiveMsgClient.getCronTriggerState().then((state) => {
+          if (alive) setAmsgCloudCronPaused(isCloudCronPaused(state));
+      });
+      return () => { alive = false; };
+  }, [amsgGlobalConfig?.workerUrl, amsgGlobalConfig?.initializedAt, amsgGlobalConfig?.enabled, amsgPage]);
+
+  const handleToggleAmsg2Global = async (next: boolean) => {
+      if (amsgGlobalToggling) return;
+      setAmsgGlobalToggling(true);
+      try {
+          const result = await setAmsg2GlobalEnabled(next, {
+              characters,
+              userProfile,
+              groups,
+              realtimeConfig,
+              apiConfig,
+          });
+          if (!result.ok) {
+              addToast(
+                  result.errorMessage || '网络波动，未成功开启主动消息 2.0，请稍后重试。',
+                  'error',
+              );
+              return;
+          }
+          if (!next) {
+              addToast(
+                  result.cronNotice || '已暂停主动消息 2.0，云端连接与角色配置均已保留。',
+                  result.cronNotice ? 'info' : 'success',
+              );
+          } else {
+              addToast(
+                  result.cronNotice || '已恢复主动消息 2.0。',
+                  result.cronNotice ? 'info' : 'success',
+              );
+          }
+      } finally {
+          setAmsgGlobalToggling(false);
+      }
+  };
   const [exportUserScope, setExportUserScope] = useState<'current' | 'all'>('current');
   /**
-   * 备份带不带主动消息 2.0 的后端连接（Worker 地址 + 密钥 + 用户 id），手动导出和云端备份共用。
+   * 文件导出带不带主动消息 2.0 的后端连接；个人云备份始终携带完整连接。
    *
    * 默认不带。备份是会被分享出去的，带上就等于把自己那台 Worker 的钥匙一起发了：
    * 对方的 App 会静默连上来，把 ta 的 API 凭据和聊天上下文写进你的 D1，而 ta 手里的
    * 主密钥能解开你那台机器上所有的密文。换设备恢复自己的备份才需要它。
    */
   const [exportBackendConnection, setExportBackendConnection] = useState(() => readBackupPreferences().includeBackendConnection);
-  const [showVapidModal, setShowVapidModal] = useState(false);
-  const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
 
   // ---- 生图配置状态 ----
   const [localImageGenKey, setLocalImageGenKey] = useState(apiConfig.imageGenApiKey || '');
@@ -872,6 +1043,13 @@ const Settings: React.FC = () => {
   // 用 ref 跟住当前的 object URL，关弹窗 / 重新导出 / 卸载时都能 revoke 到最新那个，
   // 不受 state 闭包过期影响。
   const downloadUrlRef = useRef<string>('');
+  // 这次导出还没记过备份时间：分享成功和点手动下载链接都从这里取，同一次导出只记一次。
+  const backupRecordPendingRef = useRef(false);
+  const recordBackupOnce = useCallback(() => {
+      if (!backupRecordPendingRef.current) return;
+      backupRecordPendingRef.current = false;
+      markBackupDone();
+  }, []);
   const revokeDownloadUrl = useCallback(() => {
       if (downloadUrlRef.current) {
           URL.revokeObjectURL(downloadUrlRef.current);
@@ -992,7 +1170,7 @@ const Settings: React.FC = () => {
    * 正在用的那条优先拿主表单的流式/温度：用户刚在上面调完高级设置，点铅笔保存就该写回去。
    */
   const openEditPreset = (preset: typeof apiPresets[0]) => {
-      cancelPresetDeleteHold();
+      setCopyingPreset(false);
       const isActive = activePresetId === preset.id;
       setEditingPresetId(preset.id);
       setEditPresetName(preset.name);
@@ -1039,6 +1217,63 @@ const Settings: React.FC = () => {
       }, 700);
   };
 
+  // 就地编辑某条预设：只改这条预设本身；改的正好是当前生效那条时，生效配置一并跟着走
+  const handleUpdatePreset = () => {
+      const preset = apiPresets.find(item => item.id === editingPresetId);
+      if (!preset) return;
+      const name = editPresetName.trim();
+      if (!name) {
+          addToast('预设名称不能为空', 'error');
+          return;
+      }
+      const nextConfig = {
+          ...preset.config,
+          baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(editPresetUrl), editPresetApiType),
+          apiType: editPresetApiType,
+          apiKey: normalizeApiCredential(editPresetKey),
+          model: normalizeApiModel(editPresetModel),
+          stream: editPresetStream,
+          temperature: editPresetTemperature,
+          maxTokens: editPresetMaxTokens,
+      };
+      if (copyingPreset) {
+          addApiPreset(name, nextConfig, editPresetGroup);
+          trackEvent('保存 API 预设副本');
+          setEditingPresetId(null);
+          addToast(`已保存副本「${name}」`, 'success');
+          return;
+      }
+      // 「正在用的就是这条」要在改之前问，改完值就对不上了
+      const wasActive = activePresetId === preset.id;
+      updateApiPreset(preset.id, name, nextConfig, editPresetGroup);
+      // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
+      if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
+      setEditingPresetId(null);
+      addToast(wasActive ? `「${name}」已更新，当前配置同步生效` : `「${name}」已更新`, 'success');
+  };
+
+  const activePresetId = useMemo(
+    () => findActivePresetId(apiPresets, apiConfig),
+    [apiPresets, apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model],
+  );
+  const copyEditedPreset = () => {
+      const base = (editPresetName.trim() || 'API 预设') + ' 副本';
+      const names = new Set(apiPresets.map(preset => preset.name));
+      let name = base;
+      for (let n = 2; names.has(name); n++) name = `${base} ${n}`;
+      setEditPresetName(name);
+      setCopyingPreset(true);
+  };
+
+  const deleteEditedPreset = () => {
+      const preset = apiPresets.find(item => item.id === editingPresetId);
+      if (!preset || !window.confirm(`确定删除预设「${preset.name}」？`)) return;
+      removeApiPreset(preset.id);
+      trackEvent('删除 API 预设');
+      setEditingPresetId(null);
+      addToast(`已删除预设「${preset.name}」`, 'success');
+  };
+
   const handleSavePreset = () => {
       if (!newPresetName.trim()) {
           addToast('请输入预设名称', 'error');
@@ -1059,38 +1294,6 @@ const Settings: React.FC = () => {
       addToast('预设已保存', 'success');
   };
 
-  // 就地编辑某条预设：只改这条预设本身；改的正好是当前生效那条时，生效配置一并跟着走
-  const handleUpdatePreset = () => {
-      const preset = apiPresets.find(item => item.id === editingPresetId);
-      if (!preset) return;
-      const name = editPresetName.trim();
-      if (!name) {
-          addToast('预设名称不能为空', 'error');
-          return;
-      }
-      const nextConfig = {
-          ...preset.config,
-          baseUrl: normalizeLlmBaseUrl(normalizeApiBaseUrl(editPresetUrl), editPresetApiType),
-          apiType: editPresetApiType,
-          apiKey: normalizeApiCredential(editPresetKey),
-          model: normalizeApiModel(editPresetModel),
-          stream: editPresetStream,
-          temperature: editPresetTemperature,
-          maxTokens: editPresetMaxTokens,
-      };
-      // 「正在用的就是这条」要在改之前问，改完值就对不上了
-      const wasActive = activePresetId === preset.id;
-      updateApiPreset(preset.id, name, nextConfig, editPresetGroup);
-      // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
-      if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
-      setEditingPresetId(null);
-      addToast(wasActive ? `「${name}」已更新，当前配置同步生效` : `「${name}」已更新`, 'success');
-  };
-
-  const activePresetId = useMemo(
-    () => findActivePresetId(apiPresets, apiConfig),
-    [apiPresets, apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model],
-  );
   /**
    * 保存下面这份表单 = 改「当前生效的配置」，**不会**顺手覆盖任何一条预设。
    * 想把改动存回预设，走预设那排的铅笔（弹窗里可一键填入当前配置）。
@@ -1393,7 +1596,11 @@ const Settings: React.FC = () => {
     setTestingVisionApi(true);
     setVisionTestResult(null);
     try {
-      const description = await describeImageWithVisionApi(VISION_API_TEST_IMAGE_DATA_URL, config);
+      const description = await describeImageWithVisionApi(VISION_API_TEST_IMAGE_DATA_URL, config, {
+        appId: 'settings',
+        appName: '设置',
+        purpose: '测试连接',
+      });
       setVisionTestResult(`✅ 识图成功 — ${description.slice(0, 80)}`);
       trackEvent('测试识图 API', { result: '成功' });
     } catch (error: any) {
@@ -1507,6 +1714,39 @@ const Settings: React.FC = () => {
   const handleChangeMainVisionMode = (mode: 'auto' | 'on' | 'off') => {
     setMainVisionMode(mode);
     setLocalMainVisionMode(mode);
+  };
+
+  const handleCheckFirecrawl = async () => {
+      const key = firecrawlKeyInput.trim();
+      if (!key) {
+          setFirecrawlApiKey('');
+          setFirecrawlUsage(null);
+          setFirecrawlCheckResult({ ok: false, text: '请先填写 Firecrawl API Key' });
+          return;
+      }
+      setFirecrawlChecking(true);
+      setFirecrawlCheckResult(null);
+      try {
+          const usage = await getFirecrawlCreditUsage(key);
+          setFirecrawlApiKey(key);
+          setFirecrawlKeyInput(key);
+          setFirecrawlUsage(usage);
+          setFirecrawlCheckResult({ ok: true, text: 'Key 有效，网页读取已启用' });
+          addToast('Firecrawl 已连接', 'success');
+      } catch (error: any) {
+          setFirecrawlUsage(null);
+          setFirecrawlCheckResult({ ok: false, text: error?.message || 'Firecrawl 连接失败' });
+      } finally {
+          setFirecrawlChecking(false);
+      }
+  };
+
+  const handleClearFirecrawl = () => {
+      setFirecrawlApiKey('');
+      setFirecrawlKeyInput('');
+      setFirecrawlUsage(null);
+      setFirecrawlCheckResult(null);
+      addToast('已停用 Firecrawl，网页读取将继续使用原有兜底', 'info');
   };
 
   const handleToggleVideoApi = () => {
@@ -1928,6 +2168,7 @@ const Settings: React.FC = () => {
           // Trigger export (Context handles loading state UI)
           setExportMissingAssets([]);
           const blob = await exportSystem(mode, { userScope: exportUserScope, onMissingAssets: setExportMissingAssets });
+          backupRecordPendingRef.current = true;
           
           if (Capacitor.isNativePlatform()) {
               // 手机端分片写盘：整包一次性 readAsDataURL 会把几十~上百 MB 的 base64
@@ -1991,6 +2232,15 @@ const Settings: React.FC = () => {
               a.click();
               document.body.removeChild(a);
           }
+          const result = await shareOrDownloadBlob({
+              blob,
+              fileName: `Sully_Backup_${mode}_${new Date().toISOString().slice(0, 10)}.zip`,
+              shareTitle: 'Sully Backup',
+              nativeChunked: true,
+          });
+          if (result === 'cancelled') return;
+          // 分享面板和浏览器下载都无从得知用户是否真的存下了文件，交出文件就算备份过。
+          recordBackupOnce();
       } catch (e: any) {
           // 只报导出档位，错误文案是动态串不能进属性
           trackEvent('导出备份失败', { mode });
@@ -2025,7 +2275,7 @@ const Settings: React.FC = () => {
                   : /JSON 格式错误/.test(rawMessage) ? 'json_syntax'
                   : 'other',
           });
-          const details = err?.stack || err?.message || String(err || '未知错误');
+          const details = errorDetails(err);
           showError('导入失败', details);
           addToast('导入失败，错误信息已展开', 'error');
       });
@@ -2036,6 +2286,7 @@ const Settings: React.FC = () => {
 
   const deliverStandaloneBackup = async (blob: Blob, fileName: string, shareTitle: string) => {
       setExportMissingAssets([]);
+      backupRecordPendingRef.current = false; // 模型备份不算系统备份
       if (Capacitor.isNativePlatform()) {
           const tempName = `${fileName}.part`;
           const sliceToBase64 = (slice: Blob): Promise<string> => new Promise((resolve, reject) => {
@@ -2095,7 +2346,7 @@ const Settings: React.FC = () => {
           await deliverStandaloneBackup(blob, fileName, 'Sully 模型备份');
           addToast(`模型备份已生成（${formatBackupBytes(blob.size)}）`, 'success');
       } catch (error: any) {
-          const details = error?.stack || error?.message || String(error || '未知错误');
+          const details = errorDetails(error);
           showError('模型备份导出失败', details);
           addToast(error?.message || '模型备份导出失败', 'error');
       } finally {
@@ -2136,7 +2387,7 @@ const Settings: React.FC = () => {
               skipped > 0 ? 'info' : 'success',
           );
       } catch (error: any) {
-          const details = error?.stack || error?.message || String(error || '未知错误');
+          const details = errorDetails(error);
           showError('模型备份导入失败', details);
           addToast(restored > 0 ? `已恢复 ${restored} 个模型后中断` : '模型备份导入失败', 'error');
       } finally {
@@ -2240,7 +2491,7 @@ const Settings: React.FC = () => {
               provider: cloudBackupConfig.provider === 'github' ? 'github' : 'webdav',
               stage: /^恢复失败/.test(String(err?.message || '')) ? 'import' : 'download',
           });
-          const details = err?.stack || err?.message || String(err || '未知错误');
+          const details = errorDetails(err);
           showError('云端恢复失败', details);
       }
   };
@@ -2253,6 +2504,28 @@ const Settings: React.FC = () => {
           setGhTestResult('✗ 请先粘贴 Token');
           return;
       }
+      // 网页里直连 GitHub 传不了附件（GitHub 的附件服务器不回应网页的跨域请求，见 docs/backup-pipeline.md
+      // 「平台事实」），令牌测试却能通过。所以连接前先把中转问清楚：中转要用户点头才开，不点头就不连，连上也用不了。
+      if (!ghUseProxy && !Capacitor.isNativePlatform()) {
+          setGhRelayAsk(true);
+          return;
+      }
+      await connectGithub(ghUseProxy);
+  };
+
+  const acceptGithubRelay = () => {
+      setGhRelayAsk(false);
+      handleGithubProxyToggle(true);
+      void connectGithub(true);
+  };
+
+  const declineGithubRelay = () => {
+      setGhRelayAsk(false);
+      trackEvent('测试并连接 GitHub', { result: '失败', failure_stage: 'relay_declined' });
+      setGhTestResult('✗ 没有开启中转，网页里的 GitHub 备份无法运行，保持关闭');
+  };
+
+  const connectGithub = async (useProxy: boolean) => {
       setGhTesting(true);
       setGhTestResult('');
       try {
@@ -2261,7 +2534,8 @@ const Settings: React.FC = () => {
               ...cloudBackupConfig,
               githubToken: ghToken.trim(),
               githubRepo: ghRepo.trim() || 'sully-backup',
-              githubUseProxy: ghUseProxy,
+              githubUseProxy: useProxy,
+              githubProxyConsentVersion: useProxy ? 1 : undefined,
           });
           setGhTestResult(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
           // 失败时只报卡在哪一步：token 校验没过 → 没有 login，仓库准备没过 → 有 login
@@ -2275,7 +2549,8 @@ const Settings: React.FC = () => {
                   githubToken: ghToken.trim(),
                   githubOwner: result.login,
                   githubRepo: ghRepo.trim() || 'sully-backup',
-                  githubUseProxy: ghUseProxy,
+                  githubUseProxy: useProxy,
+                  githubProxyConsentVersion: useProxy ? 1 : undefined,
               });
           }
       } catch (e: any) {
@@ -2283,6 +2558,23 @@ const Settings: React.FC = () => {
           setGhTestResult(`✗ ${e?.message || '连接失败'}`);
       }
       setGhTesting(false);
+  };
+
+  const handleGithubProxyToggle = (enabled: boolean) => {
+      setGhUseProxy(enabled);
+      // 勾选本身就是用户对中转的明确同意，立即持久化。旧行为只有再次完成
+      // “测试并连接”才保存，用户可能勾完直接关闭，实际上传仍在走直连。
+      updateCloudBackupConfig({
+          githubUseProxy: enabled,
+          githubProxyConsentVersion: enabled ? 1 : undefined,
+      });
+      trackEvent('切换 GitHub 备份线路', { route: enabled ? 'cloudflare_worker' : 'direct' });
+      addToast(
+          enabled ? '已改用应用内 Cloudflare 中转，下次备份立即生效'
+              : Capacitor.isNativePlatform() ? '已改为直连 GitHub 附件域名'
+              : '已关闭中转。网页里 GitHub 备份将无法运行，重新勾选即可恢复',
+          'info',
+      );
   };
 
   const handleDisableCloud = () => {
@@ -2384,6 +2676,7 @@ const Settings: React.FC = () => {
           weatherEnabled: rtWeatherEnabled,
           userHolidays: { ...rtUserHolidays, introChoice: rtUserHolidays.enabled ? 'configured' as const : 'declined' as const },
           weatherApiKey: rtWeatherKey,
+          weatherFreeSource: rtWeatherFreeSource,
           weatherCity: rtWeatherCity.trim(),
           weatherCities: cleanCharacterWeatherCities(rtWeatherCities),
           newsEnabled: rtNewsEnabled,
@@ -2425,28 +2718,6 @@ const Settings: React.FC = () => {
       syncAmsgToolConfigAndPrompts(nextRealtimeConfig, { characters, userProfile, groups });
       addToast('实时感知配置已保存', 'success');
       setShowRealtimeModal(false);
-  };
-
-  // 测试天气API连接：填了 key 测 OpenWeatherMap，没填测免费的 Open-Meteo
-  const testWeatherApi = async () => {
-      const setRtTestStatus = (value: string) => setRtTestStatuses(previous => ({ ...previous, weather: value }));
-      if (!rtWeatherCity) {
-          setRtTestStatus('请先填写城市');
-          return;
-      }
-      setRtTestStatus('正在测试...');
-      try {
-          const weather = rtWeatherKey
-              ? await fetchOwmWeather(rtWeatherCity, rtWeatherKey)
-              : await fetchOpenMeteoWeather(rtWeatherCity);
-          const source = rtWeatherKey ? 'OpenWeatherMap' : 'Open-Meteo';
-          // 刻意不带数据源名：那等价于「有没有填天气 key」，属于配置状态
-          trackEvent('测试天气数据源连接', { result: 'ok' });
-          setRtTestStatus(`连接成功！(${source}) ${weather.city}: ${weather.description}, ${weather.temp}°C`);
-      } catch (e: any) {
-          trackEvent('测试天气数据源连接', { result: 'failed' });
-          setRtTestStatus(`连接失败: ${e.message}`);
-      }
   };
 
   // 测试Notion连接
@@ -2625,12 +2896,14 @@ const Settings: React.FC = () => {
                           <div className="h-full bg-primary transition-all duration-300" style={{ width: `${sysOperation.progress}%` }}></div>
                       </div>
                   )}
+                  {/* 手机系统会挂起离开太久的页面并中止写库，恢复和导出都会因此失败 */}
+                  <div className="text-[10px] text-slate-400 text-center leading-relaxed">请停在这个页面，离开太久会被系统中断</div>
               </div>
           </div>
       )}
 
       {/* Header */}
-      <div className="bg-[#fffefe] border-b border-slate-200 shrink-0 z-10 sticky top-0" style={{ paddingTop: 'var(--safe-top)' }}>
+      <div className="bg-[#fffefe] border-b border-slate-200 shrink-0 z-10 sticky top-0" style={{ paddingTop: 'var(--safe-top)' }} {...(showSupport || amsgPage || showRealtimeModal ? { inert: '' } : {})} aria-hidden={Boolean(showSupport || amsgPage || showRealtimeModal) || undefined}>
         <div className="flex items-center px-4 py-3">
         <div className="flex items-center gap-2 w-full">
             <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
@@ -2643,7 +2916,7 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
+      <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20" {...(showSupport || amsgPage || showRealtimeModal ? { inert: '' } : {})} aria-hidden={Boolean(showSupport || amsgPage || showRealtimeModal) || undefined}>
 
         <NavigationBallSettings characters={characters} loadWorlds={() => DB.getWorlds()} />
         {/* 外观救急入口统一放在设置顶部，无需进入已被错误 CSS 遮住的聊天或日记。 */}
@@ -2729,15 +3002,16 @@ const Settings: React.FC = () => {
                     className="mt-0.5 shrink-0"
                 />
                 <span className="text-[11px] leading-relaxed text-slate-600">
-                    <span className="font-bold">包含主动消息 2.0 的后端连接</span>
+                    <span className="font-bold">导出文件包含主动消息 2.0 的后端连接</span>
                     <span className="block text-slate-400">
-                        换设备恢复时勾上，导出和云端备份都会带上 Worker 地址和密钥。
+                        导出文件用于自己换机时勾上，会带上后台地址、密钥和原用户身份。云端备份会自动包含这些信息。
                         <span className="font-bold text-rose-500">勾着导出的备份不要分享给别人</span>
                         ——拿到文件的人能连上你那台 Worker，也能解开里面的聊天记录。
                     </span>
                 </span>
             </label>
 
+            <p className="mb-3 text-[11px] leading-relaxed text-slate-400">文字与完整备份也包含真实定位设置（地图 Key、隐藏地点、可见角色），以及字幕设置和已导入字体，请仅自己保管。设备实时位置不会导出。</p>
             <div className="mb-3">
                 <button onClick={() => handleExport('full')} className="w-full py-4 bg-gradient-to-r from-violet-500 to-purple-600 border border-violet-300 rounded-xl text-xs font-bold text-white shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 relative overflow-hidden mb-3">
                     <div className="absolute top-0 right-0 px-1.5 py-0.5 bg-white/20 text-[9px] text-white rounded-bl-lg font-bold">完整</div>
@@ -2760,10 +3034,10 @@ const Settings: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-3 mb-4">
-                 <div onClick={() => importInputRef.current?.click()} className="py-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 cursor-pointer hover:bg-emerald-50 hover:border-emerald-200">
+                 <button type="button" data-amsg-backup-restore onClick={() => importInputRef.current?.click()} className="py-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 cursor-pointer hover:bg-emerald-50 hover:border-emerald-200">
                     <div className="p-2 bg-emerald-100 rounded-full text-emerald-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg></div>
                     <span>导入备份 (.zip / .json)</span>
-                </div>
+                </button>
                 <input type="file" ref={importInputRef} className="hidden" accept=".json,.zip" onChange={handleImport} />
                 <button onClick={() => independentImportInputRef.current?.click()} className="py-4 px-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 active:scale-95 transition-all">
                     从其他网址 / App 迁入独立用户
@@ -3010,6 +3284,9 @@ const Settings: React.FC = () => {
                         </p>
                     )}
 
+                    <p className="text-[11px] leading-relaxed text-slate-500" data-cloud-backup-amsg-note>
+                        个人云备份会包含主动消息 2.0 的后台连接、全局开关和角色设置，以及真实定位设置，无需额外勾选。恢复后，新设备的通知和定位权限仍需授权；备份请仅自己保管。
+                    </p>
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={() => handleCloudBackup('text_only')}
@@ -3081,7 +3358,8 @@ const Settings: React.FC = () => {
             </div>
 
             <p className="text-[10px] text-slate-400 px-1 mt-3 leading-relaxed">
-                数据存储在你自己的账号下，我们不保存任何凭据到服务器。
+                备份始终存放在你自己的 WebDAV 或 GitHub 账号中，项目不建立用户备份数据库。
+                网页里 WebDAV 和 GitHub 都因跨域限制需要中转；GitHub 的中转在连接时征求你的同意后才开启。
             </p>
         </SettingsSection>
 
@@ -3112,14 +3390,14 @@ const Settings: React.FC = () => {
                                     ? 'bg-primary/5 border-primary/30'
                                     : 'bg-white border-slate-200'
                             }`}>
-                                <button type="button" onClick={() => applyPreset(preset)}
+                                <PresetNameButton onHold={() => openEditPreset(preset)} onClick={() => applyPreset(preset)}
                                     title={`切换到 ${preset.name}`}
-                                    className={`text-xs font-medium cursor-pointer mr-2 transition-colors ${
+                                    className={`select-none text-xs font-medium cursor-pointer mr-1.5 transition-colors ${
                                         activePresetId === preset.id ? 'text-primary' : 'text-slate-600 hover:text-primary'
                                     }`}>
                                     {preset.name}
                                     {activePresetId === preset.id && <span className="ml-1 text-[9px] font-bold">· 使用中</span>}
-                                </button>
+                                </PresetNameButton>
                                 <button
                                     type="button"
                                     aria-label={`编辑预设 ${preset.name}`}
@@ -3128,26 +3406,9 @@ const Settings: React.FC = () => {
                                     className="p-1 rounded-full text-slate-300 hover:bg-primary/10 hover:text-primary transition-colors">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M13.586 3.586a2 2 0 1 1 2.828 2.828l-.793.793-2.828-2.828.793-.793ZM11.379 5.793 3 14.172V17h2.828l8.38-8.379-2.83-2.828Z" /></svg>
                                 </button>
-                                <button
-                                    type="button"
-                                    aria-label={`长按或双击删除预设 ${preset.name}`}
-                                    title="长按或双击删除"
-                                    onPointerDown={(event) => { event.stopPropagation(); beginPresetDeleteHold(preset.id, preset.name); }}
-                                    onPointerUp={cancelPresetDeleteHold}
-                                    onPointerCancel={cancelPresetDeleteHold}
-                                    onPointerLeave={cancelPresetDeleteHold}
-                                    onDoubleClick={(event) => { event.stopPropagation(); deleteApiPreset(preset.id, preset.name); }}
-                                    onContextMenu={(event) => event.preventDefault()}
-                                    className={`p-1 rounded-full transition-colors select-none touch-none ${
-                                        holdingDeletePresetId === preset.id
-                                            ? 'bg-red-100 text-red-500 scale-110'
-                                            : 'text-slate-300 hover:bg-red-50 hover:text-red-400'
-                                    }`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
-                                </button>
                             </div>
                         )}</ApiPresetGroups>
-                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称直接切换并生效；铅笔改这条预设的内容；长按或双击 × 才会删除。</p>
+                    <p className="text-[10px] text-slate-500 mt-1.5 pl-1">点名称切换预设。长按名称或点铅笔，可编辑、复制或删除。</p>
                 </div>
             )}
 
@@ -3257,7 +3518,8 @@ const Settings: React.FC = () => {
                                     max_tokens: 5,
                                     stream: localStream,
                                 }),
-                            });
+                                __sullyMeta: { appId: 'settings', appName: '设置', purpose: '测试连接' },
+                            } as RequestInit);
                             if (res.ok) {
                                 // 走 safeResponseJson —— 它能透明把 SSE 流响应拼成普通 chat/completion 结构
                                 const data = await safeResponseJson(res);
@@ -4454,7 +4716,7 @@ const Settings: React.FC = () => {
                 </div>
             }
             actions={
-                <button onClick={() => { trackEvent('打开实时感知配置'); setShowRealtimeModal(true); }} className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
+                <button onClick={() => { trackEvent('打开实时感知配置'); setRtUserLocationPage('location'); setShowRealtimeModal(true); }} className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
                     配置
                 </button>
             }
@@ -4532,77 +4794,8 @@ const Settings: React.FC = () => {
             })()}
         </SettingsSection>
 
-        {/* ───────── 推送凭据 (VAPID) ───────── */}
-        {/* VAPID 公私钥：主动消息 2.0 部署 Worker 时用的就是这一对（一键部署自动沿用，手动部署照着填 env）。 */}
-        {/* vapidReadyTick: VAPID 弹窗关闭后 +1, 让本节点 re-render 重读 isPushVapidReady(). */}
-        <SettingsSection
-            title="推送凭据 (VAPID)"
-            sectionProps={{ 'data-vapid-tick': vapidReadyTick }}
-            icon={
-                <div className="p-2 bg-violet-100/60 rounded-xl text-violet-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-                    </svg>
-                </div>
-            }
-            actions={
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${isPushVapidReady() ? 'bg-violet-100 text-violet-600' : 'bg-rose-100 text-rose-600'}`}>
-                    {isPushVapidReady() ? '已配置' : '未配置'}
-                </span>
-            }
-        >
-            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                主动消息 2.0 的 Worker 用这对密钥签推送：一键部署会自动沿用，手动部署时把它们填进 Worker 的环境变量。重新生成之后要重新部署 Worker 才能生效。
-            </p>
-            <button
-                type="button"
-                onClick={() => setShowVapidModal(true)}
-                className={`w-full py-2.5 rounded-xl text-xs font-bold ${isPushVapidReady() ? 'bg-white text-violet-700 border border-violet-200 hover:bg-violet-50' : 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-200'}`}
-            >
-                {isPushVapidReady() ? '查看 / 重新生成' : '生成 VAPID 密钥对 →'}
-            </button>
-        </SettingsSection>
-
-        {/* ───────── 推送订阅状态（诊断 + 重置） ───────── */}
-        <SettingsSection
-            title="推送订阅状态"
-            icon={
-                <div className="p-2 bg-sky-100/60 rounded-xl text-sky-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
-                    </svg>
-                </div>
-            }
-        >
-            <PushSubscriptionPanel addToast={addToast} />
-        </SettingsSection>
-
-        {/* ───────── 主动消息 2.0（定时推送） ───────── */}
-        <section className="bg-white/80 rounded-3xl p-5 shadow-sm border border-white/50">
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                    <div className="p-2 bg-violet-100/60 rounded-xl text-violet-600">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                    </div>
-                    <h2 className="text-sm font-semibold text-slate-600 tracking-wider">主动消息 2.0</h2>
-                </div>
-                <button
-                    onClick={() => { trackEvent('打开主动消息2.0配置'); setShowAmsg2Modal(true); }}
-                    className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform"
-                >
-                    配置
-                </button>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-                角色到点自动给你发消息，App 关着也能收。需要一个属于你自己的 Cloudflare Worker（自带 D1 数据库 + 定时触发），在配置里粘一枚 Token 就能一键部署。聊天上云（即时对话）与定时主动消息都由它承担。
-            </p>
-            <button type="button" onClick={() => setShowAmsgCloudData(true)} className="mt-3 w-full rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-left text-xs text-violet-700">
-                <span className="block font-semibold">云端数据管理</span>
-                <span className="mt-1 block text-[11px] text-slate-500">查看 Worker 实际保存的数据，按项清理或彻底移除角色。</span>
-            </button>
-        </section>
+        <ActiveMsgSettingsEntry onOpen={openAmsgPage} connected={Boolean(amsgGlobalConfig?.initializedAt && amsgGlobalConfig.workerUrl?.trim())} enabled={amsgGlobalConfig?.workerUrl?.trim() ? isAmsg2GloballyEnabled(amsgGlobalConfig) : undefined} cronPaused={amsgCloudCronPaused} toggling={amsgGlobalToggling} onToggle={next => void handleToggleAmsg2Global(next)} />
+        <SullySupportEntry ref={supportEntryRef} onOpen={() => { trackEvent('打开打赏 Sully', { 入口: '设置' }); setShowSupport(true); }} />
 
         {/* 自定义网络代理 — 刻意低调的高级入口。默认折叠，不主动指引基本发现不了。
             普通用户无需配置：默认走作者部署的公共 Worker，所有功能开箱即用。 */}
@@ -4943,6 +5136,11 @@ const Settings: React.FC = () => {
               <p className="text-[10px] text-slate-400">将保存当前填写的副 API URL、KEY、MODEL。点预设名可一键切换。</p>
           </div>
       </Modal>
+      {showSupport && <React.Suspense fallback={
+          <section className="sully-support support-page" aria-label="打赏 Sully" onKeyDown={event => {
+              if (event.key === 'Escape') { event.stopPropagation(); setShowSupport(false); }
+          }}><div className="support-loading"><header className="support-header"><button autoFocus className="header-back" type="button" onClick={() => setShowSupport(false)} aria-label="返回设置"><SupportIcon name="back" /></button><h1>打赏 Sully</h1><span /></header><p role="status">猫猫正在准备小票…</p></div></section>
+      }><SullySupportPage onClose={() => setShowSupport(false)} /></React.Suspense>}
 
       {/* Cloud Config Modal */}
       <Modal isOpen={showCloudModal} title="云端备份配置" onClose={() => setShowCloudModal(false)}>
@@ -5044,7 +5242,8 @@ const Settings: React.FC = () => {
                       className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-mono focus:border-slate-500 focus:ring-1 focus:ring-slate-300 outline-none"
                   />
                   <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                      Token 只存在你本机，永远不会发到我们服务器。
+                      Token 保存在本机配置中。GitHub 默认直连；在网页里备份和恢复都需要在下方高级选项开启应用内中转（GitHub 的附件服务器不允许网页直接上传和下载，和梯子无关）。中转本身也要你的网络连得上，开了仍然传不动时请开梯子再试。
+                      仅在你手动开启后，Token 才会随 GitHub 请求经过所选 Worker，项目不会主动留存。
                   </p>
               </div>
 
@@ -5130,6 +5329,25 @@ const Settings: React.FC = () => {
       </Modal>
 
       {/* Cloud Restore Modal */}
+      <Modal
+          isOpen={ghRelayAsk}
+          title="需要开启应用内中转"
+          onClose={declineGithubRelay}
+          footer={
+              <div className="flex gap-2 w-full">
+                  <button onClick={declineGithubRelay} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">取消</button>
+                  <button onClick={acceptGithubRelay} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">开启中转并连接</button>
+              </div>
+          }
+      >
+          <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+              <p>在网页里，GitHub 备份要经过应用内的 Cloudflare 中转才能运行。GitHub 存放附件的服务器不允许网页直接上传和下载，和网络、梯子无关。</p>
+              <p>开启后，Token 和备份文件会经过所选 Worker 转发，项目不会主动留存。</p>
+              <p>中转只是让网页能传，能不能传成功还要看你的网络连不连得上中转；传不动时请开梯子再试。</p>
+              <p className="text-xs text-slate-400">不开启的话，这个功能无法运行，将保持关闭。</p>
+          </div>
+      </Modal>
+
       <Modal isOpen={showCloudRestoreModal} title="从云端恢复" onClose={() => setShowCloudRestoreModal(false)}>
           <div className="space-y-2 p-1">
               {cloudBackupFiles.length === 0 ? (
@@ -5349,11 +5567,18 @@ const Settings: React.FC = () => {
       {/* 编辑预设：只改这条预设本身；正在用它的话，当前配置一并跟着走 */}
       <Modal
           isOpen={!!editingPresetId}
-          title="编辑预设"
+          title={copyingPreset ? '编辑预设副本' : '编辑预设'}
           onClose={() => setEditingPresetId(null)}
-          footer={<button onClick={handleUpdatePreset} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存</button>}
+          footer={<>
+              <button type="button" onClick={() => setEditingPresetId(null)} className="px-5 py-3 bg-slate-100 text-slate-600 rounded-2xl">取消</button>
+              <button type="button" onClick={handleUpdatePreset} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">{copyingPreset ? '保存副本' : '保存'}</button>
+          </>}
       >
           <div className="space-y-3">
+              {!copyingPreset && <div className="flex items-center justify-between">
+                  <button type="button" onClick={copyEditedPreset} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">复制预设</button>
+                  <button type="button" onClick={deleteEditedPreset} className="rounded-xl px-3 py-2 text-sm text-red-600">删除预设</button>
+              </div>}
               <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">名称</label>
                   <input value={editPresetName} onChange={e => setEditPresetName(e.target.value)} placeholder="预设名称" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
@@ -5429,7 +5654,7 @@ const Settings: React.FC = () => {
                   用当前完整配置填入
               </button>
               <p className="text-[10px] text-slate-400 leading-relaxed">
-                  {editingPresetId && activePresetId === editingPresetId
+                  {copyingPreset ? '保存后可在「我的预设」中点名称切换到副本。' : editingPresetId && activePresetId === editingPresetId
                       ? '这条正在使用中，保存后当前配置会一起换成新的值。'
                       : '只改这条预设，当前生效的配置不受影响。'}
               </p>
@@ -5471,63 +5696,72 @@ const Settings: React.FC = () => {
               <p className="text-sm font-bold text-slate-700">备份文件已生成！</p>
               <div className="text-left"><BackupMissingAssetsNotice items={exportMissingAssets} /></div>
               <p className="text-xs text-slate-500">如果浏览器没有自动下载，请点击下方链接。</p>
-              {downloadUrl && <a href={downloadUrl} download={downloadFileName} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
+              {downloadUrl && <a href={downloadUrl} download={downloadFileName} onClick={recordBackupOnce} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
           </div>
       </Modal>
 
-      {/* 实时感知配置 Modal */}
-      <Modal
+      {/* 实时感知全屏设置 */}
+      <SettingsDetailPage className="realtime-design" sectionLabel="实时感知"
           isOpen={showRealtimeModal}
-          title={USER_LOCATION_PAGE_TITLES[rtUserLocationPage]}
+          title={primaryAwarenessPage ? '实时感知' : USER_LOCATION_PAGE_TITLES[rtUserLocationPage]}
+          navigation={primaryAwarenessPage && <nav aria-label="感知分类" className="realtime-groups">
+              {awarenessGroups.map(group => <button type="button" key={group.label} disabled={rtUserLocationBusy}
+                  aria-current={group === awarenessGroup ? 'page' : undefined}
+                  onClick={() => { if (group !== awarenessGroup) setRtUserLocationPage(group.pages[0]); }}>
+                  {group.label}
+              </button>)}
+          </nav>}
           onClose={closeRealtimePage}
-          footer={rtUserLocationPage === 'main'
+          footer={primaryAwarenessPage
               ? <button disabled={rtUserLocationBusy} onClick={handleSaveRealtimeConfig} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg disabled:opacity-40">保存配置</button>
               : <button disabled={rtUserLocationBusy} onClick={() => { if (rtUserLocationPage === 'about' || handleSaveUserLocation()) setRtUserLocationPage(getUserLocationParentPage(rtUserLocationPage)); }} className="w-full py-3 bg-sky-700 text-white font-bold rounded-2xl disabled:opacity-40">{rtUserLocationPage === 'about' ? '返回真实定位' : '保存并返回'}</button>}
       >
-          <div className="space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
-              {rtUserLocationPage === 'main' && <UserHolidaySettings value={rtUserHolidays} onChange={setRtUserHolidays} />}
-              <UserLocationSettings characters={characters} value={rtUserLocation} onChange={setRtUserLocation} onSave={handleSaveUserLocation} page={rtUserLocationPage} onNavigate={setRtUserLocationPage} onBusyChange={setRtUserLocationBusy} userName={userProfile.name} />
-              {rtUserLocationPage === 'main' && <>
+          <div key={rtUserLocationPage} className={primaryAwarenessPage ? "h-full overflow-y-auto overscroll-contain" : ""}><div className={primaryAwarenessPage ? "amsg-detail-content space-y-5" : "space-y-5"}>
+              {primaryAwarenessPage && <nav aria-label={awarenessGroup.label + '功能'} className="realtime-items">
+                  {awarenessGroup.pages.map(id => <button key={id} type="button" disabled={rtUserLocationBusy}
+                      aria-current={id === rtUserLocationPage ? 'page' : undefined}
+                      onClick={() => setRtUserLocationPage(id)}>{id === 'location' ? '定位' : awarenessSections[id]}</button>)}
+              </nav>}
+              <div className="realtime-card space-y-3">
+              {rtUserLocationPage === 'holidays' && <UserHolidaySettings value={rtUserHolidays} onChange={setRtUserHolidays} />}
+              {!(rtUserLocationPage in awarenessSections) && <UserLocationSettings hideBack characters={characters} value={rtUserLocation} onChange={setRtUserLocation} onSave={handleSaveUserLocation} page={rtUserLocationPage} onNavigate={setRtUserLocationPage} onBusyChange={setRtUserLocationBusy} userName={userProfile.name} />}
+              {rtUserLocationPage === 'weather' && <>
               {/* 天气配置 */}
-              <div className="bg-emerald-50/50 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Sun size={20} weight="fill" />
                           <span className="text-sm font-bold text-emerald-700">天气感知</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtWeatherEnabled} onChange={e => setRtWeatherEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用天气感知" checked={rtWeatherEnabled} onChange={e => setRtWeatherEnabled(e.target.checked)} />
                   </div>
                   {rtWeatherEnabled && (
                       <div className="space-y-2">
                           <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">OpenWeatherMap API Key（可选）</label>
-                              <input type="password" value={rtWeatherKey} onChange={e => setRtWeatherKey(e.target.value)} className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="留空则用免费的 Open-Meteo，无需注册" />
+                              <input type="password" value={rtWeatherKey} onChange={e => setRtWeatherKey(e.target.value)} className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="留空可选免费源 1 / 2，无需注册" />
                           </div>
                           <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">默认天气城市</label>
                               <input type="text" value={rtWeatherCity} onChange={e => setRtWeatherCity(e.target.value)} className="w-full bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm" placeholder="北京 / Beijing / Shanghai" />
                           </div>
-<button onClick={testWeatherApi} className="w-full py-2 bg-emerald-100 text-emerald-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试天气API</button>
-                          {renderRtTestStatus('weather')}
+                          <WeatherSourceSettings city={rtWeatherCity} apiKey={rtWeatherKey} value={rtWeatherFreeSource} onChange={setRtWeatherFreeSource}
+                              onTestResult={ok => trackEvent('测试天气数据源连接', { result: ok ? 'ok' : 'failed' })} />
                           <CharacterWeatherCities characters={characters} value={rtWeatherCities} defaultCity={rtWeatherCity} onChange={setRtWeatherCities}/>
                       </div>
                   )}
               </div>
 
+              </>}
+              {rtUserLocationPage === 'news' && <>
               {/* 新闻配置 */}
-              <div className="bg-blue-50/50 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Newspaper size={20} weight="fill" />
                           <span className="text-sm font-bold text-blue-700">新闻热点</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtNewsEnabled} onChange={e => setRtNewsEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用新闻感知" checked={rtNewsEnabled} onChange={e => setRtNewsEnabled(e.target.checked)} />
                   </div>
                   {rtNewsEnabled && (
                       <div className="space-y-2">
@@ -5568,17 +5802,103 @@ const Settings: React.FC = () => {
                   )}
               </div>
 
+              {/* Firecrawl 网页读取：方舟计划默认隐藏，代码与降级能力保留。 */}
+              {SHOW_FIRECRAWL_ARK_UI && (
+              <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                          <PlugsConnected size={20} weight="fill" className="text-amber-600 shrink-0" />
+                          <div className="min-w-0">
+                              <span className="text-sm font-bold text-amber-800">Firecrawl 网页读取</span>
+                              <p className="text-[10px] text-amber-700/60">网页分享抓取增强 · 可选</p>
+                          </div>
+                      </div>
+                      <a
+                          href={FIRECRAWL_API_KEYS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 text-[10px] bg-white border border-amber-200 text-amber-700 px-2.5 py-1.5 rounded-full font-bold"
+                      >
+                          前往免费注册 ↗
+                      </a>
+                  </div>
+
+                  <p className="text-[10px] text-amber-800/70 leading-relaxed">
+                      聊天里粘贴普通网页时，原有提取失败后会自动用 Firecrawl 读取动态页面；再失败仍会回落 Jina 与 Worker，不会因额度耗尽让分享失效。免费计划目前每月约 1,000 页。
+                  </p>
+
+                  {!firecrawlKeyInput.trim() && (
+                      <ol className="rounded-xl border border-amber-200/80 bg-white/70 px-3 py-2 text-[10px] text-amber-900/75 leading-relaxed space-y-1">
+                          <li><b>1.</b> 点击“前往免费注册”，在 Firecrawl 注册或登录。</li>
+                          <li><b>2.</b> 进入 API Keys，创建并复制一个以 <b>fc-</b> 开头的 Key。</li>
+                          <li><b>3.</b> 回到这里粘贴，点击“保存并检查额度”。</li>
+                      </ol>
+                  )}
+
+                  <input
+                      type="password"
+                      value={firecrawlKeyInput}
+                      onChange={e => {
+                          setFirecrawlKeyInput(e.target.value);
+                          setFirecrawlCheckResult(null);
+                          setFirecrawlUsage(null);
+                      }}
+                      className="w-full bg-white/90 border border-amber-200 rounded-xl px-3 py-2 text-sm font-mono"
+                      placeholder="fc-..."
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                  />
+
+                  <div className="grid grid-cols-2 gap-2">
+                      <button
+                          type="button"
+                          onClick={handleClearFirecrawl}
+                          disabled={firecrawlChecking || !firecrawlKeyInput}
+                          className="py-2 bg-white/80 border border-amber-200 text-amber-700 text-xs font-bold rounded-xl disabled:opacity-40 active:scale-95 transition-transform"
+                      >
+                          清除
+                      </button>
+                      <button
+                          type="button"
+                          onClick={() => void handleCheckFirecrawl()}
+                          disabled={firecrawlChecking}
+                          className="py-2 bg-amber-500 text-white text-xs font-bold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+                      >
+                          {firecrawlChecking ? '检查中…' : '保存并检查额度'}
+                      </button>
+                  </div>
+
+                  {firecrawlUsage && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] text-emerald-800 leading-relaxed">
+                          <b>剩余 {firecrawlUsage.remainingCredits.toLocaleString()} / {firecrawlUsage.planCredits.toLocaleString()} credits</b>
+                          {firecrawlUsage.billingPeriodEnd && (
+                              <span> · {new Date(firecrawlUsage.billingPeriodEnd).toLocaleDateString('zh-CN')} 刷新</span>
+                          )}
+                      </div>
+                  )}
+                  {firecrawlCheckResult && !firecrawlUsage && (
+                      <p className={`text-[10px] leading-relaxed ${firecrawlCheckResult.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {firecrawlCheckResult.ok ? '✓ ' : '✗ '}{firecrawlCheckResult.text}
+                      </p>
+                  )}
+
+                  <p className="text-[9px] text-slate-400 leading-relaxed">
+                      Key 仅保存在当前设备，并由设备直接连接 Firecrawl，不经过项目 Worker。请求明确关闭 Firecrawl 页面缓存；请勿分享需要登录的私密链接。
+                  </p>
+              </div>
+              )}
+
+              </>}
+              {rtUserLocationPage === 'notion' && <>
               {/* Notion 配置 */}
-              <div className="bg-orange-50/50 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <NotePencil size={20} weight="fill" />
                           <span className="text-sm font-bold text-orange-700">Notion 日记</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtNotionEnabled} onChange={e => setRtNotionEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用Notion" checked={rtNotionEnabled} onChange={e => setRtNotionEnabled(e.target.checked)} />
                   </div>
                   {rtNotionEnabled && (
                       <div className="space-y-2">
@@ -5608,24 +5928,23 @@ const Settings: React.FC = () => {
                   )}
               </div>
 
+              </>}
+              {rtUserLocationPage === 'feishu' && <>
               {/* 飞书配置 (中国区替代) */}
-              <div className="bg-indigo-50/50 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Notebook size={20} weight="fill" />
                           <span className="text-sm font-bold text-indigo-700">飞书日记</span>
                           <span className="text-[9px] bg-indigo-100 text-indigo-500 px-1.5 py-0.5 rounded-full">中国区</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtFeishuEnabled} onChange={e => setRtFeishuEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用飞书" checked={rtFeishuEnabled} onChange={e => setRtFeishuEnabled(e.target.checked)} />
                   </div>
-                  <p className="text-[10px] text-indigo-500/70 leading-relaxed">
-                      Notion 的中国区替代方案，无需翻墙。使用飞书多维表格存储日记。
-                  </p>
                   {rtFeishuEnabled && (
                       <div className="space-y-2">
+                          <p className="text-[10px] text-indigo-500/70 leading-relaxed">
+                              Notion 的中国区替代方案，无需翻墙。使用飞书多维表格存储日记。
+                          </p>
                           <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">飞书 App ID</label>
                               <input type="text" value={rtFeishuAppId} onChange={e => setRtFeishuAppId(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="cli_xxxxxxxx" />
@@ -5659,6 +5978,8 @@ const Settings: React.FC = () => {
                   )}
               </div>
 
+              </>}
+              {rtUserLocationPage === 'xhs' && <>
               {/* 小红书自动化 */}
               <div className="bg-red-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -5703,27 +6024,50 @@ const Settings: React.FC = () => {
               </div>
 
               {/* 小红书 Lite (云端) */}
-              <div className="bg-rose-50/60 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Book size={20} weight="fill" />
                           <span className="text-sm font-bold text-rose-700">小红书 Lite</span>
-                          <span className="text-[9px] bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">云端 · 推荐</span>
+                          <span className="text-[9px] bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">推荐</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtXhsMcpEnabled && rtXhsMode === 'lite'} onChange={e => { if (e.target.checked) { if (!window.confirm(XHS_RISK_TEXT + '\n\n确定要开启吗？')) return; setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('lite'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用小红书 Lite" checked={rtXhsMcpEnabled && rtXhsMode === 'lite'} onChange={e => { if (e.target.checked) { if (!window.confirm(XHS_RISK_TEXT + '\n\n确定要开启吗？')) return; setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('lite'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} />
                   </div>
-                  <p className="text-[10px] text-rose-500/70 leading-relaxed">
-                      免电脑、免扫码：粘贴一次小红书 / RedNote cookie，即可搜索、浏览、看详情及互动；国内小红书还支持发帖(带图)。地址已内置，无需填写。
-                  </p>
-                  <p className="text-[10px] text-amber-700 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{XHS_RISK_TEXT}</p>
                   {rtXhsMcpEnabled && rtXhsMode === 'lite' && (
                       <div className="space-y-2">
+                          <p className="text-[10px] text-rose-500/70 leading-relaxed">
+                              免电脑、免扫码：粘贴一次小红书 / RedNote cookie，即可搜索、浏览、看详情及互动；国内小红书还支持发帖(带图)。地址已内置，无需填写。
+                          </p>
+                          <p className="text-[10px] text-amber-700 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{XHS_RISK_TEXT}</p>
                           <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书 Cookie</label>
-                              <textarea value={rtXhsCookie} onChange={e => { setRtXhsCookie(e.target.value); setRtXhsPlatform(undefined); }} rows={2} className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[10px] font-mono resize-y" placeholder="a1=...; web_session=...; （从浏览器登录后复制完整 cookie）" />
+                              <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase block">小红书 Cookie</label>
+                                  {rtXhsCookie.trim() && showRtXhsCookie ? (
+                                      <button type="button" onClick={() => setShowRtXhsCookie(false)} className="text-[10px] font-medium text-rose-500 hover:text-rose-700">
+                                          隐藏
+                                      </button>
+                                  ) : null}
+                              </div>
+                              {rtXhsCookie.trim() && !showRtXhsCookie ? (
+                                  <div className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[11px] text-slate-500 flex items-center justify-between">
+                                      <span>已填写（{rtXhsCookie.trim().length} 字符，已隐藏防截屏泄露）</span>
+                                      <button type="button" onClick={() => setShowRtXhsCookie(true)} className="text-[10px] font-bold text-rose-500 shrink-0 ml-2">显示 / 编辑</button>
+                                  </div>
+                              ) : (
+                                  <textarea
+                                      value={rtXhsCookie}
+                                      onFocus={() => setShowRtXhsCookie(true)}
+                                      onChange={e => {
+                                          const next = e.target.value;
+                                          setRtXhsCookie(next);
+                                          setRtXhsPlatform(undefined);
+                                          setShowRtXhsCookie(Boolean(next.trim()));
+                                      }}
+                                      rows={2}
+                                      className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[10px] font-mono resize-y"
+                                      placeholder="a1=...; web_session=...; （从浏览器登录后复制完整 cookie）"
+                                  />
+                              )}
                           </div>
                           <button onClick={testXhsMcp} className="w-full py-2 bg-rose-100 text-rose-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
                           {renderRtTestStatus('xhs-lite')}
@@ -5784,25 +6128,60 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
-
+              <div className="space-y-3 border-t border-slate-200 pt-3 text-slate-600">
+                  <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                          <Book size={20} weight="fill" />
+                          <span className="text-sm font-bold text-slate-700">旧版本地接入 · MCP / Skills</span>
+                      </div>
+                      <AwarenessSwitch aria-label="启用旧版本地服务" checked={rtXhsMcpEnabled && rtXhsMode === 'local'} onChange={e => { if (e.target.checked) { setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('local'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} />
+                  </div>
+                  {rtXhsMcpEnabled && rtXhsMode === 'local' && (
+                      <div className="space-y-2">
+                          <p className="text-[10px] text-slate-500 leading-relaxed">
+                              供已有本地服务的用户继续使用。首次接入请选上方的小红书 Lite。
+                          </p>
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">服务器 URL</label>
+                              <input value={rtXhsLocalUrl} onChange={e => setRtXhsLocalUrl(e.target.value)} className="w-full bg-white/80 border border-slate-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="http://localhost:18060/mcp" />
+                          </div>
+                          <button onClick={testXhsMcp} className="w-full py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
+                          {renderRtTestStatus('xhs-local')}
+                          <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书昵称</label>
+                                  <input value={rtXhsNickname} onChange={e => setRtXhsNickname(e.target.value)} className="w-full bg-white/80 border border-slate-200 rounded-xl px-3 py-2 text-[11px]" placeholder="手动填写" />
+                              </div>
+                              <div>
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">用户 ID</label>
+                                  <input value={rtXhsUserId} onChange={e => setRtXhsUserId(e.target.value)} className="w-full bg-white/80 border border-slate-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="可选，用于查看主页" />
+                              </div>
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">
+                              <b>MCP 模式:</b> 下载 xiaohongshu-mcp + 运行脚本，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）<br/>
+                              <b>Skills 模式:</b> URL 填 http://localhost:18061/api（需 Python + xhs-bridge.mjs，额外支持视频/长文）<br/>
+                              系统按 URL 结尾自动判断（/mcp 或 /api）。
+                          </p>
+                      </div>
+                  )}
+              </div>
+              </>}
+              {rtUserLocationPage === 'orders' && <>
               {/* 麦当劳 MCP */}
-              <div className="bg-yellow-50/60 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <ForkKnife size={20} weight="fill" className="text-yellow-600" />
                           <span className="text-sm font-bold text-yellow-700">麦当劳</span>
                           <span className="text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">官方 MCP</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={mcdEnabled} onChange={e => handleMcdEnabledChange(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用麦当劳" checked={mcdEnabled} onChange={e => handleMcdEnabledChange(e.target.checked)} />
                   </div>
-                  <p className="text-[10px] text-yellow-700/70 leading-relaxed">
-                      启用后，在聊天里点 + 号 → 第二页 → 麦当劳，发送"麦请求"激活，角色就能为你查菜单、查门店、点麦乐送/到店取餐/团餐、积分兑券、查活动。
-                  </p>
                   {mcdEnabled && (
                       <div className="space-y-2">
+                          <p className="text-[10px] text-yellow-700/70 leading-relaxed">
+                              启用后，在聊天里点 + 号 → 第二页 → 麦当劳，发送"麦请求"激活，角色就能为你查菜单、查门店、点麦乐送/到店取餐/团餐、积分兑券、查活动。
+                          </p>
                           <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">MCP Token (个人)</label>
                               <input type="password" value={mcdToken} onChange={e => handleMcdTokenChange(e.target.value)} className="w-full bg-white/80 border border-yellow-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="去 open.mcd.cn/mcp 申请" />
@@ -5825,24 +6204,22 @@ const Settings: React.FC = () => {
                   )}
               </div>
 
+              <hr className="border-slate-200" />
               {/* 瑞幸 MCP */}
-              <div className="bg-blue-50/60 p-4 rounded-2xl space-y-3">
+              <div className="space-y-3">
                   <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                           <Coffee size={20} weight="fill" className="text-blue-600" />
                           <span className="text-sm font-bold text-blue-700">瑞幸咖啡</span>
                           <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">官方 MCP</span>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={luckinEnabled} onChange={e => handleLuckinEnabledChange(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
+                      <AwarenessSwitch aria-label="启用瑞幸" checked={luckinEnabled} onChange={e => handleLuckinEnabledChange(e.target.checked)} />
                   </div>
-                  <p className="text-[10px] text-blue-700/70 leading-relaxed">
-                      启用后，在聊天里点 + 号 → 第二页 → 瑞一杯，发送"瑞一杯"激活，角色就能为你查门店、搜咖啡、选规格、下单到店自提、查取餐码。
-                  </p>
                   {luckinEnabled && (
                       <div className="space-y-2">
+                          <p className="text-[10px] text-blue-700/70 leading-relaxed">
+                              启用后，在聊天里点 + 号 → 第二页 → 瑞一杯，发送"瑞一杯"激活，角色就能为你查门店、搜咖啡、选规格、下单到店自提、查取餐码。
+                          </p>
                           <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">MCP Token (个人)</label>
                               <input type="password" value={luckinToken} onChange={e => handleLuckinTokenChange(e.target.value)} className="w-full bg-white/80 border border-blue-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="去 open.lkcoffee.com 登录后复制" />
@@ -5916,9 +6293,9 @@ const Settings: React.FC = () => {
                   )}
               </div>}
               </>}
-
-          </div>
-      </Modal>
+              </div>
+          </div></div>
+      </SettingsDetailPage>
 
       {/* 通用 MCP 管理（从实时感知里独立出来） */}
       <Modal isOpen={showMcpModal} title="MCP" onClose={() => { setShowMcpModal(false); flushMcpToolConfigSync(); }}>
@@ -6033,27 +6410,29 @@ const Settings: React.FC = () => {
           </div>
       </Modal>
 
-      <PushVapidSettingsModal
-        open={showVapidModal}
-        onClose={() => { setShowVapidModal(false); setVapidReadyTick((n) => n + 1); }}
-      />
-      <ActiveMsgGlobalSettingsModal
-        isOpen={showAmsg2Modal}
-        onClose={() => setShowAmsg2Modal(false)}
+      {amsgPage && <ActiveMsgSettingsPages
+        initialPage={amsgPage}
+        onClose={() => setAmsgPage(null)}
+        onRestoreBackup={() => {
+            // This is explicit navigation to restore, not a return to the AMSG entry.
+            amsgEntryFocus.current = null;
+            setAmsgPage(null); requestSettingsFocus('backup');
+        }}
         addToast={addToast}
         realtimeConfig={realtimeConfig}
-        onOpenVapid={() => { setShowAmsg2Modal(false); setShowVapidModal(true); }}
-        onOpenCloudData={() => { setShowAmsg2Modal(false); setShowAmsgCloudData(true); }}
-      />
-      <AmsgCloudDataModal
-        isOpen={showAmsgCloudData}
-        onClose={() => setShowAmsgCloudData(false)}
         characters={characters}
-        addToast={addToast}
-      />
+        characterGroups={characterGroups}
+        characterSettings={{ apiConfig, userProfile, groups, onSave: (id, updater) => updateCharacter(id, previous => ({ activeMsg2Config: updater(previous.activeMsg2Config) })) }}
+        onToggleGlobalEnabled={handleToggleAmsg2Global}
+        onReenabledAfterConnect={() => void flushAmsg2AfterReenable({ characters, userProfile, groups, realtimeConfig, apiConfig })}
+      />}
 
     </div>
   );
 };
 
-export default Settings;
+// Initialise editable drafts only after persisted settings have been restored.
+export default function SettingsEntry() {
+    const { isDataLoaded } = useOS();
+    return isDataLoaded ? <Settings /> : <div role="status">正在读取设置…</div>;
+}
