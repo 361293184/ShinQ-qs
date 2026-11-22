@@ -1362,7 +1362,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             const detail = (event as CustomEvent<ScheduleChangeEventDetail>).detail;
             if (!detail || detail.charId !== activeCharIdRef.current) return;
             setScheduleData(detail.schedule);
-            setScheduleChangeNotice(detail);
+            // changes 为空 = 只是「今天首次生成」，不是角色改动日程，不弹变更提示。
+            if (detail.changes?.length) setScheduleChangeNotice(detail);
         };
         window.addEventListener(SCHEDULE_CHANGE_EVENT, onScheduleChange);
         return () => window.removeEventListener(SCHEDULE_CHANGE_EVENT, onScheduleChange);
@@ -1370,8 +1371,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
     useEffect(() => setScheduleChangeNotice(null), [activeCharacterId]);
 
-    // Auto-generate daily schedule (fire-and-forget on chat load)
-    // 总开关关闭时完全跳过：不查询 DB、不调用副 API、不跑兜底
+    // 读取今日日程（只读，不再在这里触发生成）
+    // 生成已经并入主请求：当天第一条消息会顺带把日程写进 DB（见 useChatAI 的内联日程）。
+    // 这里若保留自动生成，进页面就抢先发一次请求，等于把省下来的那次又花回去。
     useEffect(() => {
         if (!char || !apiConfig.apiKey) return;
         if (!isScheduleFeatureOn(char)) {
@@ -1381,12 +1383,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         let current = true;
         getDailyScheduleForChar(char).then(existing => {
             if (!current) return;
-            if (!existing) {
-                // Generate in background, don't block chat
-                generateDailySchedule(char, false);
-            } else {
-                setScheduleData(existing);
-            }
+            setScheduleData(existing ?? null);
         }).catch(() => {});
         return () => { current = false; };
     }, [activeCharacterId, char?.scheduleFeatureEnabled, char?.customTimezoneEnabled, char?.customTimezone, charDateKey]);

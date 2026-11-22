@@ -65,7 +65,7 @@ export function formatChatHistoryForSchedule(
     return `\n## 最近的聊天记录（与「${user.name}」）\n${lines.join('\n')}\n`;
 }
 
-function buildLifestylePrompt(
+export function buildLifestylePrompt(
     baseContext: string,
     char: CharacterProfile,
     user: UserProfile,
@@ -157,7 +157,7 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
  * 角色诚实面对自身存在，不虚构物理活动，内心活动基于真实能力。
  * 依然有温度、有情绪、有人格——只是不说谎。
  */
-function buildMindfulPrompt(
+export function buildMindfulPrompt(
     baseContext: string,
     char: CharacterProfile,
     user: UserProfile,
@@ -222,6 +222,83 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
 }
 
 仅输出JSON，不要其他内容。`;
+}
+
+/**
+ * 把模型吐出的日程 JSON 归一化成 DailySchedule。
+ *
+ * 独立生成请求（generateDailyScheduleForChar）与「日程并入主 API」的内联路径共用这一份：
+ * 时段映射、homePosition 解析、flowNarrative 裁剪、旧房间号校验，两边必须逐字同款——
+ * 分开写两份的话，内联路径迟早会在某个字段上和独立路径漂移。
+ */
+export function buildScheduleFromParsed(
+    char: CharacterProfile,
+    parsed: any,
+    today: string,
+    coverImage?: string,
+    requireHomePositions: boolean = false,
+): DailySchedule | null {
+    const slots: ScheduleSlot[] = (parsed?.slots || []).map((s: any) => {
+        const homePosition = parseHomePosition(s.homePosition, char);
+        return {
+            startTime: s.startTime || '00:00',
+            activity: s.activity || '',
+            description: s.description,
+            emoji: s.emoji,
+            location: homePosition?.kind === 'home'
+                ? char.home3D?.rooms.find(room => room.id === homePosition.roomId)?.name
+                : typeof s.location === 'string' ? s.location : homePosition?.kind === 'away' ? '外出' : undefined,
+            homePosition,
+            innerThought: s.innerThought,
+        };
+    }).filter((s: ScheduleSlot) => s.activity);
+
+    if (slots.length === 0) return null;
+
+    // Sort by time
+    slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    // Extract flowNarrative
+    let flowNarrative: Record<string, string> | undefined;
+    if (parsed?.flowNarrative && typeof parsed.flowNarrative === 'object') {
+        flowNarrative = {};
+        for (const key of ['morning', 'afternoon', 'evening']) {
+            if (typeof parsed.flowNarrative[key] === 'string' && parsed.flowNarrative[key].trim()) {
+                flowNarrative[key] = parsed.flowNarrative[key].trim();
+            }
+        }
+        if (Object.keys(flowNarrative).length === 0) flowNarrative = undefined;
+    }
+
+    const schedule: DailySchedule = {
+        id: `${char.id}_${today}`,
+        charId: char.id,
+        date: today,
+        slots,
+        generatedAt: Date.now(),
+        coverImage,
+        flowNarrative,
+    };
+
+    // Missing or stale room IDs must not overwrite a usable old schedule.
+    if (requireHomePositions && !hasHomeSchedulePositions(schedule, char)) return null;
+    return schedule;
+}
+
+/**
+ * 日程落库 + 串门/家园副作用。两条生成路径共用，顺序与原实现一致。
+ * 动态引入 homeVisits，避免它反向 import 本模块时形成循环依赖。
+ */
+export async function persistGeneratedSchedule(
+    char: CharacterProfile,
+    schedule: DailySchedule,
+    homeVisits: unknown,
+): Promise<void> {
+    const { submitScheduleHomeVisits } = await import('./homeVisits');
+    await submitScheduleHomeVisits(char, schedule.date, homeVisits, schedule);
+    // submitScheduleHomeVisits 在没有 homeVisits 时已经存过一次；这里再存是幂等的，
+    // 同时兜住它因为 home3D 状态提前返回的分支。
+    await DB.saveDailySchedule(schedule);
 }
 
 export async function generateDailyScheduleForChar(
@@ -315,48 +392,9 @@ export async function generateDailyScheduleForChar(
             console.error('[Schedule] Generation failed: 无法从模型输出解析出JSON:', content.slice(0, 200));
             return null;
         }
-        const slots: ScheduleSlot[] = (parsed.slots || []).map((s: any) => {
-            const homePosition = parseHomePosition(s.homePosition, char);
-            return {
-            startTime: s.startTime || '00:00',
-            activity: s.activity || '',
-            description: s.description,
-            emoji: s.emoji,
-            location: homePosition?.kind === 'home' ? char.home3D?.rooms.find(room => room.id === homePosition.roomId)?.name : typeof s.location === 'string' ? s.location : homePosition?.kind === 'away' ? '外出' : undefined,
-            homePosition,
-            innerThought: s.innerThought,
-        };}).filter((s: ScheduleSlot) => s.activity);
-
-        if (slots.length === 0) return null;
-
-        // Sort by time
-        slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-        // Extract flowNarrative
-        let flowNarrative: Record<string, string> | undefined;
-        if (parsed.flowNarrative && typeof parsed.flowNarrative === 'object') {
-            flowNarrative = {};
-            for (const key of ['morning', 'afternoon', 'evening']) {
-                if (typeof parsed.flowNarrative[key] === 'string' && parsed.flowNarrative[key].trim()) {
-                    flowNarrative[key] = parsed.flowNarrative[key].trim();
-                }
-            }
-            if (Object.keys(flowNarrative).length === 0) flowNarrative = undefined;
-        }
-
-        const schedule: DailySchedule = {
-            id: `${char.id}_${today}`,
-            charId: char.id,
-            date: today,
-            slots,
-            generatedAt: Date.now(),
-            coverImage,
-            flowNarrative,
-        };
-
-        // Missing or stale room IDs must not overwrite a usable old schedule.
-        if (homePrompt && !hasHomeSchedulePositions(schedule, char)) return null;
-        await submitScheduleHomeVisits(char,schedule.date,parsed.homeVisits,schedule);
+        const schedule = buildScheduleFromParsed(char, parsed, today, coverImage, !!homePrompt);
+        if (!schedule) return null;
+        await persistGeneratedSchedule(char, schedule, parsed.homeVisits);
         return schedule;
     } catch (e) {
         console.error('[Schedule] Generation failed:', e);
@@ -461,4 +499,26 @@ ${chatSummary}
         console.error('[Schedule/Evolve] Failed:', e);
         return null;
     }
+}
+
+/**
+ * 「日程并入主 API」用的任务说明。
+ *
+ * 与独立生成请求是同一份 prompt（生活系 / 意识系 + 家园时段 + 串门提示），区别只在于
+ * 不再把角色 system prompt 和聊天历史重复发一遍——主请求本来就带着这些。
+ */
+export async function buildScheduleTaskPrompt(
+    char: CharacterProfile,
+    user: UserProfile,
+    now: Date = getScheduleWallClock(char),
+): Promise<string> {
+    const today = getScheduleDateKey(char);
+    const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
+    const style = char.scheduleStyle || 'lifestyle';
+    const { scheduleHomeVisitPrompt } = await import('./homeVisits');
+    const homePrompt = buildHomeSchedulePrompt(char);
+    const visitPrompt = await scheduleHomeVisitPrompt(char);
+    return (style === 'mindful'
+        ? buildMindfulPrompt('', char, user, today, dayOfWeek, '')
+        : buildLifestylePrompt('', char, user, today, dayOfWeek, '')) + homePrompt + visitPrompt;
 }

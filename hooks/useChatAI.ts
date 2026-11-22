@@ -5,7 +5,7 @@ import { useState, useRef, useEffect, useSyncExternalStore, MutableRefObject } f
 import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
-import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
+import { safeFetchJson, safeResponseJson, extractJson } from '../utils/safeApi';
 import type { ApiCallMeta } from '../utils/apiCallLog';
 import { KeepAlive } from '../utils/keepAlive';
 import { ContextBuilder } from '../utils/context';
@@ -16,7 +16,17 @@ import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArc
 import { incrementDigestRound, runCognitiveDigestion, detectPersonalityStyle } from '../utils/memoryPalace';
 // evolveFlowNarrative 保留为低频深刷新备用，日常意识流由副 API 的情绪评估同轮产出（innerState 字段）
 // import { evolveFlowNarrative } from '../utils/scheduleGenerator';
-import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
+import {
+    buildScheduleFromParsed,
+    buildScheduleTaskPrompt,
+    isScheduleFeatureOn,
+    persistGeneratedSchedule,
+} from '../utils/scheduleGenerator';
+import { getDailyScheduleForChar } from '../utils/dailySchedule';
+import { getScheduleDateKey } from '../utils/scheduleTime';
+import { buildHomeSchedulePrompt } from '../utils/homeSchedule';
+import { SCHEDULE_CHANGE_EVENT } from '../utils/scheduleChange';
+import { buildInlineScheduleInstruction, extractInlineScheduleBlock } from '../utils/scheduleInline';
 import type { DigestResult } from '../utils/memoryPalace';
 // 麦当劳: useChatAI 现在只读 McdMiniApp 当前快照注入 system prompt + 给 LLM 一个
 // UI 钩子工具 propose_cart_items。MCP 实际调用都在 McdMiniApp 组件内做, useChatAI
@@ -1209,32 +1219,43 @@ export const useChatAI = ({
             // 关掉的功能会被角色一次工具调用重新打开。
             const amsg2ToolsInjected = isAmsg2EnabledForChar(char) && await replyStep(async () => isAmsg2GlobalReady());
 
-            // ─── 情绪并入主 API ───
-            // 不再单独发一次评估请求：把评估规则作为一段 system 指令贴到主请求尾部，
-            // 主模型在正文结束后顺带吐一个 `<情绪>…</情绪>` 控制块，客户端落库前剥出来，
-            // 走同一个 applyEmotionEvalRaw。省掉一次完整上下文 + 一次调用。
+            // ─── 情绪 / 日程并入主 API ───
+            // 一次主请求同时产出三样：聊天正文 +（当天首次）日程 + 情绪自评。
+            // 后两者都以控制块追加在正文里，落库前剥掉，不会进聊天气泡。
             //
             // 不并入的几种情形（各自都有更合适的既有路径，强行并入只会变差）：
-            //  · 即时对话：主请求在 worker 里发，本地注入的指令会跟着上云，但剥块也要在
-            //    worker 里做；这一版先不碰云端，保持 worker 自己的副 API 评估。
-            //  · 角色显式配了专用副 API：那是用户特意挑的评估模型，尊重原配置。
-            //  · 工具模式（点单/MCP/主动消息 2.0）：一轮会发多次请求，控制块该落在哪一轮
-            //    说不清，交回原有的独立评估最稳。
-            // 开关语义：
-            //  · inline=true   → 无条件并入（哪怕填了副 API，也以用户这次的选择为准）
-            //  · inline=false  → 永不并入，走独立评估
-            //  · 未设置（老配置）→ 没配副 API 就并入；配了副 API 的保持原状，
-            //    不让一次升级悄悄废掉用户特意挑的评估模型。
-            const inlineEmotionChoice = char.emotionConfig?.inline;
+            //  · 即时对话：主请求在 worker 里发，剥块也要在 worker 里做；这一版先不碰云端。
+            //  · 工具模式（点单/MCP/主动消息 2.0）：一轮会发多次请求，控制块落在哪一轮说不清。
+            // 情绪开关语义（默认并入）：只有用户显式关掉（inline=false）才走独立评估。
             const inlineEmotionOn = !!(
                 emotionEvalEnabled
                 && !instantChatRoute
-                && (inlineEmotionChoice === true
-                    || (inlineEmotionChoice === undefined && !char.emotionConfig?.api?.baseUrl))
+                && char.emotionConfig?.inline !== false
                 && !promptBuildSkipped
                 && !toolModeActive
                 && !amsg2ToolsInjected
             );
+            // 日程一天只生成一次：今天已经有了就完全不注入，一个字都不多花。
+            const inlineScheduleEligible = !!(
+                isScheduleFeatureOn(char)
+                && !instantChatRoute
+                && !promptBuildSkipped
+                && !toolModeActive
+                && !amsg2ToolsInjected
+            );
+            const inlineScheduleNeeded = inlineScheduleEligible
+                ? !(await replyStep(async () => getDailyScheduleForChar(charForGen).catch(() => null)))
+                : false;
+            const inlineBlocks: string[] = [];
+            if (inlineScheduleNeeded) {
+                try {
+                    const scheduleTaskPrompt = await buildScheduleTaskPrompt(charForGen, userProfile);
+                    inlineBlocks.push(buildInlineScheduleInstruction(scheduleTaskPrompt));
+                    console.log(`🗓️ [Schedule] 本轮顺带生成今日日程（任务 ${scheduleTaskPrompt.length} 字），不再单发请求`);
+                } catch (error) {
+                    console.warn('[Schedule] Inline schedule task preparation failed', error);
+                }
+            }
             if (inlineEmotionOn) {
                 // 秘密便签 / 朋友圈浏览这两个附属任务原本挂在独立评估请求上，并入后照样要准备：
                 // 它们的 prompt 接在规则正文后面，模型输出的 homeSecrets / friendFeedAction
@@ -1243,16 +1264,20 @@ export const useChatAI = ({
                 catch (error) { console.warn('[Home secrets] Could not prepare inline task', error); }
                 try { inlineFriendFeedTask = await prepareFriendFeedEmotionTask(charForGen.id); }
                 catch (error) { console.warn('[Friend feed] Could not prepare inline task', error); }
-                const inlineInstruction = buildInlineEmotionInstruction(buildEmotionEvalPrompt(
+                inlineBlocks.push(buildInlineEmotionInstruction(buildEmotionEvalPrompt(
                     charForGen, userProfile, systemPrompt, cleanedApiMessages, 'none',
                     (inlineFriendFeedTask?.prompt || '') + (inlineSecretTask?.prompt || ''),
-                ));
+                )));
+                console.log('🎭 [Emotion] 本轮并入主 API，不再单发评估请求');
+            }
+            if (inlineBlocks.length) {
+                const inlineInstruction = inlineBlocks.join('\n\n');
                 baseReqBody.messages = insertAmsg2TaskContextBlock(
                     baseReqBody.messages,
                     { role: 'system', content: inlineInstruction },
                     payload.volatileTailIndex,
                 );
-                console.log(`🎭 [Emotion] 本轮并入主 API（指令 ${inlineInstruction.length} 字），不再单发评估请求`);
+                console.log(`🧩 [Inline] 主请求附加 ${inlineBlocks.length} 段内部任务（共 ${inlineInstruction.length} 字）`);
             }
             if (baseReqBody.max_tokens > 1024 && shouldSendThinkingParams({
                 thinkingActive: !!payload.flags.thinkingActive,
@@ -2240,21 +2265,32 @@ export const useChatAI = ({
             // 工具轮里说过的话拼在最前面（没有工具轮时 amsg2LeadIns 是空的，原样取最后一轮）；
             // SAR 信封生效期若跨多轮输出了信封，逐轮拆解后再合并去重真意与外显。
             const finalRoundContentRaw = data.choices?.[0]?.message?.content || '';
-            // 情绪并入主 API：控制块在这里剥掉，正文原样进后处理；raw 等落库后再落地。
+            // 日程 / 情绪控制块在这里剥掉，正文原样进后处理；raw 等落库后再各自落地。
+            // 顺序：先日程后情绪——日程块被要求排在最前，情绪块收尾。
             // 直接写回 data.message.content——后处理管线的二轮分支（引用/搜索等）会重新读
-            // 这份原文，不写回的话情绪 JSON 有机会被当成正文再走一遍。
-            const inlineEmotion = inlineEmotionOn
-                ? extractInlineEmotionBlock(finalRoundContentRaw)
+            // 这份原文，不写回的话控制块有机会被当成正文再走一遍。
+            const inlineSchedule = inlineScheduleNeeded
+                ? extractInlineScheduleBlock(finalRoundContentRaw)
                 : { content: finalRoundContentRaw, raw: '', closed: false };
+            const inlineEmotion = inlineEmotionOn
+                ? extractInlineEmotionBlock(inlineSchedule.content)
+                : { content: inlineSchedule.content, raw: '', closed: false };
+            if (inlineScheduleNeeded) {
+                if (!inlineSchedule.raw) {
+                    console.warn('🗓️ [Schedule] 本轮主回复没有输出日程块，今天仍无日程（下一轮再试）');
+                } else if (!inlineSchedule.closed) {
+                    console.warn('🗓️ [Schedule] 日程块未闭合（可能被 max_tokens 截断），按截断修复解析');
+                }
+            }
             if (inlineEmotionOn) {
                 if (!inlineEmotion.raw) {
                     console.warn('🎭 [Emotion] 本轮主回复没有输出情绪控制块，情绪保持上一轮');
                 } else if (!inlineEmotion.closed) {
                     console.warn('🎭 [Emotion] 情绪控制块未闭合（可能被 max_tokens 截断），按截断修复解析');
                 }
-                if (data.choices?.[0]?.message) {
-                    data.choices[0].message.content = inlineEmotion.content;
-                }
+            }
+            if ((inlineScheduleNeeded || inlineEmotionOn) && data.choices?.[0]?.message) {
+                data.choices[0].message.content = inlineEmotion.content;
             }
             const finalRoundContent = inlineEmotion.content;
             const sarReply = amsg2LeadIns.length && sarModulePlan.requiresEnvelope
@@ -2330,6 +2366,45 @@ export const useChatAI = ({
                 directives: [],
                 sarModuleSurface: assistantSurfaceMeta,
             }));
+            // 日程并入主 API 的落地：解析控制块 → 归一化 → 落库 → 通知界面与云端。
+            // 与独立生成路径共用 buildScheduleFromParsed / persistGeneratedSchedule，
+            // 时段映射、家园房间校验、串门副作用两边完全一致。
+            if (inlineScheduleNeeded && inlineSchedule.raw) {
+                try {
+                    const parsed = extractJson(inlineSchedule.raw);
+                    const coverImage = await replyStep(async () =>
+                        DB.getScheduleCoverImage(charForGen.id).catch(() => null));
+                    const schedule = parsed
+                        ? buildScheduleFromParsed(
+                            charForGen,
+                            parsed,
+                            getScheduleDateKey(charForGen),
+                            coverImage || undefined,
+                            !!buildHomeSchedulePrompt(charForGen),
+                        )
+                        : null;
+                    if (schedule) {
+                        await replyStep(async () => persistGeneratedSchedule(charForGen, schedule, parsed.homeVisits));
+                        markAmsgStateDirty({ char: charForGen, userProfile, groups, realtimeConfig });
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent(SCHEDULE_CHANGE_EVENT, {
+                                detail: {
+                                    charId: charForGen.id,
+                                    date: schedule.date,
+                                    changes: [],
+                                    schedule,
+                                    eventId: `${charForGen.id}-${Date.now()}-inline`,
+                                },
+                            }));
+                        }
+                        console.log(`🗓️ [Schedule] 今日日程已随主回复生成并落库（${schedule.slots.length} 个时段）`);
+                    } else {
+                        console.warn('🗓️ [Schedule] 日程 JSON 解析/校验失败，今天仍无日程');
+                    }
+                } catch (scheduleError) {
+                    console.warn('🗓️ [Schedule] 内联日程落地失败（正文不受影响）', scheduleError);
+                }
+            }
             // 情绪并入主 API 的落地：正文已经落库，再把控制块里的 JSON 走一遍既有解析链。
             // 顺序放在后处理之后，是为了「正文先上屏」——情绪写库偶发失败不该拖住消息。
             if (inlineEmotionOn) {

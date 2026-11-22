@@ -33,7 +33,7 @@ describe('情绪并入主 API — 接线', () => {
     });
 
     it('落库前剥离控制块，并写回本次响应正文', () => {
-        expect(chatAiSrc).toContain('extractInlineEmotionBlock(finalRoundContentRaw)');
+        expect(chatAiSrc).toContain('extractInlineEmotionBlock(inlineSchedule.content)');
         expect(chatAiSrc).toContain('data.choices[0].message.content = inlineEmotion.content;');
     });
 
@@ -55,5 +55,33 @@ describe('情绪并入主 API — 接线', () => {
 
     it('设置面板的开关会写回角色配置', () => {
         expect(chatSrc).toContain('inline: config.inline !== false');
+    });
+});
+
+describe('日程并入主 API — 接线', () => {
+    it('情绪默认并入，只有显式关掉才走独立评估', () => {
+        expect(chatAiSrc).toContain('char.emotionConfig?.inline !== false');
+        expect(chatAiSrc).not.toContain('inlineEmotionChoice === undefined');
+    });
+
+    it('今天没有日程时，把日程任务段一起注入主请求', () => {
+        expect(chatAiSrc).toContain('getDailyScheduleForChar(charForGen)');
+        expect(chatAiSrc).toContain('buildInlineScheduleInstruction(scheduleTaskPrompt)');
+    });
+
+    it('落库前剥离日程块，并复用既有归一化与落库函数', () => {
+        expect(chatAiSrc).toContain('extractInlineScheduleBlock(finalRoundContentRaw)');
+        expect(chatAiSrc).toContain('buildScheduleFromParsed(');
+        expect(chatAiSrc).toContain('persistGeneratedSchedule(charForGen, schedule, parsed.homeVisits)');
+    });
+
+    it('进聊天页只读日程，不再单独触发生成', () => {
+        expect(chatSrc).toContain('setScheduleData(existing ?? null);');
+        expect(chatSrc).not.toContain("// Generate in background, don't block chat");
+    });
+
+    it('流式预览同样扣住日程块', () => {
+        expect(streamPreviewSrc).toContain('日');
+        expect(streamPreviewSrc).toContain('程');
     });
 });

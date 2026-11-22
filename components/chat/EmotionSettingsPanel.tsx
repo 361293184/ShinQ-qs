@@ -40,8 +40,8 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
         setUrl(s?.api?.baseUrl ?? '');
         setKey(s?.api?.apiKey ?? '');
         setModel(s?.api?.model ?? '');
-        // 未显式设置时：没配副 API 默认并入；配了副 API 的保持独立评估。
-        setInline(s?.inline ?? !s?.api?.baseUrl);
+        // 默认并入；只有显式关掉（inline=false）才走下方副 API 的独立评估。
+        setInline(s?.inline !== false);
         setShowSavePreset(false);
         setNewPresetName('');
         setDirty(false);
