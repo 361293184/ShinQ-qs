@@ -3482,6 +3482,14 @@ export interface CharacterProfile {
       apiKey: string;
       model: string;
     };
+    /**
+     * 情绪评估是否并入主 API 请求（默认开）。
+     *
+     * 开启时不再单独发一次评估请求：主回复末尾多输出一个 `<情绪>…</情绪>` 控制块，
+     * 客户端剥离后走同一个 applyEmotionEvalRaw 落地。省一次上下文与调用。
+     * 显式填了 `api`（专用副 API）的角色默认不并入——那是用户特意配的独立评估模型。
+     */
+    inline?: boolean;
   };
 
   // 记忆宫殿 (Memory Palace)

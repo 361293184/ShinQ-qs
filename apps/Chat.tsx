@@ -5433,6 +5433,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         emotionConfig: {
                             enabled: config.enabled,
                             ...(config.api && config.api.baseUrl ? { api: config.api } : {}),
+                            // 情绪并入主 API：默认开；用户显式关掉才写 false。
+                            inline: config.inline !== false,
                         },
                     });
                 }}

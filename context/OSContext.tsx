@@ -3054,6 +3054,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         const nextEmotion = {
           enabled: !!prevEmotion?.enabled,
           ...(api && api.baseUrl ? { api: { baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model } } : {}),
+          // 「情绪并入主 API」是每个角色自己的选择，同步副 API 时不能顺手抹掉。
+          ...(prevEmotion?.inline !== undefined ? { inline: prevEmotion.inline } : {}),
         };
         const next = normalizeCharacterImpression({ ...c, emotionConfig: nextEmotion });
         DB.saveCharacter(next);

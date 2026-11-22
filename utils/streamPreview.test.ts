@@ -68,6 +68,11 @@ describe('computeStreamPreviewBubbles', () => {
         expect(computeStreamPreviewBubbles(text)).toEqual(['给你做张卡', '好看吗']);
     });
 
+    it('情绪自评控制块不泄漏为聊天气泡（情绪并入主 API）', () => {
+        const text = '今天有点累\n早点睡\n<情绪>\n{"changed":true,"innerState":"我也困了"}\n</情绪>\n';
+        expect(computeStreamPreviewBubbles(text)).toEqual(['今天有点累', '早点睡']);
+    });
+
     it('think 块（content 内嵌形态）不泄漏', () => {
         const text = '<think>\n她这句话是什么意思…\n</think>\n没什么，随口一问\n';
         expect(computeStreamPreviewBubbles(text)).toEqual(['没什么，随口一问']);

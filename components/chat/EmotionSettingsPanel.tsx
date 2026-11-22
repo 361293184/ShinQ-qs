@@ -29,6 +29,7 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
     const [url, setUrl] = useState('');
     const [key, setKey] = useState('');
     const [model, setModel] = useState('');
+    const [inline, setInline] = useState(true);
     const [showSavePreset, setShowSavePreset] = useState(false);
     const [newPresetName, setNewPresetName] = useState('');
     const [dirty, setDirty] = useState(false);
@@ -39,6 +40,8 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
         setUrl(s?.api?.baseUrl ?? '');
         setKey(s?.api?.apiKey ?? '');
         setModel(s?.api?.model ?? '');
+        // 未显式设置时：没配副 API 默认并入；配了副 API 的保持独立评估。
+        setInline(s?.inline ?? !s?.api?.baseUrl);
         setShowSavePreset(false);
         setNewPresetName('');
         setDirty(false);
@@ -62,7 +65,7 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
         const api = url ? { baseUrl: url, apiKey: key, model } : undefined;
         // 与日程强制同步：日程/情绪总开关开启时情绪必跑。
         // 注意 scheduleFeatureEnabled=true 时即使还没选 scheduleStyle，也应保持情绪开启。
-        onSave({ enabled: isScheduleFeatureOn(char), api });
+        onSave({ enabled: isScheduleFeatureOn(char), api, inline });
         setDirty(false);
     };
 
@@ -81,6 +84,32 @@ const EmotionSettingsPanel: React.FC<EmotionSettingsPanelProps> = ({
                         ⚙️ 下方不填 = 自动用主 API。想细腻点就填个 <b>Claude 系列</b>模型。
                     </p>
                 </div>
+            </div>
+
+            <div className="rounded-xl border border-pink-100 bg-pink-50/60 px-3 py-2.5 space-y-1.5">
+                <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={inline}
+                        onChange={e => { setInline(e.target.checked); setDirty(true); }}
+                        className="mt-0.5 accent-pink-500"
+                    />
+                    <span className="text-[11px] leading-relaxed text-slate-700">
+                        <b>情绪并入主 API</b>（推荐开启）
+                        <br />
+                        开启后不再为情绪单独发一次请求：角色回你消息时顺手把情绪也写完，少一次调用、更省钱。
+                    </span>
+                </label>
+                {inline && !!url && (
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                        已勾选并入：下面填的副 API 这一轮不会被调用。还想用那个独立模型评估情绪，就取消勾选。
+                    </p>
+                )}
+                {!inline && (
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                        未并入：情绪会按下面的副 API 单独发一次请求（URL 留空则用主 API，但仍是一次额外调用）。
+                    </p>
+                )}
             </div>
 
             {!scheduleOn && (

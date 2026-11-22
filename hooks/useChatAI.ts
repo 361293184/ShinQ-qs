@@ -72,6 +72,7 @@ import { isAnthropicEndpoint } from '../utils/llmEndpoint';
 import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
+import { buildInlineEmotionInstruction, extractInlineEmotionBlock } from '../utils/emotionInline';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import {
     advanceSARModuleAfterReply,
@@ -124,7 +125,8 @@ function buildEmotionEvalPrompt(
     userProfile: UserProfile,
     mainSystemPrompt: string,
     apiMessages: Array<{ role: string; content: any }>,
-    includeContext: boolean = true,
+    // 'none' = 不嵌上下文段（情绪并入主 API 时用：主请求本来就带着上下文，只借这份规则正文）。
+    includeContext: boolean | 'none' = true,
     secretTask: string = '',
 ): string {
     // 直接复用主 API 的完整 system prompt 和消息历史，确保 100% 信息对齐
@@ -157,7 +159,9 @@ function buildEmotionEvalPrompt(
     // 对齐 (顺序/章节/格式都一样), 又不必把上下文重复塞进请求体.
     // worker 端 (worker/amsg/src/emotionEval.ts + utils/emotionEvalCore.ts) 负责把 messages[0]=system、
     // messages[1..]=对话历史还原成与本地 mainSystemPrompt / recentLines 相同的文本替换进去.
-    const contextSection = includeContext
+    const contextSection = includeContext === 'none'
+        ? ''
+        : includeContext
         ? `
 
 ## 角色此刻看到的完整上下文（与主 API 发送的 system prompt 完全一致）
@@ -764,6 +768,26 @@ export const useChatAI = ({
             return outcome;
         };
 
+        // 情绪并入主 API 时，本轮的两个附属任务（秘密便签 / 朋友圈浏览）由这里持有。
+        // 原独立评估路径在 evaluateEmotionBackground 的 finally 里释放；并入后这条路径不跑，
+        // 释放责任移到这里。变量放在 try 外，catch 才够得着——请求半路失败时任务必须放回去，
+        // 否则下一轮 prepare 会一直撞上「占位还没释放」，秘密/朋友圈从此不响。
+        let inlineSecretTask: Awaited<ReturnType<typeof prepareHomeSecretTask>>;
+        let inlineFriendFeedTask: Awaited<ReturnType<typeof prepareFriendFeedEmotionTask>>;
+        let inlineEmotionTasksReleased = false;
+        const releaseInlineEmotionTasks = async (): Promise<void> => {
+            if (inlineEmotionTasksReleased) return;
+            inlineEmotionTasksReleased = true;
+            if (inlineFriendFeedTask) {
+                try { await releaseFriendFeedEmotionTask(char.id, inlineFriendFeedTask.id); }
+                catch (error) { console.warn('[Friend feed] Inline emotion task release failed', error); }
+            }
+            if (inlineSecretTask) {
+                try { await failHomeSecretTask(char.id, inlineSecretTask.id); }
+                catch (error) { console.warn('[Home secrets] Inline emotion task release failed', error); }
+            }
+        };
+
         try {
             // Include SW readiness in send→API timing; it can be the first request's wait.
             const perfSendT0 = performance.now();
@@ -1184,6 +1208,52 @@ export const useChatAI = ({
             // 拼进 tools，但参数取舍必须现在就定）。角色级开关关掉的不注入——否则被用户显式
             // 关掉的功能会被角色一次工具调用重新打开。
             const amsg2ToolsInjected = isAmsg2EnabledForChar(char) && await replyStep(async () => isAmsg2GlobalReady());
+
+            // ─── 情绪并入主 API ───
+            // 不再单独发一次评估请求：把评估规则作为一段 system 指令贴到主请求尾部，
+            // 主模型在正文结束后顺带吐一个 `<情绪>…</情绪>` 控制块，客户端落库前剥出来，
+            // 走同一个 applyEmotionEvalRaw。省掉一次完整上下文 + 一次调用。
+            //
+            // 不并入的几种情形（各自都有更合适的既有路径，强行并入只会变差）：
+            //  · 即时对话：主请求在 worker 里发，本地注入的指令会跟着上云，但剥块也要在
+            //    worker 里做；这一版先不碰云端，保持 worker 自己的副 API 评估。
+            //  · 角色显式配了专用副 API：那是用户特意挑的评估模型，尊重原配置。
+            //  · 工具模式（点单/MCP/主动消息 2.0）：一轮会发多次请求，控制块该落在哪一轮
+            //    说不清，交回原有的独立评估最稳。
+            // 开关语义：
+            //  · inline=true   → 无条件并入（哪怕填了副 API，也以用户这次的选择为准）
+            //  · inline=false  → 永不并入，走独立评估
+            //  · 未设置（老配置）→ 没配副 API 就并入；配了副 API 的保持原状，
+            //    不让一次升级悄悄废掉用户特意挑的评估模型。
+            const inlineEmotionChoice = char.emotionConfig?.inline;
+            const inlineEmotionOn = !!(
+                emotionEvalEnabled
+                && !instantChatRoute
+                && (inlineEmotionChoice === true
+                    || (inlineEmotionChoice === undefined && !char.emotionConfig?.api?.baseUrl))
+                && !promptBuildSkipped
+                && !toolModeActive
+                && !amsg2ToolsInjected
+            );
+            if (inlineEmotionOn) {
+                // 秘密便签 / 朋友圈浏览这两个附属任务原本挂在独立评估请求上，并入后照样要准备：
+                // 它们的 prompt 接在规则正文后面，模型输出的 homeSecrets / friendFeedAction
+                // 由 applyEmotionEvalRaw 同一条链落地。
+                try { inlineSecretTask = await prepareHomeSecretTask(charForGen, cleanedApiMessages); }
+                catch (error) { console.warn('[Home secrets] Could not prepare inline task', error); }
+                try { inlineFriendFeedTask = await prepareFriendFeedEmotionTask(charForGen.id); }
+                catch (error) { console.warn('[Friend feed] Could not prepare inline task', error); }
+                const inlineInstruction = buildInlineEmotionInstruction(buildEmotionEvalPrompt(
+                    charForGen, userProfile, systemPrompt, cleanedApiMessages, 'none',
+                    (inlineFriendFeedTask?.prompt || '') + (inlineSecretTask?.prompt || ''),
+                ));
+                baseReqBody.messages = insertAmsg2TaskContextBlock(
+                    baseReqBody.messages,
+                    { role: 'system', content: inlineInstruction },
+                    payload.volatileTailIndex,
+                );
+                console.log(`🎭 [Emotion] 本轮并入主 API（指令 ${inlineInstruction.length} 字），不再单发评估请求`);
+            }
             if (baseReqBody.max_tokens > 1024 && shouldSendThinkingParams({
                 thinkingActive: !!payload.flags.thinkingActive,
                 legacyToolModeActive: !!toolModeActive,
@@ -1479,7 +1549,8 @@ export const useChatAI = ({
             } : undefined;
 
             // 主请求即将发出 → 立即并行发射情绪评估（错峰延迟已按用户要求取消，见定义处注释）。
-            fireLocalEmotionEval?.();
+            // 已并入主 API 的这一轮不再单发请求：情绪随回复一起回来，见下方落库前的剥离。
+            if (!inlineEmotionOn) fireLocalEmotionEval?.();
 
             // 同角色活跃会话租约：本地 fetch 路径本轮真实消息已落库、模型请求即将发出，
             // 启动心跳告诉 worker「正在和这个角色聊」——到点的 expire AI 任务据此 skip，
@@ -2168,7 +2239,24 @@ export const useChatAI = ({
             };
             // 工具轮里说过的话拼在最前面（没有工具轮时 amsg2LeadIns 是空的，原样取最后一轮）；
             // SAR 信封生效期若跨多轮输出了信封，逐轮拆解后再合并去重真意与外显。
-            const finalRoundContent = data.choices?.[0]?.message?.content || '';
+            const finalRoundContentRaw = data.choices?.[0]?.message?.content || '';
+            // 情绪并入主 API：控制块在这里剥掉，正文原样进后处理；raw 等落库后再落地。
+            // 直接写回 data.message.content——后处理管线的二轮分支（引用/搜索等）会重新读
+            // 这份原文，不写回的话情绪 JSON 有机会被当成正文再走一遍。
+            const inlineEmotion = inlineEmotionOn
+                ? extractInlineEmotionBlock(finalRoundContentRaw)
+                : { content: finalRoundContentRaw, raw: '', closed: false };
+            if (inlineEmotionOn) {
+                if (!inlineEmotion.raw) {
+                    console.warn('🎭 [Emotion] 本轮主回复没有输出情绪控制块，情绪保持上一轮');
+                } else if (!inlineEmotion.closed) {
+                    console.warn('🎭 [Emotion] 情绪控制块未闭合（可能被 max_tokens 截断），按截断修复解析');
+                }
+                if (data.choices?.[0]?.message) {
+                    data.choices[0].message.content = inlineEmotion.content;
+                }
+            }
+            const finalRoundContent = inlineEmotion.content;
             const sarReply = amsg2LeadIns.length && sarModulePlan.requiresEnvelope
                 ? parseSARModuleReplyRounds([...amsg2LeadIns, extractToolRoundLeadIn(finalRoundContent)], sarModulePlan)
                 : parseSARModuleReply(
@@ -2242,6 +2330,30 @@ export const useChatAI = ({
                 directives: [],
                 sarModuleSurface: assistantSurfaceMeta,
             }));
+            // 情绪并入主 API 的落地：正文已经落库，再把控制块里的 JSON 走一遍既有解析链。
+            // 顺序放在后处理之后，是为了「正文先上屏」——情绪写库偶发失败不该拖住消息。
+            if (inlineEmotionOn) {
+                try {
+                    if (inlineEmotion.raw) {
+                        // 秘密便签的归属（消息来源）跟独立评估同口径：只有真的准备了任务才取。
+                        const secretOrigin = inlineSecretTask
+                            ? await replyRun.secretSourceIds.then(ids =>
+                                ids.length ? { source: 'chat' as const, messageIds: ids } : undefined)
+                            : undefined;
+                        const innerState = await replyStep(async () => applyEmotionEvalRaw(
+                            inlineEmotion.raw, charForGen, inlineSecretTask?.id, secretOrigin,
+                        ));
+                        if (innerState) setEvolvedNarrative(innerState);
+                    }
+                } catch (emotionError) {
+                    console.warn('🎭 [Emotion] 内联情绪落地失败（正文不受影响）', emotionError);
+                } finally {
+                    // 无论有没有吐块，这一轮准备的任务都要交还（成品已在 applyEmotionEvalRaw 里落库）。
+                    await releaseInlineEmotionTasks();
+                    // 清掉可能残存的安全网/徽章（并入模式本来不点亮，这里只做统一收口）。
+                    announceChatGen(CHAT_GEN_EVENTS.emotionEnd, { charId: char.id, charName: char.name });
+                }
+            }
             replyRun.markCompleted();
             // 最后一批正式消息已交给 setMessages；同一轮更新撤掉预览，不再逐条补弹。
             setStreamingBubbles([]);
@@ -2277,6 +2389,9 @@ export const useChatAI = ({
             if(friendFeedMainTask)await acknowledgeFriendFeedNotices(char.id,friendFeedMainTask.id).catch(()=>{});
 
         } catch (e: any) {
+            // 并入模式准备的两个附属任务必须放回去——哪怕这一轮被中断或请求失败。
+            // 幂等，成功路径已经释放过就什么都不做。
+            await releaseInlineEmotionTasks();
             if (!replyRun.signal.aborted) sendProgress.failed();
             if (replyRun.signal.aborted) return;
             // 注意: 这个 catch 兜的是「拿到 API 响应之后」的整条后处理管线 (applyAssistantPostProcessing,
@@ -2297,6 +2412,8 @@ export const useChatAI = ({
             }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } finally {
+            // 兜底：try 内任何提前 return（中断等）都没经过成功/失败分支，任务在这里交还。
+            await releaseInlineEmotionTasks();
             replyRun.signal.removeEventListener('abort', cancelSendProgress);
             sendProgress.finish(replyRun.signal.aborted);
             try {
