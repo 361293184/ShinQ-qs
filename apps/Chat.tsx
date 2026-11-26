@@ -4899,6 +4899,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             charAvatar={char.avatar}
                             onOpenCharacterProfile={openCharacterProfile}
                             charName={char.name}
+                            // 线下模式的旁白颜色/字号全靠它：不传的话 MessageItem 永远用默认 15px，
+                            // 设置里拖滑杆看起来「有按键但没反应」。
+                            offlineConfig={char.offlineConfig}
                             userAvatar={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
                             isLatestMessage={!nextMessage}
                             onMediaLoad={handleMessageMediaLoad}
@@ -5153,7 +5156,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     customThemes={customThemes} onUpdateTheme={(id) => updateCharacter(char.id, { bubbleStyle: id })}
                     onRemoveTheme={removeCustomTheme} activeThemeId={currentThemeId}
                     onPanelAction={handlePanelAction}
-                    onImageSelect={handleImageSelect}
+                    // 「相册」现在图和视频共用一个入口：handleMediaSelect 先认类型再分流
+                    onImageSelect={handleMediaSelect}
+                    videoEnabled
                     isSummarizing={isSummarizing}
                     categories={visibleCategories}
                     activeCategory={activeCategory}
@@ -5192,7 +5197,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     <OfflinePhoneBall
                         holder={phoneHolder}
                         hidden={phonePanelOpen}
-                        onOpen={() => setPhonePanelOpen(true)}
+                        onOpen={() => { if (phoneHolder !== 'none') setPhonePanelOpen(true); }}
                         onPickHolder={(next) => {
                             setPhoneHolder(next);
                             writePhoneHolder(char.id, next);

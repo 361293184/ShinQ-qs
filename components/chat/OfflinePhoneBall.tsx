@@ -219,6 +219,9 @@ export default function OfflinePhoneBall({ holder, hidden, onOpen, onPickHolder 
             }}
             onClick={(event) => {
                 if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
+                // 空手态：手机在角色手里，界面打不开（方案 §5.26 J ①）。
+                // 这里必须拦——面板按 holder 分流，'none' 会被当成"你的手机"渲染出来。
+                if (holder === 'none') return;
                 onOpen();
             }}
             className={`fixed left-0 top-0 z-[45] rounded-full flex items-center justify-center shadow-lg select-none transition-colors duration-150 will-change-transform ${skin}`}

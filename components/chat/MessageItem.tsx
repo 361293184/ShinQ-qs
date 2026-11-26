@@ -4514,6 +4514,8 @@ const MessageItem = React.memo(({
            prev.charAvatar === next.charAvatar &&
            prev.onOpenCharacterProfile === next.onOpenCharacterProfile &&
            prev.charName === next.charName &&
+           // 线下旁白的字号 / 颜色都在这份配置里：漏了它，设置里拖滑杆会「有按键没反应」。
+           prev.offlineConfig === next.offlineConfig &&
            prev.locationPinCharId === next.locationPinCharId &&
            prev.userAvatar === next.userAvatar &&
            prev.isLatestMessage === next.isLatestMessage &&

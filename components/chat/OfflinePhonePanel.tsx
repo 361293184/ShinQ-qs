@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     ArrowLeft, ArrowsClockwise, BookOpen, ChatCircleDots, Gear, Images, MagnifyingGlass,
     MusicNotes, NotePencil, Notebook, Wallet, WifiHigh, BatteryFull,
+    ShoppingBag, BowlFood, MapTrifold, CloudSun, Heartbeat,
+    Phone, ChatText, At, EnvelopeSimple, CalendarDots, Camera, Heart,
 } from '@phosphor-icons/react';
 import { nowInTimeZone } from '../../utils/timezone';
 import type { PhoneHolder } from '../../utils/offlineMode/phoneHolder';
@@ -13,9 +15,17 @@ import OfflinePhoneGallery from './OfflinePhoneGallery';
 import OfflinePhoneMemo from './OfflinePhoneMemo';
 import OfflinePhoneUserPhone from './OfflinePhoneUserPhone';
 import OfflinePhonePermissions from './OfflinePhonePermissions';
+import OfflinePhoneTaobao from './OfflinePhoneTaobao';
+import OfflinePhoneMeituan from './OfflinePhoneMeituan';
+import OfflinePhoneMap from './OfflinePhoneMap';
+import OfflinePhoneWeather from './OfflinePhoneWeather';
+import OfflinePhoneHealth from './OfflinePhoneHealth';
+import OfflinePhoneWeibo from './OfflinePhoneWeibo';
+import OfflinePhoneMail from './OfflinePhoneMail';
+import OfflinePhoneSchedule from './OfflinePhoneSchedule';
 import {
     generatePhoneContent, readPhoneContent, clearPhoneContent,
-    missingBlocks, PHONE_BLOCK_ORDER,
+    isBlockPresent, missingBlocks, ALL_PHONE_BLOCKS,
     type PhoneBlockId, type PhoneContent, type PhoneListEntry,
 } from '../../utils/offlineMode/phoneContent';
 import type { SubApiConfig } from '../../utils/fanwaiGenerator';
@@ -32,6 +42,8 @@ import type { SubApiConfig } from '../../utils/fanwaiGenerator';
  */
 
 type AppId = 'wechat' | 'gallery' | 'memo' | 'alipay' | 'read' | 'browser' | 'diary' | 'music'
+    | 'taobao' | 'meituan' | 'map' | 'weather' | 'health'
+    | 'phone' | 'sms' | 'weibo' | 'mail' | 'schedule' | 'xhs' | 'camera'
     | 'chat' | 'bank';
 
 interface AppEntry {
@@ -42,8 +54,11 @@ interface AppEntry {
     note: string;
 }
 
-/** 他的手机：这一套内容是本项目自建的，不复用「查手机」的数据 */
-const APPS_HIS: AppEntry[] = [
+/**
+ * 主屏第一页 · 核心 8 个（方案 §5.5 B：「2 行 × 4 列」）。
+ * 顺序就是文档表格的顺序，别随手调。
+ */
+const APPS_CORE: AppEntry[] = [
     { id: 'wechat', label: '微信', bg: 'from-emerald-400 to-emerald-500', icon: <ChatCircleDots className="w-6 h-6" weight="fill" />, note: '和他的聊天记录（和你这边的真实消息同步）、他自己的群、他和别人的私聊' },
     { id: 'gallery', label: '相册', bg: 'from-sky-400 to-indigo-400', icon: <Images className="w-6 h-6" weight="fill" />, note: '他眼里的世界：生活片段、随手拍、存下的图' },
     { id: 'memo', label: '备忘录', bg: 'from-amber-400 to-orange-400', icon: <NotePencil className="w-6 h-6" weight="fill" />, note: '待办、随手记、写了一半的句子' },
@@ -53,6 +68,32 @@ const APPS_HIS: AppEntry[] = [
     { id: 'diary', label: '日记', bg: 'from-violet-400 to-purple-500', icon: <Notebook className="w-6 h-6" weight="fill" />, note: '翻到就走不掉的内容' },
     { id: 'music', label: '音乐', bg: 'from-red-400 to-rose-500', icon: <MusicNotes className="w-6 h-6" weight="fill" />, note: '他最近在听什么' },
 ];
+
+/** 主屏第二页 · 生活 8 个（方案 §5.5 B：2026-09-26 定案「也加上」） */
+const APPS_LIFE: AppEntry[] = [
+    { id: 'schedule', label: '日程', bg: 'from-teal-400 to-cyan-500', icon: <CalendarDots className="w-6 h-6" weight="fill" />, note: '他今天的时间表（直接读项目里的日程）' },
+    { id: 'weather', label: '天气', bg: 'from-sky-400 to-cyan-400', icon: <CloudSun className="w-6 h-6" weight="fill" />, note: '他为什么关心一座不在的城市' },
+    { id: 'xhs', label: '小红书', bg: 'from-rose-400 to-red-500', icon: <Heart className="w-6 h-6" weight="fill" />, note: '他发过的笔记、给谁点过赞（还没接上数据）' },
+    { id: 'weibo', label: '微博', bg: 'from-orange-400 to-red-500', icon: <At className="w-6 h-6" weight="bold" />, note: '大号是给人看的，小号才是他自己' },
+    { id: 'mail', label: '邮件', bg: 'from-indigo-400 to-blue-500', icon: <EnvelopeSimple className="w-6 h-6" weight="fill" />, note: '收件箱是工作，草稿箱才是秘密' },
+    { id: 'meituan', label: '美团', bg: 'from-yellow-400 to-amber-400', icon: <BowlFood className="w-6 h-6" weight="fill" />, note: '一个人吃了什么、备注里写了什么、收货人是谁' },
+    { id: 'taobao', label: '淘宝', bg: 'from-orange-400 to-amber-500', icon: <ShoppingBag className="w-6 h-6" weight="fill" />, note: '买了什么、购物车里还想要什么、收货地址写着谁家' },
+    { id: 'health', label: '健康', bg: 'from-rose-400 to-pink-500', icon: <Heartbeat className="w-6 h-6" weight="fill" />, note: '体检报告里他自己写的批注' },
+];
+
+/**
+ * Dock · 固定底部、两页共用（方案 §5.5 B）。
+ * 相机与相册同源：点相机就是打开相册（他拍的东西都在那儿），不单独生成一份。
+ */
+const APPS_DOCK: AppEntry[] = [
+    { id: 'phone', label: '电话', bg: 'from-green-400 to-emerald-500', icon: <Phone className="w-6 h-6" weight="fill" />, note: '和谁通过话、说了什么、多久' },
+    { id: 'sms', label: '短信', bg: 'from-slate-400 to-slate-500', icon: <ChatText className="w-6 h-6" weight="fill" />, note: '快递、银行、验证码 —— 最真实的噪音' },
+    { id: 'map', label: '地图', bg: 'from-emerald-400 to-teal-500', icon: <MapTrifold className="w-6 h-6" weight="fill" />, note: '他去过哪、收藏了哪、给每个地方起的名字' },
+    { id: 'camera', label: '相机', bg: 'from-slate-500 to-slate-700', icon: <Camera className="w-6 h-6" weight="fill" />, note: '与相册同源：他拍下的都收在相册里' },
+];
+
+/** 他的手机：这一套内容是本项目自建的，不复用「查手机」的数据 */
+const APPS_HIS: AppEntry[] = [...APPS_CORE, ...APPS_LIFE, ...APPS_DOCK];
 
 interface Props {
     open: boolean;
@@ -79,6 +120,39 @@ const CONTENT_KEY: Partial<Record<AppId, keyof PhoneContent>> = {
     read: 'read',
     browser: 'browser',
     music: 'music',
+    taobao: 'taobao',
+    meituan: 'meituan',
+    map: 'map',
+    phone: 'calls',
+    sms: 'sms',
+};
+
+/**
+ * 有**专属渲染分支**、但不靠 CONTENT_KEY 取内容的 App（天气 / 健康 / 微博 / 邮件）。
+ *
+ * ⚠️ 这组必须并进下面「能不能打开」的判断里。之前闸门只写了 CONTENT_KEY，
+ * 于是点开这几个 App 会落到最后那个「这个 App 还没接上数据」的分支 ——
+ * 其实生成块和组件全都接好了，只是被判断条件挡在门外。
+ */
+const DEDICATED_APPS = new Set<AppId>(['weather', 'health', 'weibo', 'mail']);
+
+/**
+ * App → 它归属的生成块。
+ *
+ * 这些后加的 App 不在 PHONE_BLOCK_ORDER 里：文档 §5.9 F 说「一期保底 + 按需续写」，
+ * 不该让每次首次打开手机都多烧几次调用 —— 点进去发现这块还没生成时才补
+ * （见下面的按需生成 effect）。同一块被多个 App 共用时只生成一次。
+ */
+const APP_BLOCK: Partial<Record<AppId, PhoneBlockId>> = {
+    taobao: 'shopping',
+    meituan: 'shopping',
+    map: 'mapWeather',
+    weather: 'mapWeather',
+    health: 'health',
+    phone: 'records',
+    sms: 'records',
+    weibo: 'publicFace',
+    mail: 'publicFace',
 };
 
 const pad = (n: number) => n.toString().padStart(2, '0');
@@ -87,6 +161,10 @@ export default function OfflinePhonePanel({
     open, holder, charId, charName, userName, subApi, char, user, charTimeZone, onClose,
 }: Props) {
     const [activeApp, setActiveApp] = useState<AppId | null>(null);
+    /** 桌面当前页（0 = 核心，1 = 生活）。Dock 两页共用，不跟着翻。 */
+    const [homePage, setHomePage] = useState(0);
+    /** 横滑手势起点：只有横向位移明显大于纵向时才翻页，免得和点击/竖滑打架 */
+    const swipeStart = useRef<{ x: number; y: number } | null>(null);
     // 手机内容：按块并行生成 + 缓存，打开他的手机时只补缺的块
     const [content, setContent] = useState<PhoneContent | null>(null);
     const [generating, setGenerating] = useState(false);
@@ -128,7 +206,7 @@ export default function OfflinePhonePanel({
         setGenMode(mode);
         setGenerating(true);
         setGenError('');
-        setGenProgress({ done: 0, total: targets?.length || PHONE_BLOCK_ORDER.length });
+        setGenProgress({ done: 0, total: targets?.length || ALL_PHONE_BLOCKS.length });
         generatePhoneContent(curChar, curUser, curSub || ({} as SubApiConfig), {
             force: mode === 'all',
             only: targets,
@@ -174,6 +252,31 @@ export default function OfflinePhonePanel({
      * mode='fill'：只补没内容的块（§5.9 G：任何失败都不该导致全部重来）。
      */
     const regenerate = (mode: 'all' | 'fill' = 'all') => runGenerate(mode);
+
+    /**
+     * 按需续写（§5.9 F）：淘宝 / 美团这类后加的 App 不在默认 6 块里。
+     * 点进去发现这块还没生成时，只补这一块 —— 不重跑整部手机。
+     *
+     * `autoFilled` 是防死循环的：生成失败时 content 可能仍是旧对象，effect 会再次命中；
+     * 同一个 App 在一次打开里只自动补一次，失败留给用户手动点刷新。
+     */
+    const autoFilled = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        if (open) autoFilled.current.clear();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+    useEffect(() => {
+        if (!open || holder !== 'char' || !activeApp) return;
+        const blockId = APP_BLOCK[activeApp];
+        if (!blockId) return;
+        if (content && isBlockPresent(content, blockId)) return;
+        if (generating) return;
+        const key = `${activeApp}:${blockId}`;
+        if (autoFilled.current.has(key)) return;
+        autoFilled.current.add(key);
+        runGenerate('fill', [blockId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, holder, activeApp, content]);
     const [clock, setClock] = useState(() => {
         const d = nowInTimeZone(charTimeZone);
         return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -181,7 +284,7 @@ export default function OfflinePhonePanel({
 
     // 弹窗开着时每分钟推一次时间，别让状态栏停在打开那一刻
     useEffect(() => {
-        if (!open) { setActiveApp(null); setRefreshMenuOpen(false); return; }
+        if (!open) { setActiveApp(null); setRefreshMenuOpen(false); setHomePage(0); return; }
         const tick = () => {
             const d = nowInTimeZone(charTimeZone);
             setClock(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
@@ -229,6 +332,42 @@ export default function OfflinePhonePanel({
                 return <OfflinePhoneGallery key="gallery" entries={content.gallery || []} emptyHint={`${app.label}里没有内容`} />;
             case 'memo':
                 return <OfflinePhoneMemo key="memo" entries={content.memo || []} emptyHint={`${app.label}里没有内容`} />;
+            case 'taobao':
+                return (
+                    <OfflinePhoneTaobao
+                        key="taobao"
+                        orders={content.taobao}
+                        cart={content.taobaoCart}
+                        addresses={content.taobaoAddresses}
+                        emptyHint={`${app.label}里没有内容`}
+                    />
+                );
+            case 'meituan':
+                return (
+                    <OfflinePhoneMeituan
+                        key="meituan"
+                        orders={content.meituan}
+                        addresses={content.meituanAddresses}
+                        emptyHint={`${app.label}里没有内容`}
+                    />
+                );
+            case 'map':
+                return <OfflinePhoneMap key="map" entries={content.map} emptyHint={`${app.label}里没有内容`} />;
+            case 'weather':
+                return <OfflinePhoneWeather key="weather" cities={content.weather} emptyHint={`${app.label}里没有内容`} />;
+            case 'health':
+                return <OfflinePhoneHealth key="health" reports={content.health} emptyHint={`${app.label}里没有内容`} />;
+            case 'weibo':
+                return <OfflinePhoneWeibo key="weibo" entries={content.weibo} emptyHint={`${app.label}里没有内容`} />;
+            case 'mail':
+                return (
+                    <OfflinePhoneMail
+                        key="mail"
+                        inbox={content.mail}
+                        drafts={content.mailDrafts}
+                        emptyHint={`${app.label}里没有内容`}
+                    />
+                );
             default: {
                 const key = CONTENT_KEY[app.id];
                 if (!key) return null;
@@ -311,7 +450,25 @@ export default function OfflinePhonePanel({
 
                     {/* 桌面 / App 页 */}
                     <div className="flex-1 relative overflow-hidden">
-                        {holder !== 'char' ? (
+                        {holder === 'none' ? (
+                            /* 空手态（§5.26 J ①）：手机在他手里，界面打不开 —— 这里只留一句提示，
+                               不能把"你的手机"渲染出来，否则等于人拿走了手机你还能翻。 */
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
+                                <div className="w-12 h-12 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-slate-300">
+                                    <Gear className="w-5 h-5" weight="regular" />
+                                </div>
+                                <div className="text-[12px] font-bold text-slate-600">你的手机不在你手上</div>
+                                <div className="text-[11px] leading-5 text-slate-400">
+                                    {charName}拿着你的手机。等他递回来，或者直接开口要。
+                                </div>
+                                <button
+                                    onClick={onClose}
+                                    className="mt-1 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[10px] active:scale-95"
+                                >
+                                    收起，回去说话
+                                </button>
+                            </div>
+                        ) : holder !== 'char' ? (
                             /* 你的手机：三个真实 App + 齿轮（§5.26 J）。没有生成、没有加载 */
                             <OfflinePhoneUserPhone
                                 charId={charId}
@@ -320,29 +477,94 @@ export default function OfflinePhonePanel({
                                 onOpenPermissions={() => setPermissionsOpen(true)}
                             />
                         ) : !current ? (
-                            <div className="px-4 pt-6">
-                                <div className="text-[11px] text-slate-400 mb-3 pl-1">
-                                    {holder === 'char' ? `${charName}的手机` : '你的手机'}
-                                </div>
-                                {/* 生成中由全屏弹窗负责提示，这里只剩失败回执 */}
-                                {!generating && genError && (
-                                    <div className="mb-3 rounded-lg bg-rose-50 border border-rose-100 text-rose-500 text-[10px] leading-4 px-3 py-1.5">
-                                        {genError}
+                            /* 主屏（方案 §5.5 B）：两页横向滑动 + Dock 固定底部两页共用。
+                               一页只放 2 行 × 4 列，别再把 18 个图标全铺在一页上。 */
+                            <div className="h-full flex flex-col">
+                                <div className="shrink-0 px-4 pt-4">
+                                    <div className="text-[11px] text-slate-400 mb-2 pl-1">
+                                        {holder === 'char' ? `${charName}的手机` : '你的手机'}
                                     </div>
-                                )}
-                                <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-                                    {apps.map((app) => (
+                                    {/* 生成中由全屏弹窗负责提示，这里只剩失败回执 */}
+                                    {!generating && genError && (
+                                        <div className="mb-2 rounded-lg bg-rose-50 border border-rose-100 text-rose-500 text-[10px] leading-4 px-3 py-1.5">
+                                            {genError}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 两页容器：横向滑动切换，位移用 translateX 跟着 homePage 走 */}
+                                <div
+                                    className="flex-1 relative overflow-hidden"
+                                    onTouchStart={(event) => {
+                                        swipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+                                    }}
+                                    onTouchEnd={(event) => {
+                                        const start = swipeStart.current;
+                                        swipeStart.current = null;
+                                        if (!start) return;
+                                        const dx = event.changedTouches[0].clientX - start.x;
+                                        const dy = event.changedTouches[0].clientY - start.y;
+                                        // 横向位移够大、且明显大于纵向，才算翻页手势
+                                        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+                                        setHomePage((page) => Math.max(0, Math.min(1, page + (dx < 0 ? 1 : -1))));
+                                    }}
+                                >
+                                    <div
+                                        className="flex h-full transition-transform duration-300 ease-out"
+                                        style={{ transform: `translateX(-${homePage * 100}%)` }}
+                                    >
+                                        {[APPS_CORE, APPS_LIFE].map((pageApps, pageIndex) => (
+                                            <div key={pageIndex} className="w-full h-full shrink-0 px-4 pt-1 pb-2 overflow-y-auto">
+                                                <div className="grid grid-cols-4 gap-x-2 gap-y-5">
+                                                    {pageApps.map((app) => (
+                                                        <button
+                                                            key={app.id}
+                                                            /* 相机与相册同源：点相机直接开相册 */
+                                                            onClick={() => setActiveApp(app.id === 'camera' ? 'gallery' : app.id)}
+                                                            className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+                                                        >
+                                                            <span className={`w-14 h-14 rounded-[14px] bg-gradient-to-br ${app.bg} text-white flex items-center justify-center shadow-sm`}>
+                                                                {app.icon}
+                                                            </span>
+                                                            <span className="text-[11px] text-slate-600 font-medium">{app.label}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* 分页指示点：位于 Dock 上方，两页共 2 个，当前页实心 */}
+                                <div className="shrink-0 flex items-center justify-center gap-1.5 py-2">
+                                    {[0, 1].map((index) => (
                                         <button
-                                            key={app.id}
-                                            onClick={() => setActiveApp(app.id)}
-                                            className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
-                                        >
-                                            <span className={`w-12 h-12 rounded-[15px] bg-gradient-to-br ${app.bg} text-white flex items-center justify-center shadow-sm`}>
-                                                {app.icon}
-                                            </span>
-                                            <span className="text-[10px] text-slate-600 font-medium">{app.label}</span>
-                                        </button>
+                                            key={index}
+                                            onClick={() => setHomePage(index)}
+                                            aria-label={`第 ${index + 1} 页`}
+                                            className={`w-1.5 h-1.5 rounded-full transition-colors ${homePage === index ? 'bg-slate-500' : 'bg-slate-300'}`}
+                                        />
                                     ))}
+                                </div>
+
+                                {/* Dock：固定底部、两页共用（§5.5 B） */}
+                                <div className="shrink-0 px-3 pb-1">
+                                    <div className="rounded-[20px] bg-white/70 backdrop-blur border-t border-slate-900/10 shadow-[0_-1px_0_rgba(15,23,42,0.04)] px-2 pt-2.5 pb-1.5">
+                                        <div className="grid grid-cols-4 gap-x-2">
+                                            {APPS_DOCK.map((app) => (
+                                                <button
+                                                    key={app.id}
+                                                    onClick={() => setActiveApp(app.id === 'camera' ? 'gallery' : app.id)}
+                                                    className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                                                >
+                                                    <span className={`w-12 h-12 rounded-[13px] bg-gradient-to-br ${app.bg} text-white flex items-center justify-center shadow-sm`}>
+                                                        {app.icon}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-600 font-medium">{app.label}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         ) : (
@@ -369,7 +591,16 @@ export default function OfflinePhonePanel({
                                             moments={content?.moments}
                                         />
                                     </div>
-                                ) : holder === 'char' && CONTENT_KEY[current.id] ? (
+                                ) : holder === 'char' && current.id === 'schedule' ? (
+                                    /* 日程不生成：直接读项目已有的当日日程，所以不受 content 缺失影响 */
+                                    <div className="flex-1 relative overflow-hidden">
+                                        <OfflinePhoneSchedule
+                                            char={char}
+                                            charTimeZone={charTimeZone}
+                                            emptyHint="今天还没有安排"
+                                        />
+                                    </div>
+                                ) : holder === 'char' && (CONTENT_KEY[current.id] || DEDICATED_APPS.has(current.id)) ? (
                                     <div className="flex-1 relative overflow-hidden">
                                         {content ? (
                                             renderCharApp(current)
@@ -444,7 +675,7 @@ export default function OfflinePhonePanel({
                                 </div>
                             )}
                             <div className="text-[10px] leading-4 text-slate-400">
-                                分成几块同时生成，首次大概要十几秒；好了会自己关掉，之后就能挨个点开看
+                                分成 3 组同时生成（所有 App 一起），首次大概要十几秒；没写完的会自动补，好了会自己关掉
                             </div>
                         </div>
                     )}

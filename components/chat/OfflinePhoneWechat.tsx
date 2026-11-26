@@ -24,6 +24,8 @@ interface PhoneMessage {
     side: 'left' | 'right';
     text: string;
     ts: number;
+    /** 这条消息是谁发的（群聊里每人一个头像，靠它取名字/颜色） */
+    sender?: string;
 }
 
 interface Conversation {
@@ -56,7 +58,32 @@ type Tab = 'chats' | 'contacts' | 'discover' | 'me';
 /** 一次渲染多少条：全部渲染在长会话上会明显卡 */
 const PAGE_SIZE = 60;
 
-/** 生成的会话 → 统一的消息结构（他的消息在右） */
+/**
+ * 头像：没有图片资源，就用**名字当头像** —— 取名字第一个字 + 由名字哈希决定的底色。
+ * 同一个 NPC 在会话列表、群聊、通讯录、朋友圈里永远是同一个颜色，看起来才像同一个人。
+ */
+const AVATAR_COLORS = ['#07c160', '#3eb575', '#4e8ff0', '#7b6cf6', '#e8788a', '#e9a23b', '#3fa9a0', '#6b7f96'];
+
+const hashName = (name: string): number => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return hash;
+};
+
+const Avatar = ({ name, size = 36 }: { name: string; size?: number }) => {
+    const label = (name || '?').trim().slice(0, 1) || '?';
+    const color = AVATAR_COLORS[hashName(name || '?') % AVATAR_COLORS.length];
+    return (
+        <span
+            className="shrink-0 flex items-center justify-center text-white font-bold rounded-lg"
+            style={{ width: size, height: size, backgroundColor: color, fontSize: Math.max(9, Math.round(size * 0.42)) }}
+        >
+            {label}
+        </span>
+    );
+};
+
+/** 生成的会话 → 统一的消息结构（他的消息在右；群成员名字留下来给头像用） */
 const toPhoneMessages = (chat: GeneratedChat, charName: string): PhoneMessage[] =>
     (chat.messages || [])
         .map((m, index): PhoneMessage => {
@@ -66,8 +93,9 @@ const toPhoneMessages = (chat: GeneratedChat, charName: string): PhoneMessage[] 
             return {
                 id: `${chat.name}-${index}`,
                 side: isMine ? 'right' : 'left',
-                text: isMine ? text : (from && from !== chat.name ? `${from}：${text}` : text),
+                text,
                 ts: 0,
+                sender: isMine ? charName : (from || chat.name),
             };
         })
         .filter((m) => m.text);
@@ -119,6 +147,7 @@ export default function OfflinePhoneWechat({
                         side: m.role === 'assistant' ? 'right' : 'left',
                         text: cleanText(m.content) || (m.type === 'image' ? '［图片］' : ''),
                         ts: m.timestamp || 0,
+                        sender: m.role === 'assistant' ? charName : (userName || '你'),
                     }))
                     .filter((m) => m.text);
                 if (ownMessages.length) {
@@ -136,6 +165,9 @@ export default function OfflinePhoneWechat({
 
                 // ② 同步群：他在其中的群
                 const groups = await DB.getGroups();
+                // 手段二（§5.9 C）：真实侧优先级最高。先记下真实群名，
+                // 生成结果里同名的一律丢弃，免得会话列表里出现第二个「家庭群」。
+                const realGroupNames = new Set<string>();
                 for (const group of groups) {
                     if (!Array.isArray(group.members) || !group.members.includes(charId)) continue;
                     // 群聊同样只同步最近 100 条
@@ -148,9 +180,11 @@ export default function OfflinePhoneWechat({
                             side: m.role === 'user' ? 'left' : 'right',
                             text: cleanText(m.content),
                             ts: m.timestamp || 0,
+                            sender: m.role === 'user' ? (userName || '你') : charName,
                         }))
                         .filter((m) => m.text);
                     if (!messages.length) continue;
+                    realGroupNames.add(String(group.name || '').trim());
                     const last = messages[messages.length - 1];
                     list.push({
                         id: group.id,
@@ -165,6 +199,8 @@ export default function OfflinePhoneWechat({
 
                 // ③ 他独有的群 / ④ 他和别人的私聊：副 API 生成的内容（标了 generated）
                 for (const chat of extraGroups || []) {
+                    // 与真实同步群重名 → 丢弃（真实侧永远优先，§5.9 C 手段二）
+                    if (realGroupNames.has(String(chat.name || '').trim())) continue;
                     const messages = toPhoneMessages(chat, charName);
                     if (!messages.length) continue;
                     list.push({
@@ -179,6 +215,9 @@ export default function OfflinePhoneWechat({
                     });
                 }
                 for (const chat of extraChats || []) {
+                    // 生成侧不该再产出一份"和用户"的私聊：那份永远用真实消息（§5.9 C 手段二）
+                    const chatName = String(chat.name || '').trim();
+                    if (chatName && (chatName === userName || chatName === '我' || chat.relation === '你')) continue;
                     const messages = toPhoneMessages(chat, charName);
                     if (!messages.length) continue;
                     list.push({
@@ -204,7 +243,7 @@ export default function OfflinePhoneWechat({
         };
         load();
         return () => { cancelled = true; };
-    }, [charId, userName, extraChats, extraGroups]);
+    }, [charId, charName, userName, extraChats, extraGroups]);
 
     const active = useMemo(
         () => conversations.find((c) => c.id === activeId) || null,
@@ -250,11 +289,19 @@ export default function OfflinePhoneWechat({
                         <div className="text-center text-[9px] text-slate-400">这段是生成的内容</div>
                     )}
                     {visibleMessages.map((m) => (
-                        <div key={m.id} className={`flex ${m.side === 'right' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[78%] rounded-lg px-2.5 py-1.5 text-[11px] leading-[1.5] whitespace-pre-wrap break-words ${m.side === 'right' ? 'bg-[#95ec69] text-slate-800' : 'bg-white text-slate-700'}`}>
-                                {m.text}
-                                <span className="block text-[8px] text-slate-400 text-right mt-0.5">{timeLabel(m.ts)}</span>
+                        <div key={m.id} className={`flex items-start gap-1.5 ${m.side === 'right' ? 'justify-end' : 'justify-start'}`}>
+                            {/* 左边：对方 / 群成员；右边：他自己。两头都有头像，跟真微信一样 */}
+                            {m.side === 'left' && <Avatar name={m.sender || active.title} size={30} />}
+                            <div className="min-w-0 max-w-[70%]">
+                                {active.kind === 'group' && m.side === 'left' && (
+                                    <div className="text-[9px] text-slate-400 mb-0.5 ml-0.5 truncate">{m.sender || active.title}</div>
+                                )}
+                                <div className={`rounded-lg px-2.5 py-1.5 text-[11px] leading-[1.5] whitespace-pre-wrap break-words ${m.side === 'right' ? 'bg-[#95ec69] text-slate-800' : 'bg-white text-slate-700'}`}>
+                                    {m.text}
+                                    <span className="block text-[8px] text-slate-400 text-right mt-0.5">{timeLabel(m.ts)}</span>
+                                </div>
                             </div>
+                            {m.side === 'right' && <Avatar name={charName} size={30} />}
                         </div>
                     ))}
                 </div>
@@ -278,9 +325,7 @@ export default function OfflinePhoneWechat({
                     {list.map((moment, index) => (
                         <div key={`${moment.time}-${index}`} className="px-3 py-3 border-b border-slate-50">
                             <div className="flex gap-2">
-                                <span className={`w-8 h-8 shrink-0 rounded-md flex items-center justify-center text-white text-[11px] font-bold ${moment.author === 'me' ? 'bg-emerald-500' : 'bg-teal-500'}`}>
-                                    {moment.author === 'me' ? charName.slice(0, 1) : moment.author.slice(0, 1)}
-                                </span>
+                                <Avatar name={moment.author === 'me' ? charName : moment.author} size={32} />
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[11px] font-bold text-[#576b95]">
                                         {moment.author === 'me' ? charName : moment.author}
@@ -342,9 +387,7 @@ export default function OfflinePhoneWechat({
                                     onClick={() => setActiveId(conv.id)}
                                     className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-white border-b border-slate-100 text-left active:bg-slate-50"
                                 >
-                                    <span className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-white text-[13px] font-bold ${conv.kind === 'p2p' ? 'bg-emerald-500' : 'bg-teal-500'}`}>
-                                        {conv.title.slice(0, 1)}
-                                    </span>
+                                    <Avatar name={conv.title} size={36} />
                                     <span className="flex-1 min-w-0">
                                         <span className="flex items-center justify-between gap-2">
                                             <span className="text-[12px] font-bold text-slate-700 truncate">{conv.title}</span>
@@ -367,9 +410,7 @@ export default function OfflinePhoneWechat({
                                 onClick={() => setActiveId(contact.id)}
                                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left active:bg-slate-50 border-b border-slate-50"
                             >
-                                <span className="w-8 h-8 shrink-0 rounded-lg bg-[#3eb575] text-white flex items-center justify-center text-[11px] font-bold">
-                                    {contact.title.slice(0, 1)}
-                                </span>
+                                <Avatar name={contact.title} size={32} />
                                 <span className="flex-1 min-w-0">
                                     <span className="block text-[12px] text-slate-700 truncate">{contact.title}</span>
                                     {contact.sub ? <span className="block text-[9px] text-slate-400">{contact.sub}</span> : null}
@@ -405,9 +446,7 @@ export default function OfflinePhoneWechat({
                 {tab === 'me' && (
                     <div className="absolute inset-0 bg-[#ededed] overflow-y-auto">
                         <div className="bg-white px-3 py-4 flex items-center gap-3">
-                            <span className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-[18px] font-bold">
-                                {charName.slice(0, 1)}
-                            </span>
+                            <Avatar name={charName} size={48} />
                             <div className="min-w-0">
                                 <div className="text-[13px] font-bold text-slate-800 truncate">{profile?.nickname || charName}</div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">

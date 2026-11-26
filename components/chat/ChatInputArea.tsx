@@ -711,7 +711,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         {scanItems && onRemoveInvalidEmojis && <EmojiHealthDialog emojis={scanItems} onRemove={onRemoveInvalidEmojis}
             onClose={() => setScanItems(null)} onRefreshed={refreshThumbnails} />}
         {/* 选图 input 常驻在输入栏外：面板收起时不会随条件分支卸载而丢失点击或回传事件，也不改变 .sully-chat-inputbar 子节点序号。 */}
-        <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
+        <input type="file" ref={chatImageInputRef} className="hidden" accept={videoEnabled ? "image/*,video/*" : "image/*"} onChange={(e) => handleImageChange(e, 'chat')} />
         {cameraOpen && <ChatCamera character={characters.find(c => c.id === activeCharacterId)} onClose={() => setCameraOpen(false)} onCapture={onImageSelect} onGallery={() => { chatImageInputRef.current?.click(); setCameraOpen(false); }} />}
         {/* 辅助提示保持在输入栏外，避免改变社区 CSS 的 > div:first-child / nth-child 目标。 */}
             {suggestedEmojis.length > 0 && (
